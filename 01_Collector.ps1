@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v1.2
+    PCPulse Collector v1.4
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,19 +10,22 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 1.2
+    Version      : 1.4
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v1.4 : Fix parsing Intel Core Gen 10+ avec suffixe lettre
+           - Avant : la regex capturait toujours 1 chiffre sur les CPU a
+             4 chiffres avec suffixe (ex: i5-1345U classe en Gen 1/2010).
+             Seuls les CPU 5 chiffres (i7-12700) etaient correctement parses.
+           - Impact : tous les laptops Intel Gen 10-14 avec suffixe U/H/P/G
+             etaient classes "Ancien" a tort.
+           - Fix : nouvelle heuristique sur les 4 ou 5 chiffres du modele
+             (4 chiffres commencant par 1[0-4] -> Gen 10-14).
+    v1.3 : 2 fixes decouverts suite au deploiement pilote v1.2
+           - Fix CurrentUser (Get-CurrentInteractiveUser au lieu de $env:USERNAME)
+           - Fix BootDurations (Fast Startup et Resume maintenant inscrits)
     v1.2 : Fix algorithme Uptime utilisateur apres analyse terrain
-           - Prise en compte de Event 507 (wake Modern Standby) en plus
-             de BootDurations (qui couvre cold boot et Fast Startup).
-             Evite de retomber sur le dernier vrai cold boot sur laptops
-             modernes ou l'utilisateur n'eteint jamais vraiment.
-    v1.1 : Uptime utilisateur (Fast Startup aware), v1.1 incomplete
-           (manquait la detection des wakes Modern Standby -> fix en v1.2)
-           - LastRealColdBoot (nouveau) = dernier vrai cold boot kernel
-           - FastStartupEnabled (nouveau) = etat du registry HiberbootEnabled
-           - SchemaVersion -> 1.1
+    v1.1 : Uptime utilisateur (Fast Startup aware) - incomplete, fix en v1.2
     v1.0 : Release initiale.
     Voir CHANGELOG.md du repo pour l'historique complet.
 .EXAMPLE
@@ -46,7 +49,7 @@ param(
 # ============================================================
 # CONSTANTES (non modifiables - structurelles)
 # ============================================================
-$SchemaVersion = '1.2'
+$SchemaVersion = '1.4'
 $ConfigFile    = Join-Path $SharePath 'config.psd1'
 
 # Valeurs par defaut utilisees si config.psd1 est absent/invalide
@@ -202,6 +205,50 @@ function Get-PrimaryIPv4 {
     return 'N/A'
 }
 
+# v1.3 : Recupere le nom de l'utilisateur interactif actuellement connecte.
+# Necessaire car le Collector tourne en SYSTEM (via tache planifiee), donc
+# $env:USERNAME retourne le nom machine ($env:COMPUTERNAME suivi de '$',
+# ex: "LAPTOP001$"), qui n'est pas ce qu'on veut afficher dans le Dashboard.
+#
+# Strategie en cascade :
+#   1. Win32_ComputerSystem.UserName (rapide, retourne "DOMAINE\user")
+#   2. Si vide : chercher le proprietaire du process explorer.exe
+#   3. Si vide : retourner "(aucune session)"
+#
+# Le nom de domaine est toujours strippe pour n'afficher que le username.
+function Get-CurrentInteractiveUser {
+    # Methode 1 : Win32_ComputerSystem
+    try {
+        $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+        if ($cs.UserName) {
+            # Format "DOMAINE\user" -> on garde juste "user"
+            return ($cs.UserName -replace '^[^\\]+\\', '')
+        }
+    } catch {
+        # On continue avec la methode 2
+    }
+
+    # Methode 2 : owner du process explorer.exe
+    try {
+        $explorerProcess = Get-CimInstance -ClassName Win32_Process `
+                                           -Filter "Name='explorer.exe'" `
+                                           -ErrorAction SilentlyContinue |
+                           Select-Object -First 1
+        if ($explorerProcess) {
+            $ownerResult = Invoke-CimMethod -InputObject $explorerProcess `
+                                            -MethodName GetOwner `
+                                            -ErrorAction Stop
+            if ($ownerResult.User) {
+                return $ownerResult.User
+            }
+        }
+    } catch {
+        # Methode 3 : pas de user
+    }
+
+    return '(aucune session)'
+}
+
 # Analyse le nom d'un CPU et en deduit :
 #   - Vendor (Intel / AMD)
 #   - Generation (int pour Intel Core classique, "UltraN" pour Ultra,
@@ -242,14 +289,35 @@ function Get-CpuProfile {
         }
     }
     # --- Intel Core classique i3/i5/i7/i9 (gen 1-14) ---
-    # Format attendu : "Intel Core i7-12700", "Core i5-8350U", etc.
-    # On capture la generation sur 1 ou 2 chiffres avant les 3 derniers.
-    elseif ($clean -match 'Intel.*Core\s+i[3579]-(\d{1,2})\d{3}') {
+    # Format attendu : "Intel Core i7-12700" (5 chiffres, gen 12),
+    #                  "Core i5-1345U"     (4 chiffres + suffixe, gen 13),
+    #                  "Core i5-8350U"     (4 chiffres + suffixe, gen 8).
+    #
+    # v1.4 : fix du parsing gen 10+ avec suffixe lettre
+    # Avant, la regex `(\d{1,2})\d{3}` etait greedy et capturait toujours
+    # 1 seul chiffre sur les CPU a 4 chiffres (ex: 1345U -> Gen=1 au lieu
+    # de 13). Seuls les CPU a 5 chiffres (i7-12700K) etaient bien detectes.
+    # Fix : on capture les 4 ou 5 chiffres et on applique une heuristique :
+    #   - 5 chiffres : gen = les 2 premiers
+    #   - 4 chiffres commencant par "1[0-4]" : gen = les 2 premiers (10-14)
+    #   - 4 chiffres autrement : gen = le 1er chiffre (1-9)
+    elseif ($clean -match 'Intel.*Core\s+i[3579]-(\d{4,5})') {
         $result.Vendor = 'Intel'
-        $gen = [int]$matches[1]
+        $numStr = $matches[1]
+        $gen = 0
+        if ($numStr.Length -eq 5) {
+            # CPU Gen 10+ desktop/mobile sans suffixe (ex: i7-12700, i7-14700K)
+            $gen = [int]$numStr.Substring(0, 2)
+        } elseif ($numStr[0] -eq '1' -and $numStr[1] -match '[0-4]') {
+            # CPU Gen 10-14 avec suffixe lettre (ex: i5-1345U, i5-1065G7)
+            $gen = [int]$numStr.Substring(0, 2)
+        } else {
+            # CPU Gen 1-9 (ex: i5-4300U, i7-8350U, i3-6100U)
+            $gen = [int]$numStr[0].ToString()
+        }
         $intelMap = @{
             1=2010; 2=2011; 3=2012; 4=2013; 5=2015; 6=2015; 7=2016
-            8=2017; 9=2018; 10=2019; 11=2020; 12=2021; 13=2022; 14=2023
+            8=2017; 9=2018; 10=2019; 11=2020; 12=2021; 13=2023; 14=2024
         }
         if ($intelMap.ContainsKey($gen)) {
             $result.Gen  = $gen
@@ -568,7 +636,7 @@ $machineInfo = [PSCustomObject]@{
     UptimeDays          = [math]::Round(((Get-Date) - $kernelLastBoot).TotalDays, 1)  # ecrase plus bas
     LastRealColdBoot    = $kernelLastBoot.ToString('yyyy-MM-dd HH:mm:ss')  # NEW v1.1
     FastStartupEnabled  = $null  # rempli plus bas (registry)
-    CurrentUser         = $env:USERNAME
+    CurrentUser         = Get-CurrentInteractiveUser
     IP                  = $currentIP
     CPUName             = $cpuName
     CPUVendor           = $cpu.Vendor
@@ -825,13 +893,37 @@ foreach ($ev27 in $kernelBootEvents) {
         $precedentType = 'Kernel boot start (Event 12)'
     }
 
+    # v1.3 : Ajout a BootDurations AVEC OU SANS Event 12
+    # Avant v1.3 : seuls les boots avec Event 12 (= cold boots) etaient ajoutes
+    #              -> les Fast Startup et Resume (pas d'Event 12 = pas de kernel
+    #              boot complet) etaient detectes mais pas inscrits
+    # Resultat : le Dashboard n'affichait que les cold boots dans le graphe
+    # "Repartition des demarrages" alors que les Fast Startup etaient bien
+    # comptes dans Stats.BootsByType.
+    #
+    # Fix v1.3 : on inscrit TOUS les Event 27 dans BootDurations.
+    #   - Avec Event 12 (cold boot)  : Method='Event12+27',   DurationMin calculee
+    #   - Sans Event 12 (FS/Resume)  : Method='Event27-only', DurationMin=0
     if ($null -ne $durationMin -and $durationMin -le $SeuilBootMax) {
+        # Cas classique : Event 12 trouve, duree calculee et dans les bornes
         $bootDurations.Add([PSCustomObject]@{
             DateBoot      = $bootEndTime.ToString('yyyy-MM-dd HH:mm:ss')
             DurationMin   = [math]::Round($durationMin, 1)
             PrecedentType = $precedentType
             EstBootLong   = ($durationMin -gt $SeuilBootLong)
             Method        = $methodUsed
+            BootType      = $bootType
+        })
+    } elseif ($bootType -in @('FastStartup', 'Resume')) {
+        # v1.3 : cas Fast Startup / Resume (pas d'Event 12 attendu)
+        # Duree non calculable mais on veut quand meme tracer l'evenement
+        # (geste utilisateur "arreter+rallumer" capture via Event 27 seul).
+        $bootDurations.Add([PSCustomObject]@{
+            DateBoot      = $bootEndTime.ToString('yyyy-MM-dd HH:mm:ss')
+            DurationMin   = 0
+            PrecedentType = 'Aucun (Event 27 seul, pas d''Event 12 pour ce type)'
+            EstBootLong   = $false
+            Method        = 'Event27-only'
             BootType      = $bootType
         })
     }

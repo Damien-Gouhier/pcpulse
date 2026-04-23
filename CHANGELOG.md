@@ -7,6 +7,50 @@ versionnement respectant [Semantic Versioning](https://semver.org/lang/fr/).
 
 ---
 
+## [1.4.0] — 2026-04-23
+
+### 🐛 Fix parsing Intel Core Gen 10+ avec suffixe lettre
+
+Les CPU Intel Core de 10e à 14e génération avec suffixe lettre (ex: `Core i5-1345U`, `Core i7-1165G7`, `Core i5-1335U`) étaient incorrectement classés en **Gen 1 / 2010 / Ancien**.
+
+**Cause** : la regex utilisée pour extraire la génération (`(\d{1,2})\d{3}`) était greedy et capturait toujours 1 seul chiffre sur les CPU à 4 chiffres. Seuls les CPU à 5 chiffres (i7-12700, i7-14700K) étaient correctement parsés.
+
+**Fix** : nouvelle heuristique basée sur la longueur du numéro de modèle :
+- 5 chiffres : gen = 2 premiers chiffres (i7-12700 → Gen 12)
+- 4 chiffres commençant par `1[0-4]` : gen = 2 premiers chiffres (i5-1345U → Gen 13)
+- 4 chiffres autrement : gen = 1er chiffre (i5-4300U → Gen 4)
+
+**Impact** : tous les laptops du parc équipés Intel Gen 10-14 avec suffixe U/H/P/G (ex: i5-1135G7, i7-1165G7, i5-1235U, i5-1335U, i5-1345U) vont être correctement reclassés de "Ancien" en "Récent" au prochain cycle de collecte.
+
+---
+
+## [1.3.0] — 2026-04-23
+
+### 🐛 Fix affichage CurrentUser
+
+Le Collector tourne en SYSTEM via une tâche planifiée. `$env:USERNAME` retournait donc le compte machine AD (ex: `LAPTOP001$`), non lisible dans le Dashboard.
+
+**Fix** : nouvelle fonction `Get-CurrentInteractiveUser` qui utilise en cascade :
+1. `Win32_ComputerSystem.UserName` (méthode principale, fiable et rapide)
+2. Owner du process `explorer.exe` (fallback si aucune session renvoyée)
+3. `(aucune session)` si personne n'est connecté
+
+Le nom de domaine est automatiquement strippé (`MONDOMAINE\jean.dupont` → `jean.dupont`).
+
+### 🐛 Fix BootDurations incomplet
+
+Les Fast Startup et Resume étaient détectés (compteur `Stats.BootsByType` correct) mais **pas inscrits dans `BootDurations`**, ce qui faisait que le Dashboard affichait "Aucun démarrage détecté sur la période" même sur des parcs actifs.
+
+**Cause** : le code exigeait une durée de boot calculable pour ajouter une entrée à `BootDurations`, or les Fast Startup et Resume n'ont pas d'Event 12 associé (pas de vrai kernel boot).
+
+**Fix** : tous les Event 27 sont maintenant inscrits dans `BootDurations` :
+- Avec Event 12 (cold boot) : `Method='Event12+27'`, durée calculée
+- Sans Event 12 (Fast Startup / Resume) : `Method='Event27-only'`, `DurationMin=0`
+
+**Impact** : le panneau "Répartition des démarrages" du Dashboard reflète désormais la réalité du parc (ex: un PC avec 3 cold boots + 14 Fast Startup sur 30j affiche bien 17 entrées au lieu de 3).
+
+---
+
 ## [1.2.0] — 2026-04-23
 
 ### ✨ Nouveautes majeures
