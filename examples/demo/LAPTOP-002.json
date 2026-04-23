@@ -1,0 +1,461 @@
+{
+  "SchemaVersion": "1.0",
+  "Machine": {
+    "PC": "LAPTOP-002",
+    "CollectedAt": "2026-04-21 10:48:00",
+    "OS": "Microsoft Windows 11 Entreprise",
+    "LastBoot": "2026-04-21 08:00:00",
+    "UptimeDays": 0.1,
+    "CurrentUser": "camille.bernard",
+    "IP": "10.10.20.58",
+    "CPUName": "Intel(R) Core(TM) i7-10750H",
+    "CPUVendor": "Intel",
+    "CPUGen": "10",
+    "CPUYear": 2020,
+    "CPUAge": 6,
+    "CPUAgeCategory": "Vieillissant",
+    "ConnectionType": "WiFi",
+    "ChassisInfo": {
+      "ChassisType": 9,
+      "ChassisLabel": "Laptop",
+      "IsLaptop": true,
+      "IsDesktop": false,
+      "IsAIO": false
+    }
+  },
+  "Events": [
+    {
+      "EventId": 41,
+      "Timestamp": "2026-04-20 08:00:00",
+      "Type": "BSOD",
+      "Detail": "Le système a redémarré sans s'arrêter correctement. BugcheckCode=0x0000007E"
+    },
+    {
+      "EventId": 41,
+      "Timestamp": "2026-04-17 04:00:00",
+      "Type": "Freeze",
+      "Detail": "Le système a redémarré sans s'arrêter correctement"
+    },
+    {
+      "EventId": 1074,
+      "Timestamp": "2026-04-15 09:00:00",
+      "Type": "Redemarrage force",
+      "Detail": "Le processus msedge.exe a lancé le redémarrage"
+    },
+    {
+      "EventId": 6008,
+      "Timestamp": "2026-04-20 07:59:00",
+      "Type": "Dirty shutdown",
+      "Detail": "L'arrêt système précédent à 03:00:00 le 20/04/2026 n'était pas prévu"
+    }
+  ],
+  "BootDurations": [
+    {
+      "DateBoot": "2026-04-03 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-04 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-05 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-06 09:05:00",
+      "DurationMin": 4,
+      "EstBootLong": true,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-07 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-08 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-09 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-10 09:05:00",
+      "DurationMin": 4,
+      "EstBootLong": true,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-11 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-12 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-13 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-14 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-15 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-16 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-17 09:05:00",
+      "DurationMin": 4,
+      "EstBootLong": true,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-18 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-19 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-20 09:05:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-21 08:00:00",
+      "DurationMin": 2,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    }
+  ],
+  "BSODs": [
+    {
+      "Date": "2026-04-20 08:00:00",
+      "Nom": "MEMORY_MANAGEMENT",
+      "BugCheckCode": "0x0000001A",
+      "Caller": "ntoskrnl.exe+0x423b10"
+    }
+  ],
+  "ResourceWarnings": [
+    {
+      "Timestamp": "2026-04-21 06:00:00",
+      "Type": "RAM saturée",
+      "Detail": "Windows a créé un fichier de pagination de 4096 MB"
+    },
+    {
+      "Timestamp": "2026-04-19 03:00:00",
+      "Type": "Disque lent",
+      "Detail": "Le pilote a détecté une erreur de contrôleur"
+    }
+  ],
+  "TopRAM": [
+    {
+      "Name": "chrome",
+      "WorkingSetMB": 2150
+    },
+    {
+      "Name": "OUTLOOK",
+      "WorkingSetMB": 890
+    },
+    {
+      "Name": "Teams",
+      "WorkingSetMB": 760
+    }
+  ],
+  "DiskInfo": [
+    {
+      "Drive": "C:",
+      "FreeGB": 85,
+      "TotalGB": 512,
+      "PctFree": 17,
+      "IsAlert": false
+    }
+  ],
+  "BatteryInfo": {
+    "HasBattery": true,
+    "Manufacturer": "SMP-SDI4.1",
+    "Chemistry": "LiP",
+    "DesignCapacity": 57000,
+    "FullChargeCapacity": 30780,
+    "HealthPercent": 54.0,
+    "HealthCategory": "Mauvaise",
+    "CycleCount": 687,
+    "CurrentChargePct": 45,
+    "Status": "Discharging",
+    "IsAlert": true
+  },
+  "ServicesHealth": {
+    "SentinelAgent": {
+      "DisplayName": "Sentinel Agent",
+      "ServiceName": "SentinelAgent",
+      "Installed": true,
+      "Status": "Running",
+      "StartType": "Automatic",
+      "IsAlert": false
+    }
+  },
+  "BootPerformance": {
+    "LastBoot": {
+      "Timestamp": "2026-04-21 08:00:00",
+      "Level": "Critique",
+      "BootStartTime": "2026-04-21T07:56:30.0000000Z",
+      "BootTimeMs": 210000,
+      "MainPathBootTimeMs": 95000,
+      "BootPostBootTimeMs": 115000,
+      "UserProfileProcessingTimeMs": 250,
+      "ExplorerInitTimeMs": 8500,
+      "NumStartupApps": 6,
+      "IsRebootAfterInstall": false,
+      "IsSlow": true
+    },
+    "History": [
+      {
+        "Timestamp": "2026-04-21 08:00:00",
+        "Level": "Critique",
+        "BootStartTime": "2026-04-21T07:56:30.0000000Z",
+        "BootTimeMs": 210000,
+        "MainPathBootTimeMs": 95000,
+        "BootPostBootTimeMs": 115000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": true
+      },
+      {
+        "Timestamp": "2026-04-20 07:00:00",
+        "Level": "Critique",
+        "BootStartTime": "2026-04-20T06:56:15.0000000Z",
+        "BootTimeMs": 225000,
+        "MainPathBootTimeMs": 102000,
+        "BootPostBootTimeMs": 123000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": true
+      },
+      {
+        "Timestamp": "2026-04-19 11:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-19T10:57:00.0000000Z",
+        "BootTimeMs": 180000,
+        "MainPathBootTimeMs": 85000,
+        "BootPostBootTimeMs": 95000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      },
+      {
+        "Timestamp": "2026-04-17 11:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-17T10:57:15.0000000Z",
+        "BootTimeMs": 165000,
+        "MainPathBootTimeMs": 78000,
+        "BootPostBootTimeMs": 87000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      },
+      {
+        "Timestamp": "2026-04-14 11:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-14T10:57:25.0000000Z",
+        "BootTimeMs": 155000,
+        "MainPathBootTimeMs": 72000,
+        "BootPostBootTimeMs": 83000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      }
+    ],
+    "Stats": {
+      "BootsAnalyzed": 5,
+      "AvgBootTimeMs": 187000,
+      "AvgMainPathMs": 86400,
+      "AvgPostBootMs": 100600,
+      "MaxBootTimeMs": 225000,
+      "SlowBootsCount": 2
+    },
+    "IsAlert": true
+  },
+  "DiskHealth": [
+    {
+      "FriendlyName": "WDC PC SN530 SDBPNPZ-512G",
+      "MediaType": "SSD",
+      "BusType": "NVMe",
+      "SizeGB": 476.9,
+      "OperationalStatus": "OK",
+      "HealthStatus": "Healthy",
+      "TemperatureC": 51,
+      "TemperatureMaxC": 68,
+      "WearPct": 28,
+      "PowerOnHours": 8640,
+      "ReadErrorsTotal": 12,
+      "ReadErrorsUncorrected": 0,
+      "WriteErrorsTotal": 3,
+      "WriteErrorsUncorrected": 0,
+      "IsAlert": false,
+      "AlertReasons": []
+    }
+  ],
+  "Monitors": [
+    {
+      "ManufacturerCode": "HPN",
+      "Manufacturer": "HP Inc.",
+      "Model": "HP Z24n G2",
+      "SerialNumber": "CN4821A8F1",
+      "ProductCode": "3359",
+      "YearOfManufacture": 2021,
+      "WeekOfManufacture": 42,
+      "AgeYears": 5,
+      "Active": true,
+      "VideoOutputTech": 5
+    }
+  ],
+  "TopCrashers": [
+    {
+      "AppName": "msedge.exe",
+      "CrashCount": 8
+    },
+    {
+      "AppName": "OUTLOOK.exe",
+      "CrashCount": 3
+    },
+    {
+      "AppName": "teams.exe",
+      "CrashCount": 2
+    }
+  ],
+  "HardwareHealth": {
+    "WHEA_Fatal": [],
+    "WHEA_Corrected": [
+      {
+        "Component": "PCIe",
+        "ErrorSource": "PCI Express Root Port",
+        "Count": 142,
+        "FirstSeen": "2026-04-03 11:00:00",
+        "LastSeen": "2026-04-21 07:00:00"
+      }
+    ],
+    "GPU_TDR": [],
+    "Thermal": []
+  },
+  "Stats": {
+    "TotalBoots": 19,
+    "TotalCrashFreeze": 2,
+    "TotalBSOD": 1,
+    "BootsByType": {
+      "ColdBoot": 19,
+      "FastStartup": 0,
+      "Resume": 0,
+      "Unknown": 0
+    },
+    "TotalRealBoots": 19,
+    "BootsLongs": 3,
+    "ResourceWarnings": 2,
+    "DiskAlerts": 0,
+    "TopCrasherApp": "msedge.exe",
+    "TopCrasherCount": 8,
+    "TotalWHEAFatal": 0,
+    "TotalWHEACorrected": 142,
+    "WHEACorrectedUnique": 1,
+    "TotalGPU": 0,
+    "TotalThermal": 0,
+    "TotalHardware": 0,
+    "DerniereActivite": "2026-04-21 10:48:00",
+    "Event12Trouve": 19,
+    "Event27Trouve": 19,
+    "BatteryHealthPct": 54.0,
+    "BatteryAlert": true,
+    "SentinelRunning": true,
+    "SentinelAlert": false,
+    "LastBootTimeMs": 210000,
+    "LastPostBootTimeMs": 115000,
+    "BootPerfAlert": true,
+    "DiskWorstWear": 28,
+    "DiskHealthAlert": false,
+    "MonitorsCount": 1
+  }
+}

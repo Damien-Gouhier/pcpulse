@@ -1,0 +1,287 @@
+{
+  "SchemaVersion": "1.0",
+  "Machine": {
+    "PC": "OFFLINE-005",
+    "CollectedAt": "2026-04-09 07:00:00",
+    "OS": "Microsoft Windows 11 Entreprise",
+    "LastBoot": "2026-04-09 06:00:00",
+    "UptimeDays": 0.1,
+    "CurrentUser": "lucas.roux",
+    "IP": "192.168.50.73",
+    "CPUName": "AMD Ryzen 7 PRO 6850U",
+    "CPUVendor": "AMD",
+    "CPUGen": "Ryzen7Pro",
+    "CPUYear": 2022,
+    "CPUAge": 4,
+    "CPUAgeCategory": "Vieillissant",
+    "ConnectionType": "WiFi",
+    "ChassisInfo": {
+      "ChassisType": 10,
+      "ChassisLabel": "Laptop",
+      "IsLaptop": true,
+      "IsDesktop": false,
+      "IsAIO": false
+    }
+  },
+  "Events": [],
+  "BootDurations": [
+    {
+      "DateBoot": "2026-03-25 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "FastStartup"
+    },
+    {
+      "DateBoot": "2026-03-26 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-03-27 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-03-28 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "FastStartup"
+    },
+    {
+      "DateBoot": "2026-03-29 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-03-30 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-03-31 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "FastStartup"
+    },
+    {
+      "DateBoot": "2026-04-01 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-02 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-03 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "FastStartup"
+    },
+    {
+      "DateBoot": "2026-04-04 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-05 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-06 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "FastStartup"
+    },
+    {
+      "DateBoot": "2026-04-07 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-08 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    }
+  ],
+  "BSODs": [],
+  "ResourceWarnings": [],
+  "TopRAM": [],
+  "DiskInfo": [
+    {
+      "Drive": "C:",
+      "FreeGB": 290,
+      "TotalGB": 512,
+      "PctFree": 56,
+      "IsAlert": false
+    }
+  ],
+  "BatteryInfo": {
+    "HasBattery": true,
+    "Manufacturer": "LGC-LGC3.40",
+    "Chemistry": "LiP",
+    "DesignCapacity": 51000,
+    "FullChargeCapacity": 43350,
+    "HealthPercent": 85.0,
+    "HealthCategory": "Bonne",
+    "CycleCount": 210,
+    "CurrentChargePct": 72,
+    "Status": "Discharging",
+    "IsAlert": false
+  },
+  "ServicesHealth": {
+    "SentinelAgent": {
+      "DisplayName": "Sentinel Agent",
+      "ServiceName": "SentinelAgent",
+      "Installed": true,
+      "Status": "Running",
+      "StartType": "Automatic",
+      "IsAlert": false
+    }
+  },
+  "BootPerformance": {
+    "LastBoot": {
+      "Timestamp": "2026-04-09 06:00:00",
+      "Level": "Info",
+      "BootStartTime": "2026-04-09T05:58:02.0000000Z",
+      "BootTimeMs": 118000,
+      "MainPathBootTimeMs": 54000,
+      "BootPostBootTimeMs": 64000,
+      "UserProfileProcessingTimeMs": 250,
+      "ExplorerInitTimeMs": 8500,
+      "NumStartupApps": 6,
+      "IsRebootAfterInstall": false,
+      "IsSlow": false
+    },
+    "History": [
+      {
+        "Timestamp": "2026-04-09 06:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-09T05:58:02.0000000Z",
+        "BootTimeMs": 118000,
+        "MainPathBootTimeMs": 54000,
+        "BootPostBootTimeMs": 64000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      }
+    ],
+    "Stats": {
+      "BootsAnalyzed": 1,
+      "AvgBootTimeMs": 118000,
+      "AvgMainPathMs": 54000,
+      "AvgPostBootMs": 64000,
+      "MaxBootTimeMs": 118000,
+      "SlowBootsCount": 0
+    },
+    "IsAlert": false
+  },
+  "DiskHealth": [
+    {
+      "FriendlyName": "Micron 2450 512GB",
+      "MediaType": "SSD",
+      "BusType": "NVMe",
+      "SizeGB": 476.9,
+      "OperationalStatus": "OK",
+      "HealthStatus": "Healthy",
+      "TemperatureC": 40,
+      "TemperatureMaxC": 55,
+      "WearPct": 5,
+      "PowerOnHours": 1850,
+      "ReadErrorsTotal": 0,
+      "ReadErrorsUncorrected": 0,
+      "WriteErrorsTotal": 0,
+      "WriteErrorsUncorrected": 0,
+      "IsAlert": false,
+      "AlertReasons": []
+    }
+  ],
+  "Monitors": [],
+  "TopCrashers": [],
+  "HardwareHealth": {
+    "WHEA_Fatal": [],
+    "WHEA_Corrected": [],
+    "GPU_TDR": [],
+    "Thermal": []
+  },
+  "Stats": {
+    "TotalBoots": 15,
+    "TotalCrashFreeze": 0,
+    "TotalBSOD": 0,
+    "BootsByType": {
+      "ColdBoot": 10,
+      "FastStartup": 5,
+      "Resume": 0,
+      "Unknown": 0
+    },
+    "TotalRealBoots": 15,
+    "BootsLongs": 0,
+    "ResourceWarnings": 0,
+    "DiskAlerts": 0,
+    "TopCrasherApp": "",
+    "TopCrasherCount": 0,
+    "TotalWHEAFatal": 0,
+    "TotalWHEACorrected": 0,
+    "WHEACorrectedUnique": 0,
+    "TotalGPU": 0,
+    "TotalThermal": 0,
+    "TotalHardware": 0,
+    "DerniereActivite": "2026-04-09 07:00:00",
+    "Event12Trouve": 15,
+    "Event27Trouve": 15,
+    "BatteryHealthPct": 85.0,
+    "BatteryAlert": false,
+    "SentinelRunning": true,
+    "SentinelAlert": false,
+    "LastBootTimeMs": 118000,
+    "LastPostBootTimeMs": 64000,
+    "BootPerfAlert": false,
+    "DiskWorstWear": 5,
+    "DiskHealthAlert": false,
+    "MonitorsCount": 0
+  }
+}

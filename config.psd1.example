@@ -1,0 +1,89 @@
+#
+# PCPulse — Fichier de configuration modele
+# ------------------------------------------
+# 1. Copier ce fichier en "config.psd1" dans ton $SharePath
+#    (par defaut : C:\PCPulse\config.psd1)
+# 2. Adapter les valeurs a ton environnement
+# 3. Le fichier est lu a chaque execution du Collector ET du Dashboard
+#
+# Si ce fichier est absent, des valeurs par defaut raisonnables sont
+# utilisees. Tous les champs sont optionnels, sauf si tu veux surcharger
+# un comportement specifique.
+#
+# ATTENTION : ne commit jamais ton config.psd1 reel sur GitHub !
+# Il est deja exclu via .gitignore.
+#
+@{
+    # ===================================================
+    # COLLECTE (cote Collector)
+    # ===================================================
+
+    # Nombre de jours d'historique a analyser dans les Event Logs
+    # Plus la valeur est elevee, plus le Collector est long a executer.
+    # Pratique : 30 jours pour une vision mensuelle typique.
+    HistoriqueJours = 30
+
+    # Seuil (en minutes) au-dessus duquel un boot est considere "long"
+    # Un boot normal dure 1-2 min. 3 min commence a etre anormal.
+    SeuilBootLong = 2
+
+    # Seuil (en minutes) au-dessus duquel on ignore la valeur
+    # (c'est probablement un faux positif : PC laisse allume,
+    # decalage de fuseau horaire, etc.)
+    SeuilBootMax = 30
+
+    # Seuil (en % libre) au-dessus duquel un disque est en alerte
+    # 10 % libre = alerte rouge
+    # 25 % libre = warning orange (hardcode dans le Dashboard)
+    SeuilDiskAlert = 10
+
+    # ===================================================
+    # DASHBOARD (cote Dashboard)
+    # ===================================================
+
+    # Seuils specifiques au Dashboard (par defaut = Collector)
+    SeuilCrashRecent     = 7    # Un crash est "recent" si < 7 jours
+    SeuilDiskWarning     = 25   # Warning orange si disque < 25 % libre
+    SeuilOfflineJours    = 1    # PC offline si collecte > 1 jour
+
+    # Titre et sous-titre affiches dans le header du Dashboard
+    DashboardTitle       = 'PCPulse'
+    DashboardSubtitle    = 'Supervision du parc'
+
+    # Masquer par defaut les PC sans alerte a l'ouverture du Dashboard ?
+    # $true  = affiche uniquement les PC avec au moins 1 probleme
+    # $false = affiche tout le parc
+    MaskHealthyByDefault = $false
+
+    # Nom du fichier CSV de mapping IP/hostname -> Site
+    # Place ce fichier dans ton $SharePath. Si absent, la colonne
+    # "Site" est masquee dans le Dashboard.
+    # Voir ip-ranges.example.csv pour le format attendu.
+    CsvRanges            = 'ip-ranges.csv'
+
+    # ===================================================
+    # PONDERATION DU SCORE DE SANTE
+    # ===================================================
+    # Chaque PC recoit un score "sante" calcule par le Dashboard.
+    # Plus le score est eleve, plus le PC est en mauvais etat.
+    # Tu peux ajuster l'importance relative de chaque type de probleme
+    # en modifiant ces poids (1 = mineur, 5 = critique).
+    #
+    # Par defaut : BSOD et WHEA fatals pesent tres lourd, les boots
+    # longs ou alertes disques pesent legerement.
+    ScoreWeights = @{
+        BSOD          = 5   # Ecran bleu
+        WHEA          = 4   # Erreur materielle fatale (CPU/RAM)
+        Crash         = 3   # Application qui plante
+        Thermal       = 3   # Throttling / surchauffe
+        GPU_TDR       = 2   # Freeze GPU (Timeout Detection Recovery)
+        DiskAlert     = 2   # Disque sature
+        BootLong      = 1   # Boot > SeuilBootLong
+        WHEACorrected = 1   # Erreur materielle corrigee (telemetrie)
+        BSODRecent    = 2   # Bonus si le BSOD est < 7j
+        Offline       = 3   # PC pas vu depuis > SeuilOfflineJours
+        BatteryAlert  = 2   # Batterie en fin de vie (<60%)
+        BootPerfAlert = 2   # Boot Performance > 90s
+        SMARTAlert    = 4   # SMART disque en warning/critical
+    }
+}

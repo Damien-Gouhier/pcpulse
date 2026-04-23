@@ -1,0 +1,518 @@
+{
+  "SchemaVersion": "1.0",
+  "Machine": {
+    "PC": "LAPTOP-001",
+    "CollectedAt": "2026-04-21 10:55:00",
+    "OS": "Microsoft Windows 11 Entreprise",
+    "LastBoot": "2026-04-21 08:15:42",
+    "UptimeDays": 0.1,
+    "CurrentUser": "martin.dupont",
+    "IP": "10.10.10.42",
+    "CPUName": "Intel(R) Core(TM) Ultra 7 155U",
+    "CPUVendor": "Intel",
+    "CPUGen": "Ultra7",
+    "CPUYear": 2024,
+    "CPUAge": 2,
+    "CPUAgeCategory": "Recent",
+    "ConnectionType": "Ethernet",
+    "ChassisInfo": {
+      "ChassisType": 10,
+      "ChassisLabel": "Laptop",
+      "IsLaptop": true,
+      "IsDesktop": false,
+      "IsAIO": false
+    }
+  },
+  "Events": [
+    {
+      "EventId": 6005,
+      "Timestamp": "2026-04-16 08:35:00",
+      "Type": "Boot",
+      "Detail": "L'Enregistreur d'événements a démarré"
+    },
+    {
+      "EventId": 6006,
+      "Timestamp": "2026-04-16 08:20:00",
+      "Type": "Shutdown propre",
+      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+    },
+    {
+      "EventId": 6005,
+      "Timestamp": "2026-04-17 08:36:00",
+      "Type": "Boot",
+      "Detail": "L'Enregistreur d'événements a démarré"
+    },
+    {
+      "EventId": 6006,
+      "Timestamp": "2026-04-17 08:21:00",
+      "Type": "Shutdown propre",
+      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+    },
+    {
+      "EventId": 6005,
+      "Timestamp": "2026-04-18 08:37:00",
+      "Type": "Boot",
+      "Detail": "L'Enregistreur d'événements a démarré"
+    },
+    {
+      "EventId": 6006,
+      "Timestamp": "2026-04-18 08:22:00",
+      "Type": "Shutdown propre",
+      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+    },
+    {
+      "EventId": 6005,
+      "Timestamp": "2026-04-19 08:38:00",
+      "Type": "Boot",
+      "Detail": "L'Enregistreur d'événements a démarré"
+    },
+    {
+      "EventId": 6006,
+      "Timestamp": "2026-04-19 08:23:00",
+      "Type": "Shutdown propre",
+      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+    },
+    {
+      "EventId": 6005,
+      "Timestamp": "2026-04-21 08:15:42",
+      "Type": "Boot",
+      "Detail": "L'Enregistreur d'événements a démarré"
+    },
+    {
+      "EventId": 6006,
+      "Timestamp": "2026-04-21 08:00:42",
+      "Type": "Shutdown propre",
+      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+    }
+  ],
+  "BootDurations": [
+    {
+      "DateBoot": "2026-03-27 08:15:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-03-28 08:16:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-03-29 08:17:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-03-30 08:18:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-03-31 08:19:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-01 08:20:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-02 08:21:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-03 08:22:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-04 08:23:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-05 08:24:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-06 08:25:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-07 08:26:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-08 08:27:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-09 08:28:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-10 08:29:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-11 08:30:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-12 08:31:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-13 08:32:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-14 08:33:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-15 08:34:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-16 08:35:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-17 08:36:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-18 08:37:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-19 08:38:00",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-21 08:15:42",
+      "DurationMin": 0,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    }
+  ],
+  "BSODs": [],
+  "ResourceWarnings": [],
+  "TopRAM": [
+    {
+      "Name": "msedge",
+      "WorkingSetMB": 845
+    },
+    {
+      "Name": "Teams",
+      "WorkingSetMB": 620
+    },
+    {
+      "Name": "OUTLOOK",
+      "WorkingSetMB": 485
+    }
+  ],
+  "DiskInfo": [
+    {
+      "Drive": "C:",
+      "FreeGB": 420,
+      "TotalGB": 512,
+      "PctFree": 82,
+      "IsAlert": false
+    }
+  ],
+  "BatteryInfo": {
+    "HasBattery": true,
+    "Manufacturer": "LGC-LGC3.80",
+    "Chemistry": "LiP",
+    "DesignCapacity": 60000,
+    "FullChargeCapacity": 58500,
+    "HealthPercent": 97.5,
+    "HealthCategory": "Bonne",
+    "CycleCount": 42,
+    "CurrentChargePct": 87,
+    "Status": "AC Power",
+    "IsAlert": false
+  },
+  "ServicesHealth": {
+    "SentinelAgent": {
+      "DisplayName": "Sentinel Agent",
+      "ServiceName": "SentinelAgent",
+      "Installed": true,
+      "Status": "Running",
+      "StartType": "Automatic",
+      "IsAlert": false
+    }
+  },
+  "BootPerformance": {
+    "LastBoot": {
+      "Timestamp": "2026-04-21 08:15:42",
+      "Level": "Info",
+      "BootStartTime": "2026-04-21T08:13:17.0000000Z",
+      "BootTimeMs": 145000,
+      "MainPathBootTimeMs": 68000,
+      "BootPostBootTimeMs": 77000,
+      "UserProfileProcessingTimeMs": 250,
+      "ExplorerInitTimeMs": 8500,
+      "NumStartupApps": 6,
+      "IsRebootAfterInstall": false,
+      "IsSlow": false
+    },
+    "History": [
+      {
+        "Timestamp": "2026-04-21 08:15:42",
+        "Level": "Info",
+        "BootStartTime": "2026-04-21T08:13:17.0000000Z",
+        "BootTimeMs": 145000,
+        "MainPathBootTimeMs": 68000,
+        "BootPostBootTimeMs": 77000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      },
+      {
+        "Timestamp": "2026-04-20 09:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-20T08:57:48.0000000Z",
+        "BootTimeMs": 132000,
+        "MainPathBootTimeMs": 61000,
+        "BootPostBootTimeMs": 71000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      },
+      {
+        "Timestamp": "2026-04-18 10:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-18T09:57:40.0000000Z",
+        "BootTimeMs": 140000,
+        "MainPathBootTimeMs": 65000,
+        "BootPostBootTimeMs": 75000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      },
+      {
+        "Timestamp": "2026-04-16 08:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-16T07:57:25.0000000Z",
+        "BootTimeMs": 155000,
+        "MainPathBootTimeMs": 72000,
+        "BootPostBootTimeMs": 83000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      },
+      {
+        "Timestamp": "2026-04-13 10:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-13T09:57:32.0000000Z",
+        "BootTimeMs": 148000,
+        "MainPathBootTimeMs": 69000,
+        "BootPostBootTimeMs": 79000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      }
+    ],
+    "Stats": {
+      "BootsAnalyzed": 5,
+      "AvgBootTimeMs": 144000,
+      "AvgMainPathMs": 67000,
+      "AvgPostBootMs": 77000,
+      "MaxBootTimeMs": 155000,
+      "SlowBootsCount": 0
+    },
+    "IsAlert": false
+  },
+  "DiskHealth": [
+    {
+      "FriendlyName": "Samsung SSD 990 PRO 1TB",
+      "MediaType": "SSD",
+      "BusType": "NVMe",
+      "SizeGB": 953.9,
+      "OperationalStatus": "OK",
+      "HealthStatus": "Healthy",
+      "TemperatureC": 42,
+      "TemperatureMaxC": 58,
+      "WearPct": 3,
+      "PowerOnHours": 1240,
+      "ReadErrorsTotal": 0,
+      "ReadErrorsUncorrected": 0,
+      "WriteErrorsTotal": 0,
+      "WriteErrorsUncorrected": 0,
+      "IsAlert": false,
+      "AlertReasons": []
+    }
+  ],
+  "Monitors": [
+    {
+      "ManufacturerCode": "DEL",
+      "Manufacturer": "Dell Inc.",
+      "Model": "DELL U2422H",
+      "SerialNumber": "3XK2L9A",
+      "ProductCode": "41AF",
+      "YearOfManufacture": 2023,
+      "WeekOfManufacture": 18,
+      "AgeYears": 3,
+      "Active": true,
+      "VideoOutputTech": 10
+    },
+    {
+      "ManufacturerCode": "DEL",
+      "Manufacturer": "Dell Inc.",
+      "Model": "DELL U2422H",
+      "SerialNumber": "3XK3M2B",
+      "ProductCode": "41AF",
+      "YearOfManufacture": 2023,
+      "WeekOfManufacture": 18,
+      "AgeYears": 3,
+      "Active": true,
+      "VideoOutputTech": 10
+    }
+  ],
+  "TopCrashers": [],
+  "HardwareHealth": {
+    "WHEA_Fatal": [],
+    "WHEA_Corrected": [],
+    "GPU_TDR": [],
+    "Thermal": []
+  },
+  "Stats": {
+    "TotalBoots": 25,
+    "TotalCrashFreeze": 0,
+    "TotalBSOD": 0,
+    "BootsByType": {
+      "ColdBoot": 25,
+      "FastStartup": 0,
+      "Resume": 0,
+      "Unknown": 0
+    },
+    "TotalRealBoots": 25,
+    "BootsLongs": 0,
+    "ResourceWarnings": 0,
+    "DiskAlerts": 0,
+    "TopCrasherApp": "",
+    "TopCrasherCount": 0,
+    "TotalWHEAFatal": 0,
+    "TotalWHEACorrected": 0,
+    "WHEACorrectedUnique": 0,
+    "TotalGPU": 0,
+    "TotalThermal": 0,
+    "TotalHardware": 0,
+    "DerniereActivite": "2026-04-21 10:55:00",
+    "Event12Trouve": 25,
+    "Event27Trouve": 25,
+    "BatteryHealthPct": 97.5,
+    "BatteryAlert": false,
+    "SentinelRunning": true,
+    "SentinelAlert": false,
+    "LastBootTimeMs": 145000,
+    "LastPostBootTimeMs": 77000,
+    "BootPerfAlert": false,
+    "DiskWorstWear": 3,
+    "DiskHealthAlert": false,
+    "MonitorsCount": 2
+  }
+}

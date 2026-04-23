@@ -1,0 +1,222 @@
+{
+  "SchemaVersion": "1.0",
+  "Machine": {
+    "PC": "AIO-004",
+    "CollectedAt": "2026-04-21 10:57:00",
+    "OS": "Microsoft Windows 11 Pro",
+    "LastBoot": "2026-04-19 11:00:00",
+    "UptimeDays": 2.0,
+    "CurrentUser": "sophie.moreau",
+    "IP": "10.30.9.150",
+    "CPUName": "Intel(R) Core(TM) i7-11700",
+    "CPUVendor": "Intel",
+    "CPUGen": "11",
+    "CPUYear": 2021,
+    "CPUAge": 5,
+    "CPUAgeCategory": "Vieillissant",
+    "ConnectionType": "Ethernet",
+    "ChassisInfo": {
+      "ChassisType": 13,
+      "ChassisLabel": "All-In-One",
+      "IsLaptop": false,
+      "IsDesktop": false,
+      "IsAIO": true
+    }
+  },
+  "Events": [],
+  "BootDurations": [
+    {
+      "DateBoot": "2026-04-19 11:00:00",
+      "DurationMin": 2,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-16 11:00:00",
+      "DurationMin": 1,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    },
+    {
+      "DateBoot": "2026-04-11 11:00:00",
+      "DurationMin": 2,
+      "EstBootLong": false,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    }
+  ],
+  "BSODs": [],
+  "ResourceWarnings": [],
+  "TopRAM": [
+    {
+      "Name": "OUTLOOK",
+      "WorkingSetMB": 520
+    }
+  ],
+  "DiskInfo": [
+    {
+      "Drive": "C:",
+      "FreeGB": 340,
+      "TotalGB": 512,
+      "PctFree": 66,
+      "IsAlert": false
+    }
+  ],
+  "BatteryInfo": {
+    "HasBattery": false,
+    "Manufacturer": "",
+    "Chemistry": "",
+    "DesignCapacity": 0,
+    "FullChargeCapacity": 0,
+    "HealthPercent": 0,
+    "HealthCategory": "Inconnu",
+    "CycleCount": null,
+    "CurrentChargePct": 0,
+    "Status": "N/A",
+    "IsAlert": false
+  },
+  "ServicesHealth": {
+    "SentinelAgent": {
+      "DisplayName": "Sentinel Agent",
+      "ServiceName": "SentinelAgent",
+      "Installed": true,
+      "Status": "Running",
+      "StartType": "Automatic",
+      "IsAlert": false
+    }
+  },
+  "BootPerformance": {
+    "LastBoot": {
+      "Timestamp": "2026-04-19 11:00:00",
+      "Level": "Info",
+      "BootStartTime": "2026-04-19T10:57:52.0000000Z",
+      "BootTimeMs": 128000,
+      "MainPathBootTimeMs": 58000,
+      "BootPostBootTimeMs": 70000,
+      "UserProfileProcessingTimeMs": 250,
+      "ExplorerInitTimeMs": 8500,
+      "NumStartupApps": 6,
+      "IsRebootAfterInstall": false,
+      "IsSlow": false
+    },
+    "History": [
+      {
+        "Timestamp": "2026-04-19 11:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-19T10:57:52.0000000Z",
+        "BootTimeMs": 128000,
+        "MainPathBootTimeMs": 58000,
+        "BootPostBootTimeMs": 70000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      },
+      {
+        "Timestamp": "2026-04-16 11:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-16T10:57:55.0000000Z",
+        "BootTimeMs": 125000,
+        "MainPathBootTimeMs": 57000,
+        "BootPostBootTimeMs": 68000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      }
+    ],
+    "Stats": {
+      "BootsAnalyzed": 2,
+      "AvgBootTimeMs": 126500,
+      "AvgMainPathMs": 57500,
+      "AvgPostBootMs": 69000,
+      "MaxBootTimeMs": 128000,
+      "SlowBootsCount": 0
+    },
+    "IsAlert": false
+  },
+  "DiskHealth": [
+    {
+      "FriendlyName": "Kingston KC3000 512GB",
+      "MediaType": "SSD",
+      "BusType": "NVMe",
+      "SizeGB": 476.9,
+      "OperationalStatus": "OK",
+      "HealthStatus": "Healthy",
+      "TemperatureC": 45,
+      "TemperatureMaxC": 61,
+      "WearPct": 8,
+      "PowerOnHours": 3200,
+      "ReadErrorsTotal": 0,
+      "ReadErrorsUncorrected": 0,
+      "WriteErrorsTotal": 0,
+      "WriteErrorsUncorrected": 0,
+      "IsAlert": false,
+      "AlertReasons": []
+    }
+  ],
+  "Monitors": [
+    {
+      "ManufacturerCode": "NEC",
+      "Manufacturer": "NEC",
+      "Model": "NEC EA244UHD",
+      "SerialNumber": "17V001034",
+      "ProductCode": "6F8A",
+      "YearOfManufacture": 2018,
+      "WeekOfManufacture": 14,
+      "AgeYears": 8,
+      "Active": true,
+      "VideoOutputTech": 10
+    }
+  ],
+  "TopCrashers": [],
+  "HardwareHealth": {
+    "WHEA_Fatal": [],
+    "WHEA_Corrected": [],
+    "GPU_TDR": [],
+    "Thermal": []
+  },
+  "Stats": {
+    "TotalBoots": 3,
+    "TotalCrashFreeze": 0,
+    "TotalBSOD": 0,
+    "BootsByType": {
+      "ColdBoot": 3,
+      "FastStartup": 0,
+      "Resume": 0,
+      "Unknown": 0
+    },
+    "TotalRealBoots": 3,
+    "BootsLongs": 0,
+    "ResourceWarnings": 0,
+    "DiskAlerts": 0,
+    "TopCrasherApp": "",
+    "TopCrasherCount": 0,
+    "TotalWHEAFatal": 0,
+    "TotalWHEACorrected": 0,
+    "WHEACorrectedUnique": 0,
+    "TotalGPU": 0,
+    "TotalThermal": 0,
+    "TotalHardware": 0,
+    "DerniereActivite": "2026-04-21 10:57:00",
+    "Event12Trouve": 3,
+    "Event27Trouve": 3,
+    "BatteryHealthPct": 0,
+    "BatteryAlert": false,
+    "SentinelRunning": true,
+    "SentinelAlert": false,
+    "LastBootTimeMs": 128000,
+    "LastPostBootTimeMs": 70000,
+    "BootPerfAlert": false,
+    "DiskWorstWear": 8,
+    "DiskHealthAlert": false,
+    "MonitorsCount": 1
+  }
+}

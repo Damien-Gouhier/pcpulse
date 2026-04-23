@@ -1,0 +1,193 @@
+{
+  "SchemaVersion": "1.0",
+  "Machine": {
+    "PC": "DESKTOP-003",
+    "CollectedAt": "2026-04-21 10:38:00",
+    "OS": "Microsoft Windows 11 Pro",
+    "LastBoot": "2026-04-13 11:00:00",
+    "UptimeDays": 8.0,
+    "CurrentUser": "thomas.petit",
+    "IP": "10.20.10.101",
+    "CPUName": "Intel(R) Core(TM) i5-8500",
+    "CPUVendor": "Intel",
+    "CPUGen": "8",
+    "CPUYear": 2018,
+    "CPUAge": 8,
+    "CPUAgeCategory": "Ancien",
+    "ConnectionType": "Ethernet",
+    "ChassisInfo": {
+      "ChassisType": 3,
+      "ChassisLabel": "Desktop",
+      "IsLaptop": false,
+      "IsDesktop": true,
+      "IsAIO": false
+    }
+  },
+  "Events": [],
+  "BootDurations": [
+    {
+      "DateBoot": "2026-04-13 11:00:00",
+      "DurationMin": 3,
+      "EstBootLong": true,
+      "PrecedentType": "Shutdown propre",
+      "Method": "Event6005-6006",
+      "BootType": "ColdBoot"
+    }
+  ],
+  "BSODs": [],
+  "ResourceWarnings": [],
+  "TopRAM": [
+    {
+      "Name": "OUTLOOK",
+      "WorkingSetMB": 450
+    }
+  ],
+  "DiskInfo": [
+    {
+      "Drive": "C:",
+      "FreeGB": 24,
+      "TotalGB": 256,
+      "PctFree": 9,
+      "IsAlert": true
+    }
+  ],
+  "BatteryInfo": {
+    "HasBattery": false,
+    "Manufacturer": "",
+    "Chemistry": "",
+    "DesignCapacity": 0,
+    "FullChargeCapacity": 0,
+    "HealthPercent": 0,
+    "HealthCategory": "Inconnu",
+    "CycleCount": null,
+    "CurrentChargePct": 0,
+    "Status": "N/A",
+    "IsAlert": false
+  },
+  "ServicesHealth": {
+    "SentinelAgent": {
+      "DisplayName": "Sentinel Agent",
+      "ServiceName": "SentinelAgent",
+      "Installed": true,
+      "Status": "Running",
+      "StartType": "Automatic",
+      "IsAlert": false
+    }
+  },
+  "BootPerformance": {
+    "LastBoot": {
+      "Timestamp": "2026-04-13 11:00:00",
+      "Level": "Info",
+      "BootStartTime": "2026-04-13T10:57:45.0000000Z",
+      "BootTimeMs": 135000,
+      "MainPathBootTimeMs": 62000,
+      "BootPostBootTimeMs": 73000,
+      "UserProfileProcessingTimeMs": 250,
+      "ExplorerInitTimeMs": 8500,
+      "NumStartupApps": 6,
+      "IsRebootAfterInstall": false,
+      "IsSlow": false
+    },
+    "History": [
+      {
+        "Timestamp": "2026-04-13 11:00:00",
+        "Level": "Info",
+        "BootStartTime": "2026-04-13T10:57:45.0000000Z",
+        "BootTimeMs": 135000,
+        "MainPathBootTimeMs": 62000,
+        "BootPostBootTimeMs": 73000,
+        "UserProfileProcessingTimeMs": 250,
+        "ExplorerInitTimeMs": 8500,
+        "NumStartupApps": 6,
+        "IsRebootAfterInstall": false,
+        "IsSlow": false
+      }
+    ],
+    "Stats": {
+      "BootsAnalyzed": 1,
+      "AvgBootTimeMs": 135000,
+      "AvgMainPathMs": 62000,
+      "AvgPostBootMs": 73000,
+      "MaxBootTimeMs": 135000,
+      "SlowBootsCount": 0
+    },
+    "IsAlert": false
+  },
+  "DiskHealth": [
+    {
+      "FriendlyName": "Crucial MX500 250GB",
+      "MediaType": "SSD",
+      "BusType": "SATA",
+      "SizeGB": 232.8,
+      "OperationalStatus": "OK",
+      "HealthStatus": "Healthy",
+      "TemperatureC": 35,
+      "TemperatureMaxC": 48,
+      "WearPct": 15,
+      "PowerOnHours": 21500,
+      "ReadErrorsTotal": 0,
+      "ReadErrorsUncorrected": 0,
+      "WriteErrorsTotal": 0,
+      "WriteErrorsUncorrected": 0,
+      "IsAlert": false,
+      "AlertReasons": []
+    }
+  ],
+  "Monitors": [
+    {
+      "ManufacturerCode": "SAM",
+      "Manufacturer": "Samsung Electronics",
+      "Model": "S24R650",
+      "SerialNumber": "HX7MK01234",
+      "ProductCode": "0C3B",
+      "YearOfManufacture": 2020,
+      "WeekOfManufacture": 32,
+      "AgeYears": 6,
+      "Active": true,
+      "VideoOutputTech": 5
+    }
+  ],
+  "TopCrashers": [],
+  "HardwareHealth": {
+    "WHEA_Fatal": [],
+    "WHEA_Corrected": [],
+    "GPU_TDR": [],
+    "Thermal": []
+  },
+  "Stats": {
+    "TotalBoots": 1,
+    "TotalCrashFreeze": 0,
+    "TotalBSOD": 0,
+    "BootsByType": {
+      "ColdBoot": 1,
+      "FastStartup": 0,
+      "Resume": 0,
+      "Unknown": 0
+    },
+    "TotalRealBoots": 1,
+    "BootsLongs": 1,
+    "ResourceWarnings": 0,
+    "DiskAlerts": 1,
+    "TopCrasherApp": "",
+    "TopCrasherCount": 0,
+    "TotalWHEAFatal": 0,
+    "TotalWHEACorrected": 0,
+    "WHEACorrectedUnique": 0,
+    "TotalGPU": 0,
+    "TotalThermal": 0,
+    "TotalHardware": 0,
+    "DerniereActivite": "2026-04-21 10:38:00",
+    "Event12Trouve": 1,
+    "Event27Trouve": 1,
+    "BatteryHealthPct": 0,
+    "BatteryAlert": false,
+    "SentinelRunning": true,
+    "SentinelAlert": false,
+    "LastBootTimeMs": 135000,
+    "LastPostBootTimeMs": 73000,
+    "BootPerfAlert": false,
+    "DiskWorstWear": 15,
+    "DiskHealthAlert": false,
+    "MonitorsCount": 1
+  }
+}
