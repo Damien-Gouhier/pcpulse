@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v1.4
+    PCPulse Collector v1.8
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,22 +10,74 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 1.4
+    Version      : 1.8
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v1.8 : Enrichissement panel Materiel (Wave 2 - hardware)
+           - CPU Throttling detaille : nouveaux Events 35/55 Kernel-
+             Processor-Power = vrai throttling firmware/thermique.
+             Les Events 37/88/125 Kernel-Power (thermal critique)
+             restent captures comme avant. Distinction CPUThrottling
+             vs Thermal dans HardwareHealth pour granularite.
+             Throttling recurrent = pate thermique seche ou ventilo
+             encrasse, fix typique 15EUR par PC.
+           - Inventaire RAM : Win32_PhysicalMemory + Win32_PhysicalMemoryArray
+             pour remonter totale installee, nb de slots total/occupes,
+             capacite max supportee par la carte mere, et detail des
+             barrettes (taille/type/vitesse/fabricant).
+             Utile pour decider upgrade vs remplacement.
+           - Inventaire GPU : Win32_VideoController pour remonter nom,
+             version driver, date driver. Sans fioritures (pas de
+             VRAM car peu fiable via WMI), suffisant pour correler
+             avec les Event 4101 TDR GPU.
+    v1.7 : Extension du parser CPU (fix terrain)
+           - Fix mapping Intel Gen 10 : 2019 -> 2020. Alignement sur
+             l'annee de la grosse majorite des desktops Comet Lake
+             (i5-10500, i7-10700, etc.). Accepte +1 an de decalage
+             sur les mobiles Ice Lake 2019 (volume marginal).
+           - Nouveau support : Intel Celeron N-series (crucial pour
+             tablettes d'accueil, kiosques, mini-PC budget) :
+             * N4000/N4100            -> 2017 (Gemini Lake)
+             * N4500/N4505/N5100/N6000 -> 2021 (Jasper Lake)
+             * N95/N97/N100/N200/N305 -> 2023 (Alder Lake-N)
+             * N350/N355              -> 2025 (Twin Lake)
+           - Nouveau support : Intel Pentium Gold (G6xxx/G7xxx desktop
+             budget).
+           - Nouveau support : AMD Athlon et A-Series (parc AMD legacy).
+           - Avant v1.7, ces CPU ressortaient Category='Inconnu' dans
+             le Dashboard, genant le verdict global v1.6.
+    v1.6 : Enrichissement Event 41 Kernel-Power (classification fine)
+           - Parsing XML nomme des Event 41 : lecture de BugcheckCode,
+             SleepInProgress, PowerButtonTimestamp (via EventData par
+             nom, pas par index Properties[N] qui est fragile entre
+             versions Windows).
+           - Nouveau champ CrashCause sur les Events Id=41, avec 5
+             valeurs precises :
+               * 'BSODSilent'        -> BSOD non affiche (BugCheck != 0)
+               * 'SleepResumeFailed' -> reprise de veille ratee
+               * 'UserForcedReset'   -> bouton power maintenu par user
+               * 'PowerLoss'         -> coupure alim/thermal shutdown
+               * 'FreezeApp' / 'FreezeUnknown' -> freeze classique
+           - Nouvelle stat Stats.TotalHardCrash : count des vrais
+             plantages durs (BSODSilent + SleepResumeFailed + PowerLoss),
+             hors user action et hors freeze.
+           - Type/Detail des Events existants INCHANGES (backward-compat
+             Dashboard v1.5 total, aucun risque de regression).
+    v1.5 : Clustering des Event 51 (Disk slow / I/O timeout)
+           - Avant : chaque Event 51 ecrit en ligne distincte. Un seul
+             incident matos pouvait generer des centaines de lignes
+             identiques (ex parc pilote : 957 events pour ~8 incidents
+             reels, dont un burst de 894 en 1 seconde).
+           - Fix : regroupement par fenetre de 60 secondes. Une entree
+             par cluster, avec Count, FirstSeen, LastSeen, IsBurst.
+           - IsBurst=true si Count >= 50 (signal materiel fort :
+             probable deconnexion disque momentanee ou slot PCIe fatigue).
+           - JSON beaucoup plus petit sur les PC problematiques, lisible
+             pour l'utilisateur final dans le Dashboard.
     v1.4 : Fix parsing Intel Core Gen 10+ avec suffixe lettre
-           - Avant : la regex capturait toujours 1 chiffre sur les CPU a
-             4 chiffres avec suffixe (ex: i5-1345U classe en Gen 1/2010).
-             Seuls les CPU 5 chiffres (i7-12700) etaient correctement parses.
-           - Impact : tous les laptops Intel Gen 10-14 avec suffixe U/H/P/G
-             etaient classes "Ancien" a tort.
-           - Fix : nouvelle heuristique sur les 4 ou 5 chiffres du modele
-             (4 chiffres commencant par 1[0-4] -> Gen 10-14).
-    v1.3 : 2 fixes decouverts suite au deploiement pilote v1.2
-           - Fix CurrentUser (Get-CurrentInteractiveUser au lieu de $env:USERNAME)
-           - Fix BootDurations (Fast Startup et Resume maintenant inscrits)
-    v1.2 : Fix algorithme Uptime utilisateur apres analyse terrain
-    v1.1 : Uptime utilisateur (Fast Startup aware) - incomplete, fix en v1.2
+    v1.3 : Fix CurrentUser + BootDurations (Fast Startup)
+    v1.2 : Fix algorithme Uptime utilisateur
+    v1.1 : Uptime utilisateur (Fast Startup aware)
     v1.0 : Release initiale.
     Voir CHANGELOG.md du repo pour l'historique complet.
 .EXAMPLE
@@ -49,7 +101,7 @@ param(
 # ============================================================
 # CONSTANTES (non modifiables - structurelles)
 # ============================================================
-$SchemaVersion = '1.4'
+$SchemaVersion = '1.8'
 $ConfigFile    = Join-Path $SharePath 'config.psd1'
 
 # Valeurs par defaut utilisees si config.psd1 est absent/invalide
@@ -208,7 +260,7 @@ function Get-PrimaryIPv4 {
 # v1.3 : Recupere le nom de l'utilisateur interactif actuellement connecte.
 # Necessaire car le Collector tourne en SYSTEM (via tache planifiee), donc
 # $env:USERNAME retourne le nom machine ($env:COMPUTERNAME suivi de '$',
-# ex: "LAPTOP001$"), qui n'est pas ce qu'on veut afficher dans le Dashboard.
+# ex: "PCNAME$"), qui n'est pas ce qu'on veut afficher dans le Dashboard.
 #
 # Strategie en cascade :
 #   1. Win32_ComputerSystem.UserName (rapide, retourne "DOMAINE\user")
@@ -317,8 +369,11 @@ function Get-CpuProfile {
         }
         $intelMap = @{
             1=2010; 2=2011; 3=2012; 4=2013; 5=2015; 6=2015; 7=2016
-            8=2017; 9=2018; 10=2019; 11=2020; 12=2021; 13=2023; 14=2024
+            8=2017; 9=2018; 10=2020; 11=2020; 12=2021; 13=2023; 14=2024
         }
+        # Note v1.7 : Gen 10 = 2020 pour coller au desktop Comet Lake
+        # (mai 2020, majorite du parc Gen 10). Les rares mobiles Ice Lake
+        # de fin 2019 apparaitront avec 1 an de decalage, acceptable.
         if ($intelMap.ContainsKey($gen)) {
             $result.Gen  = $gen
             $result.Year = $intelMap[$gen]
@@ -345,6 +400,44 @@ function Get-CpuProfile {
             $result.Gen  = "Ryzen$ryzenGen"
             $result.Year = $ryzenMap[$ryzenGen]
         }
+    }
+    # --- v1.7 : Intel Celeron N-series (tablettes accueil, mini-PC budget) ---
+    # Format : "Intel(R) Celeron(R) N4500", "Celeron J6412", etc.
+    # Table par plage de numero (plus robuste que nom par nom).
+    elseif ($clean -match 'Intel.*Celeron.*\b[NJG](\d{2,4})\b') {
+        $result.Vendor = 'Intel'
+        $num = [int]$matches[1]
+        # Mapping par plage (majoritaires dans le parc tablettes/mini-PC)
+        if     ($num -ge 4000 -and $num -le 4199) { $result.Year = 2017; $result.Gen = 'GeminiLake' }     # N4000, N4100, J4xxx
+        elseif ($num -ge 4500 -and $num -le 4599) { $result.Year = 2021; $result.Gen = 'JasperLake' }     # N4500, N4505
+        elseif ($num -ge 5100 -and $num -le 6099) { $result.Year = 2021; $result.Gen = 'JasperLake' }     # N5100, N6000
+        elseif ($num -ge 6400 -and $num -le 6499) { $result.Year = 2021; $result.Gen = 'JasperLake' }     # J6412
+        elseif ($num -ge 90   -and $num -le 349)  { $result.Year = 2023; $result.Gen = 'AlderLakeN' }     # N95, N97, N100, N200, N305
+        elseif ($num -ge 350  -and $num -le 399)  { $result.Year = 2025; $result.Gen = 'TwinLake' }       # N350, N355
+        elseif ($num -ge 3000 -and $num -le 3999) { $result.Year = 2014; $result.Gen = 'BayTrail' }       # N3050, N3150, J3xxx (tres vieux)
+    }
+    # --- v1.7 : Intel Pentium Gold (desktops budget) ---
+    # Format : "Intel(R) Pentium(R) Gold G6400", "Pentium Gold G7400"
+    elseif ($clean -match 'Intel.*Pentium.*Gold\s+G(\d{4})') {
+        $result.Vendor = 'Intel'
+        $num = [int]$matches[1]
+        if     ($num -ge 5000 -and $num -le 5999) { $result.Year = 2018; $result.Gen = 'CoffeeLake' }     # G5400, G5500 etc
+        elseif ($num -ge 6000 -and $num -le 6999) { $result.Year = 2020; $result.Gen = 'CometLake' }      # G6400, G6500, G6600
+        elseif ($num -ge 7000 -and $num -le 7999) { $result.Year = 2022; $result.Gen = 'AlderLake' }      # G7400
+    }
+    # --- v1.7 : AMD Athlon et A-Series (parc legacy) ---
+    elseif ($clean -match 'AMD.*Athlon') {
+        $result.Vendor = 'AMD'
+        $result.Gen    = 'Athlon'
+        # Pas d'annee precise : Athlon couvre 2017 (Zen) a 2021 (Gold 3150G).
+        # On prend milieu de plage, donne "Vieillissant" (~5 ans).
+        $result.Year   = 2019
+    }
+    elseif ($clean -match 'AMD.*A(4|6|8|10|12)-\d') {
+        $result.Vendor = 'AMD'
+        $result.Gen    = 'A-Series'
+        # A-Series APU : 2011-2016. Majoritairement anciens.
+        $result.Year   = 2014
     }
     # --- Fallback : au moins identifier le vendor si on a pu ---
     elseif ($clean -match 'Intel') { $result.Vendor = 'Intel' }
@@ -747,11 +840,17 @@ $kernelBootEvents = Invoke-SafeGetWinEvent -Label 'Kernel-Boot Event 27' -Sort -
     ProviderName = 'Microsoft-Windows-Kernel-Boot'
 }
 
-# --- Appel 4 : Event 26 Kernel-Processor-Power (CPU throttling) ---
-$cpuEvents = Invoke-SafeGetWinEvent -Label 'Kernel-Processor-Power Event 26' -Filter @{
+# --- Appel 4 : Kernel-Processor-Power ---
+# v1.8 : on recupere aussi les Events 35 et 55 (throttling firmware
+# / thermique) en plus de l'Event 26 (info capabilities). Ces events
+# sont RARES par nature, donc tres significatifs quand ils apparaissent.
+#   26 = Capabilities (log normal au boot, informatif)
+#   35 = Throttle limited par firmware (ventilo HS / pate thermique)
+#   55 = Puissance reduite pour cause thermique (surchauffe active)
+$cpuEvents = Invoke-SafeGetWinEvent -Label 'Kernel-Processor-Power Event 26/35/55' -Filter @{
     LogName      = 'System'
     StartTime    = $dateDebut
-    Id           = 26
+    Id           = @(26, 35, 55)
     ProviderName = 'Microsoft-Windows-Kernel-Processor-Power'
 }
 
@@ -784,36 +883,80 @@ $bootPerfEvents = Invoke-SafeGetWinEvent -Label 'Boot Performance Event 100' -Ma
 
 # ============================================================
 # 3. CLASSIFICATION DES EVENTS (BSOD / Hard reset / Freeze)
+#    v1.6 : Ajout du champ CrashCause sur les Events Id=41
+#           pour distinguer finement la cause du plantage.
 # ============================================================
+
+# Helper v1.6 : extrait une valeur nommee depuis l'EventData XML d'un event.
+# Retourne $null si le champ est absent.
+# (Plus robuste que Properties[N] qui peut varier entre versions Windows.)
+function Get-EventDataByName {
+    param($Event, [string]$Name)
+    try {
+        $xml = [xml]$Event.ToXml()
+        $node = $xml.Event.EventData.Data | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
+        if ($node) { return $node.'#text' }
+    } catch {}
+    return $null
+}
+
 $events = $rawEvents | ForEach-Object {
-    $type   = ''
-    $detail = ''
+    $type        = ''
+    $detail      = ''
+    $crashCause  = $null   # v1.6 : renseigne uniquement pour Id=41
 
     if ($_.Id -eq 41) {
-        # Event 41 (Kernel-Power) = arret inattendu
-        #   Properties[0] = BugCheckCode
-        #   != 0 -> BSOD avec stopcode
-        #   == 0 -> Freeze ou Hard reset (on raffine via 6008 / 1000-1002)
-        $bugCheck = $null
-        try { $bugCheck = [uint64]$_.Properties[0].Value } catch {}
+        # v1.6 : lecture des champs XML EventData par nom
+        $bugCheck    = $null
+        $sleepInProg = $null
+        $pwrBtnTs    = $null
+        try {
+            $v = Get-EventDataByName -Event $_ -Name 'BugcheckCode'
+            if ($v) { $bugCheck = [uint64]$v }
+        } catch {}
+        try {
+            $v = Get-EventDataByName -Event $_ -Name 'SleepInProgress'
+            if ($v) { $sleepInProg = [int]$v }
+        } catch {}
+        try {
+            $v = Get-EventDataByName -Event $_ -Name 'PowerButtonTimestamp'
+            if ($v) { $pwrBtnTs = [uint64]$v }
+        } catch {}
+
+        # Fallback si le parsing XML echoue : on retombe sur Properties[0]
+        # pour BugCheckCode (compat logique v1.5).
+        if ($null -eq $bugCheck) {
+            try { $bugCheck = [uint64]$_.Properties[0].Value } catch {}
+        }
 
         if ($bugCheck -and $bugCheck -ne 0) {
-            $type   = 'BSOD'
-            $detail = '0x' + $bugCheck.ToString('X')
+            # BSOD classique (peut avoir ete affiche ou silencieux).
+            # On conserve Type='BSOD' pour backward-compat Dashboard v1.5.
+            $type       = 'BSOD'
+            $detail     = '0x' + $bugCheck.ToString('X')
+            $crashCause = 'BSODSilent'
         } else {
             $event41Time = $_.TimeCreated
 
             # Etape 1 : chercher un dirty shutdown (6008) DANS LES 30 MIN SUIVANTES
-            # L'event 6008 est ecrit au boot suivant -> si on en trouve un
-            # peu apres le 41, on est sur un hard reset (coupure brute).
             $dirtyShutdown = $dirtyShutdownEvents | Where-Object {
                 $_.TimeCreated -gt $event41Time -and
                 ($_.TimeCreated - $event41Time).TotalMinutes -le 30
             } | Select-Object -First 1
 
             if ($dirtyShutdown) {
-                $type   = 'Hard reset'
-                $detail = 'Dirty shutdown detected'
+                # v1.6 : raffinement de la cause selon SleepInProgress et PowerButtonTimestamp
+                $type = 'Hard reset'
+                if ($sleepInProg -eq 1) {
+                    $detail     = 'Sleep/Resume failed'
+                    $crashCause = 'SleepResumeFailed'
+                } elseif ($pwrBtnTs -and $pwrBtnTs -ne 0) {
+                    $detail     = 'User forced power off'
+                    $crashCause = 'UserForcedReset'
+                } else {
+                    $detail     = 'Dirty shutdown detected'
+                    $crashCause = 'PowerLoss'
+                }
             } else {
                 # Etape 2 : chercher une app crash/hang (1000/1002) dans les 10 min AVANT
                 $fenetre = $event41Time.AddMinutes(-10)
@@ -827,6 +970,9 @@ $events = $rawEvents | ForEach-Object {
                         $appNom = $appSuspect.Properties[0].Value
                         if ($appNom) { $detail = $appNom }
                     } catch {}
+                    $crashCause = 'FreezeApp'
+                } else {
+                    $crashCause = 'FreezeUnknown'
                 }
             }
         }
@@ -839,11 +985,12 @@ $events = $rawEvents | ForEach-Object {
     }
 
     [PSCustomObject]@{
-        Timestamp = $_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
-        EventId   = $_.Id
-        Type      = $type
-        Detail    = $detail
-        Message   = (Get-TruncatedMessage -Text $_.Message -MaxLength 120)
+        Timestamp  = $_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
+        EventId    = $_.Id
+        Type       = $type
+        Detail     = $detail
+        CrashCause = $crashCause   # v1.6 : null hors Id=41
+        Message    = (Get-TruncatedMessage -Text $_.Message -MaxLength 120)
     }
 }
 
@@ -1087,12 +1234,67 @@ foreach ($ev in $diskFullEvents) {
         Detail    = $detail
     })
 }
-foreach ($ev in $diskSlowEvents) {
-    $resourceWarnings.Add([PSCustomObject]@{
-        Timestamp = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
-        Type      = 'Disk slow'
-        Detail    = 'I/O timeout'
-    })
+# v1.5 : Clustering des Event 51 (Disk slow / I/O timeout)
+# Windows emet souvent des dizaines voire centaines d'Event 51 en
+# meme temps (un par secteur/IRP en timeout) pour UN seul incident.
+# Ex parc pilote : 894 events sur 1 seule seconde = 1 incident matos,
+# pas 894 evenements distincts.
+# On groupe donc par fenetre de 60s. Chaque cluster ajoute 1 entree avec :
+#   - Count      : nombre d'events dans le cluster
+#   - FirstSeen  : premier timestamp du cluster
+#   - LastSeen   : dernier timestamp du cluster
+#   - IsBurst    : true si Count > 50 (signal matos fort)
+# Le Dashboard affichera "x894 events en 1s" avec un badge si burst.
+if ($diskSlowEvents.Count -gt 0) {
+    $SeuilBurst = 50  # Au-dela on considere que c'est un incident materiel
+    $FenetreSec = 60  # Fenetre de regroupement en secondes
+
+    # Tri chronologique croissant pour le clustering
+    $sortedSlow = @($diskSlowEvents | Sort-Object TimeCreated)
+
+    $clusters = [System.Collections.Generic.List[object]]::new()
+    $currentCluster = $null
+
+    foreach ($ev in $sortedSlow) {
+        if ($null -eq $currentCluster) {
+            # Premier event : initialise le cluster
+            $currentCluster = [PSCustomObject]@{
+                FirstTime = $ev.TimeCreated
+                LastTime  = $ev.TimeCreated
+                Count     = 1
+            }
+        } else {
+            $diffSec = ($ev.TimeCreated - $currentCluster.LastTime).TotalSeconds
+            if ($diffSec -le $FenetreSec) {
+                # Meme cluster : on etend
+                $currentCluster.LastTime = $ev.TimeCreated
+                $currentCluster.Count++
+            } else {
+                # Nouveau cluster : on ferme l'ancien et on en demarre un
+                $clusters.Add($currentCluster)
+                $currentCluster = [PSCustomObject]@{
+                    FirstTime = $ev.TimeCreated
+                    LastTime  = $ev.TimeCreated
+                    Count     = 1
+                }
+            }
+        }
+    }
+    # Fermer le dernier cluster ouvert
+    if ($null -ne $currentCluster) { $clusters.Add($currentCluster) }
+
+    # Ecrire 1 entree par cluster dans ResourceWarnings
+    foreach ($c in $clusters) {
+        $resourceWarnings.Add([PSCustomObject]@{
+            Timestamp = $c.FirstTime.ToString('yyyy-MM-dd HH:mm:ss')
+            Type      = 'Disk slow'
+            Detail    = 'I/O timeout'
+            Count     = $c.Count
+            FirstSeen = $c.FirstTime.ToString('yyyy-MM-dd HH:mm:ss')
+            LastSeen  = $c.LastTime.ToString('yyyy-MM-dd HH:mm:ss')
+            IsBurst   = ($c.Count -ge $SeuilBurst)
+        })
+    }
 }
 $resourceWarnings = @($resourceWarnings | Sort-Object Timestamp -Descending)
 
@@ -1748,6 +1950,110 @@ try {
 }
 
 # ============================================================
+# 12c. MEMORY INVENTORY (v1.8)
+#      - Win32_PhysicalMemoryArray : capacite max supportee par la
+#        carte mere + nombre de slots total.
+#      - Win32_PhysicalMemory       : detail des barrettes presentes
+#        (taille, type DDRx, vitesse, fabricant, banque/slot).
+#      - Permet de decider : upgrade possible (slots libres ou
+#        barrette plus grosse) vs remplacement du PC.
+# ============================================================
+$memoryInventory = [PSCustomObject]@{
+    TotalInstalledGB = 0
+    MaxCapacityGB    = 0
+    TotalSlots       = 0
+    OccupiedSlots    = 0
+    FreeSlots        = 0
+    CanUpgrade       = $false
+    Modules          = @()
+}
+try {
+    # MaxCapacity en Ko dans Win32_PhysicalMemoryArray (oui, Ko, c'est Microsoft)
+    $memArray = Get-CimInstance Win32_PhysicalMemoryArray -ErrorAction Stop |
+                Select-Object -First 1
+    if ($memArray) {
+        $memoryInventory.MaxCapacityGB = [math]::Round($memArray.MaxCapacity / 1MB, 0)   # Ko -> Go
+        $memoryInventory.TotalSlots    = [int]$memArray.MemoryDevices
+    }
+
+    $modules = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)
+    $memoryInventory.OccupiedSlots = $modules.Count
+    $memoryInventory.FreeSlots     = [math]::Max(0, $memoryInventory.TotalSlots - $modules.Count)
+
+    # Type DDR : SMBIOSMemoryType est plus fiable que MemoryType (souvent 0)
+    # Codes standards : 20=DDR, 21=DDR2, 24=DDR3, 26=DDR4, 34=DDR5
+    $typeMap = @{ 20='DDR'; 21='DDR2'; 22='DDR2 FB-DIMM'; 24='DDR3'; 26='DDR4'; 27='LPDDR3'; 28='LPDDR4'; 29='Logical'; 30='HBM'; 31='HBM2'; 32='DDR5'; 34='DDR5' }
+
+    $totalBytes = 0
+    foreach ($m in $modules) {
+        $totalBytes += [int64]$m.Capacity
+        $typeCode = [int]($m.SMBIOSMemoryType)
+        $typeStr  = if ($typeMap.ContainsKey($typeCode)) { $typeMap[$typeCode] } else { "Type=$typeCode" }
+
+        $memoryInventory.Modules += [PSCustomObject]@{
+            Slot         = $m.DeviceLocator
+            Bank         = $m.BankLabel
+            CapacityGB   = [math]::Round($m.Capacity / 1GB, 0)
+            Type         = $typeStr
+            SpeedMHz     = [int]$m.Speed
+            Manufacturer = ($m.Manufacturer -replace '\s+$', '')
+            PartNumber   = ($m.PartNumber   -replace '\s+$', '')
+        }
+    }
+    $memoryInventory.TotalInstalledGB = [math]::Round($totalBytes / 1GB, 0)
+
+    # CanUpgrade : vrai si slots libres OU si la carte mere supporte
+    # beaucoup plus que la quantite actuelle (barrettes remplacables par
+    # des plus grosses).
+    if ($memoryInventory.FreeSlots -gt 0) {
+        $memoryInventory.CanUpgrade = $true
+    } elseif ($memoryInventory.MaxCapacityGB -gt 0 -and
+              $memoryInventory.TotalInstalledGB -lt ($memoryInventory.MaxCapacityGB * 0.75)) {
+        # Moins de 75% de la capacite max installee -> upgrade possible
+        # par remplacement de barrettes
+        $memoryInventory.CanUpgrade = $true
+    }
+
+    Write-Log ("RAM : {0} Go installes, {1}/{2} slots, max={3} Go, upgrade={4}" -f `
+        $memoryInventory.TotalInstalledGB, $memoryInventory.OccupiedSlots,
+        $memoryInventory.TotalSlots, $memoryInventory.MaxCapacityGB, $memoryInventory.CanUpgrade)
+} catch {
+    Write-Log "Erreur MemoryInventory : $_"
+}
+
+# ============================================================
+# 12d. GPU INVENTORY (v1.8)
+#      - Win32_VideoController : nom, driver version, date du driver.
+#      - On garde tous les GPU presents (laptop gaming = integre + dedie,
+#        workstation = multiples cartes pro). On filtre les "pseudo" GPU
+#        qui apparaissent parfois (Remote RDP adapter, Meta Hyper-V, etc.).
+#      - On se limite a ces 3 champs pour rester sobre ; la VRAM via WMI
+#        est peu fiable (AdapterRAM est un int32 qui overflow a 4 Go).
+# ============================================================
+$gpuInventory = @()
+try {
+    $gpus = @(Get-CimInstance Win32_VideoController -ErrorAction Stop | Where-Object {
+        # Filtre des "GPU" non physiques
+        $_.Name -and
+        $_.Name -notmatch 'Remote|Mirror|RDP|Hyper-V|Basic Display|Meta |VNC'
+    })
+    foreach ($g in $gpus) {
+        $driverDate = ''
+        if ($g.DriverDate) {
+            try { $driverDate = ([datetime]$g.DriverDate).ToString('yyyy-MM-dd') } catch {}
+        }
+        $gpuInventory += [PSCustomObject]@{
+            Name          = $g.Name
+            DriverVersion = $g.DriverVersion
+            DriverDate    = $driverDate
+        }
+    }
+    Write-Log ("GPU : {0} adapteur(s) detecte(s)" -f $gpuInventory.Count)
+} catch {
+    Write-Log "Erreur GPUInventory : $_"
+}
+
+# ============================================================
 # 13. TOP CRASHERS (apps qui crashent le plus, agregees)
 # ============================================================
 $topCrashers = @()
@@ -1798,6 +2104,13 @@ $hardwareHealth = [PSCustomObject]@{
 
     GPU_TDR        = [System.Collections.Generic.List[PSCustomObject]]::new()
     Thermal        = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+    # v1.8 : CPU throttling detaille (Events 35/55 Kernel-Processor-Power).
+    # Separe des Events 37/88/125 thermal (Kernel-Power) qui sont des
+    # signaux materiels critiques plus larges. Ici on veut capter le
+    # moment ou le CPU reduit sa frequence pour cause thermique, sans
+    # forcement atteindre un arret securite. Signal avant-coureur utile.
+    CPUThrottling  = [System.Collections.Generic.List[PSCustomObject]]::new()
 }
 
 # --- WHEA : parse + dispatch Fatal / Corrected ---
@@ -1891,6 +2204,62 @@ foreach ($ev in $thermalEvents) {
     })
 }
 
+# --- v1.8 : CPU Throttling (Events 35/55 Kernel-Processor-Power) ---
+# L'Event 26 est juste informatif (capabilities au boot), on l'ignore.
+# Events 35 et 55 sont les VRAIS signaux de throttling actif.
+# On agrege par jour pour limiter la volumetrie (un PC qui throttle
+# peut generer des centaines d'events par heure).
+$throttleAgg = @{}
+foreach ($ev in $cpuEvents) {
+    if ($ev.Id -eq 26) { continue }  # Event 26 = info capabilities, skip
+
+    $dayKey = $ev.TimeCreated.ToString('yyyy-MM-dd')
+    $sig    = "$($ev.Id)|$dayKey"
+
+    if ($throttleAgg.ContainsKey($sig)) {
+        $throttleAgg[$sig].Count++
+        if ($ev.TimeCreated -lt $throttleAgg[$sig].FirstSeenRaw) {
+            $throttleAgg[$sig].FirstSeen    = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
+            $throttleAgg[$sig].FirstSeenRaw = $ev.TimeCreated
+        }
+        if ($ev.TimeCreated -gt $throttleAgg[$sig].LastSeenRaw) {
+            $throttleAgg[$sig].LastSeen    = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
+            $throttleAgg[$sig].LastSeenRaw = $ev.TimeCreated
+        }
+    } else {
+        $throttleType = switch ($ev.Id) {
+            35      { 'Firmware throttle limited' }
+            55      { 'Thermal power reduction' }
+            default { "Event $($ev.Id)" }
+        }
+        $throttleAgg[$sig] = @{
+            Day          = $dayKey
+            EventId      = $ev.Id
+            Type         = $throttleType
+            Count        = 1
+            FirstSeen    = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
+            FirstSeenRaw = $ev.TimeCreated
+            LastSeen     = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
+            LastSeenRaw  = $ev.TimeCreated
+            Detail       = Get-TruncatedMessage -Text $ev.Message -MaxLength 160
+        }
+    }
+}
+# Output trie par date decroissante
+$throttleAgg.Values |
+    Sort-Object LastSeenRaw -Descending |
+    ForEach-Object {
+        $hardwareHealth.CPUThrottling.Add([PSCustomObject]@{
+            Day       = $_.Day
+            EventId   = $_.EventId
+            Type      = $_.Type
+            Count     = $_.Count
+            FirstSeen = $_.FirstSeen
+            LastSeen  = $_.LastSeen
+            Detail    = $_.Detail
+        })
+    }
+
 # Nombre total d'erreurs corrigees (somme des compteurs agreges)
 $totalCorrected = 0
 foreach ($c in $hardwareHealth.WHEA_Corrected) { $totalCorrected += $c.Count }
@@ -1919,18 +2288,30 @@ $payload = [PSCustomObject]@{
     BootPerformance  = $bootPerformance
     DiskHealth       = @($diskHealth)
     Monitors         = @($monitors)
+    # v1.8 : nouveaux blocs hardware
+    MemoryInventory  = $memoryInventory
+    GPUInventory     = @($gpuInventory)
     TopCrashers      = @($topCrashers)
     HardwareHealth   = [PSCustomObject]@{
         WHEA_Fatal     = @($hardwareHealth.WHEA_Fatal)
         WHEA_Corrected = @($hardwareHealth.WHEA_Corrected)
         GPU_TDR        = @($hardwareHealth.GPU_TDR)
         Thermal        = @($hardwareHealth.Thermal)
+        # v1.8 : CPU throttling distinct du thermal
+        CPUThrottling  = @($hardwareHealth.CPUThrottling)
     }
     Stats            = [PSCustomObject]@{
         # Compteurs events (events 6005 historiques, conserves pour compat)
         TotalBoots       = @($events | Where-Object { $_.EventId -eq 6005 }).Count
         TotalCrashFreeze = @($events | Where-Object { $_.EventId -eq 41 }).Count
         TotalBSOD        = @($bsods).Count
+
+        # v1.6 : total des "vrais" plantages durs.
+        # Exclut UserForcedReset (action volontaire de l'user) et
+        # FreezeApp/FreezeUnknown (pas forcement un plantage materiel).
+        TotalHardCrash   = @($events | Where-Object {
+            $_.EventId -eq 41 -and $_.CrashCause -in @('BSODSilent','SleepResumeFailed','PowerLoss')
+        }).Count
 
         # NOUVEAU v5.2 : comptage reel des demarrages par type
         BootsByType      = [PSCustomObject]@{
@@ -1956,6 +2337,9 @@ $payload = [PSCustomObject]@{
 
         TotalGPU         = @($hardwareHealth.GPU_TDR).Count
         TotalThermal     = @($hardwareHealth.Thermal).Count
+        # v1.8 : total des jours avec throttling CPU (somme de Count
+        # serait trompeuse : un meme probleme en 1 jour fait plein d'events)
+        TotalCPUThrottling = @($hardwareHealth.CPUThrottling).Count
         # TotalHardware : seules les vraies alertes (Fatal + GPU + Thermal)
         # Les corrected sont de la telemetrie, pas une alerte
         TotalHardware    = @($hardwareHealth.WHEA_Fatal).Count + @($hardwareHealth.GPU_TDR).Count + @($hardwareHealth.Thermal).Count

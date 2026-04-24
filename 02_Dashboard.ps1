@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v1.0
+    PCPulse Dashboard v1.8
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,52 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 1.0
+    Version      : 1.8
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v1.8 : Exposition des donnees hardware v1.8 du Collector
+           - Panel Materiel enrichi de 3 nouveaux blocs :
+             * RAM : installee / slots / capacite max + detail barrettes
+                     (Slot, Type DDR, Vitesse, Fabricant).
+             * GPU : nom + version + date driver pour chaque adapteur.
+             * CPU Throttling : agregation quotidienne des events 35/55
+                    Kernel-Processor-Power, avec badge alerte >=3 jours.
+           - Backward-compat totale : si JSON v1.7 ou anterieur, les
+             nouveaux blocs affichent discretement "Donnees non
+             disponibles (Collector < v1.8)".
+    v1.7 : Debruitage des Top Crashers (Signal vs Bruit)
+           - Scoring automatique de chaque processus crasheur :
+             score = crashs_par_PC / sqrt(PC_impactes).
+             Penalise la dispersion (un crash reparti sur 10 PC est
+             noye, un crash concentre sur 1 PC ressort).
+           - 3 sections dans le panel Top Crashers parc global :
+             * Signaux locaux (score >=3) : a investiguer prioritairement
+             * Problemes repartis (2<=score<3) : bug applicatif probable
+             * Bruit ambient (score <2) : replie par defaut
+           - Blacklist Hard : processus totalement ignores (ex: le
+             fameux microsoftsearchbing.exe qui pourrissait deja NXT).
+           - Blacklist Soft : processus forces en section Bruit meme
+             si leur score les aurait remontes (dellosd, shellexpe,
+             gamebar, ASUS utilitaires, Dell techhub).
+           - Drill-down par PC : meme logique locale, bruiteurs grises
+             avec badge "bruit" au lieu d'etre cache.
+    v1.6 : Intelligence de diagnostic (Wave 1)
+           - Bandeau verdict global par PC (4 niveaux : Sain / A surveiller
+             / Incident probable / Critique) calcule selon seuils sur
+             crashs, WHEA, batterie, CPU age, SMART, bursts I/O.
+           - Section "Signaux croises" (5 patterns temporels a fenetre
+             10 min) : burst I/O -> hard crash, WHEA PCIe -> crash, etc.
+           - Nom CPU ajoute dans le panel Materiel.
+           - Libelles detailles des Hard crashes (Coupure alim / Reprise
+             veille / User bouton power) exploitant CrashCause v1.6.
+           - Schema accepte elargi a ('1.4','1.5','1.6').
+    v1.5 : Rendu des clusters Event 51 (Disk slow / I/O timeout)
+           - Propagation des champs Count/IsBurst/FirstSeen/LastSeen
+             produits par le Collector v1.5 jusqu'au rendu JS.
+           - Affichage enrichi : "xN events en 1s" + badge BURST si
+             Count >= 50 (signal materiel fort).
+           - Backward-compat JSON v1.4- : affichage inchange.
+           - Schema accepte elargi a ('1.4','1.5').
     Voir CHANGELOG.md du repo pour l'historique des versions.
 .EXAMPLE
     .\02_Dashboard.ps1
@@ -33,7 +76,7 @@ param(
 # ============================================================
 # CONSTANTES
 # ============================================================
-$SchemaCompatible = @('1.0')   # v1.0 : premiere release publique PCPulse
+$SchemaCompatible = @('1.4','1.5','1.6','1.7','1.8')   # historique jusqu'à v1.7 + v1.8 (RAM/GPU/CPU Throttling)
 $ConfigFile       = Join-Path $SharePath 'config.psd1'
 $OutputHTML       = Join-Path $env:TEMP ("PCPulse-Dashboard-" + (Get-Date -Format 'yyyyMMdd-HHmm') + '.html')
 
@@ -259,11 +302,14 @@ foreach ($pc in $allData) {
 
     $crashList = @($pc.Events | Where-Object { $_.EventId -eq 41 } |
         Sort-Object Timestamp -Descending | ForEach-Object {
+            # v1.6 : propager CrashCause (null sur JSON v1.4/1.5, rempli sur v1.6).
+            # Le JS gere les deux cas avec un fallback sur Type/Detail.
             [PSCustomObject]@{
-                Timestamp = $_.Timestamp
-                Type      = if ($_.Type) { $_.Type } else { 'Freeze' }
-                Detail    = ConvertTo-HtmlSafe $_.Detail
-                Message   = ConvertTo-HtmlSafe $_.Message
+                Timestamp  = $_.Timestamp
+                Type       = if ($_.Type) { $_.Type } else { 'Freeze' }
+                Detail     = ConvertTo-HtmlSafe $_.Detail
+                CrashCause = $_.CrashCause
+                Message    = ConvertTo-HtmlSafe $_.Message
             }
         })
 
@@ -287,10 +333,17 @@ foreach ($pc in $allData) {
     })
 
     $warningList = @(ConvertTo-Array $pc.ResourceWarnings | Where-Object { $_.Timestamp } | ForEach-Object {
+        # v1.5 : propager les champs de clustering Event 51 (Count/IsBurst/FirstSeen/LastSeen).
+        # Les JSON v1.4 n'ont pas ces champs : $_.Count retournera $null et sera serialise
+        # en null dans le JSON, ce que le JS gere avec 'typeof w.Count === "number"'.
         [PSCustomObject]@{
             Timestamp = $_.Timestamp
             Type      = $_.Type
             Detail    = ConvertTo-HtmlSafe $_.Detail
+            Count     = $_.Count
+            IsBurst   = $_.IsBurst
+            FirstSeen = $_.FirstSeen
+            LastSeen  = $_.LastSeen
         }
     })
 
@@ -333,6 +386,9 @@ foreach ($pc in $allData) {
         WHEA_Corrected = @()
         GPU_TDR        = @()
         Thermal        = @()
+        # v1.8 : CPU throttling detaille (agregation quotidienne Event 35/55).
+        # Reste vide si Collector < v1.8 : pas de regression, le JS gere.
+        CPUThrottling  = @()
     }
 
     if ($pc.HardwareHealth) {
@@ -405,6 +461,20 @@ foreach ($pc in $allData) {
                 Detail      = ConvertTo-HtmlSafe $_.Detail
             }
         })
+        # v1.8 : CPU throttling (present uniquement sur JSON >= 1.8)
+        if ($hh.PSObject.Properties['CPUThrottling']) {
+            $hwHealth.CPUThrottling = @(ConvertTo-Array $hh.CPUThrottling | Where-Object { $_.Day } | ForEach-Object {
+                [PSCustomObject]@{
+                    Day       = $_.Day
+                    EventId   = $_.EventId
+                    Type      = ConvertTo-HtmlSafe $_.Type
+                    Count     = $_.Count
+                    FirstSeen = $_.FirstSeen
+                    LastSeen  = $_.LastSeen
+                    Detail    = ConvertTo-HtmlSafe $_.Detail
+                }
+            })
+        }
     }
 
     # Stats v5.2 si presentes, fallback vers stats v5.0
@@ -571,6 +641,47 @@ foreach ($pc in $allData) {
         })
     }
 
+    # ================================================================
+    # MEMORY INVENTORY (v1.8) : null si Collector < v1.8
+    # ================================================================
+    $memoryEmbed = $null
+    if ($pc.MemoryInventory) {
+        $memInv = $pc.MemoryInventory
+        $memoryEmbed = [PSCustomObject]@{
+            TotalInstalledGB = if ($null -ne $memInv.TotalInstalledGB) { [int]$memInv.TotalInstalledGB } else { 0 }
+            MaxCapacityGB    = if ($null -ne $memInv.MaxCapacityGB)    { [int]$memInv.MaxCapacityGB }    else { 0 }
+            TotalSlots       = if ($null -ne $memInv.TotalSlots)       { [int]$memInv.TotalSlots }       else { 0 }
+            OccupiedSlots    = if ($null -ne $memInv.OccupiedSlots)    { [int]$memInv.OccupiedSlots }    else { 0 }
+            FreeSlots        = if ($null -ne $memInv.FreeSlots)        { [int]$memInv.FreeSlots }        else { 0 }
+            CanUpgrade       = [bool]$memInv.CanUpgrade
+            Modules          = @(ConvertTo-Array $memInv.Modules | ForEach-Object {
+                [PSCustomObject]@{
+                    Slot         = ConvertTo-HtmlSafe ([string]$_.Slot)
+                    Bank         = ConvertTo-HtmlSafe ([string]$_.Bank)
+                    CapacityGB   = if ($null -ne $_.CapacityGB) { [int]$_.CapacityGB } else { 0 }
+                    Type         = ConvertTo-HtmlSafe ([string]$_.Type)
+                    SpeedMHz     = if ($null -ne $_.SpeedMHz) { [int]$_.SpeedMHz } else { 0 }
+                    Manufacturer = ConvertTo-HtmlSafe ([string]$_.Manufacturer)
+                    PartNumber   = ConvertTo-HtmlSafe ([string]$_.PartNumber)
+                }
+            })
+        }
+    }
+
+    # ================================================================
+    # GPU INVENTORY (v1.8) : tableau vide si Collector < v1.8
+    # ================================================================
+    $gpuEmbed = @()
+    if ($pc.GPUInventory) {
+        $gpuEmbed = @(ConvertTo-Array $pc.GPUInventory | ForEach-Object {
+            [PSCustomObject]@{
+                Name          = ConvertTo-HtmlSafe ([string]$_.Name)
+                DriverVersion = ConvertTo-HtmlSafe ([string]$_.DriverVersion)
+                DriverDate    = ConvertTo-HtmlSafe ([string]$_.DriverDate)
+            }
+        })
+    }
+
     $embedData.Add([PSCustomObject]@{
         PC               = ConvertTo-HtmlSafe ([string]$pc.Machine.PC).Trim()
         IP               = ConvertTo-HtmlSafe $pc.Machine.IP
@@ -611,6 +722,9 @@ foreach ($pc in $allData) {
         TotalGPU         = $totalGPU
         TotalThermal     = $totalThermal
         TotalHardware    = $totalHWAlerting
+        # v1.6 : total des hard crashs filtres (BSODSilent+SleepResumeFailed+PowerLoss).
+        # null sur JSON v1.4/1.5, int sur v1.6. Le JS gere ce cas dans computeVerdict.
+        TotalHardCrash   = if ($null -ne $pc.Stats.TotalHardCrash) { [int]$pc.Stats.TotalHardCrash } else { $null }
         # v5.3 / v5.4 additions (peuvent etre $null selon le schema du JSON source)
         BatteryInfo      = $batteryEmbed
         ServicesHealth   = $servicesEmbed
@@ -618,6 +732,9 @@ foreach ($pc in $allData) {
         DiskHealth       = $diskHealthEmbed
         # v5.5 additions
         Monitors         = $monitorsEmbed
+        # v1.8 additions
+        MemoryInventory  = $memoryEmbed
+        GPUInventory     = $gpuEmbed
     })
 }
 
@@ -1179,6 +1296,96 @@ $html = @"
     }
     .active-filter-chip .close:hover { opacity: 1; }
 
+    /* ===== v1.5 : Pagination ===== */
+    .pagination-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 16px;
+        background: var(--bg-panel);
+        border-top: 1px solid var(--border);
+        flex-wrap: wrap;
+        font-size: 12px;
+    }
+    .pagination-info {
+        color: var(--text-muted);
+        font-size: 12px;
+        white-space: nowrap;
+    }
+    .pagination-controls {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+    }
+    .pagination-label {
+        color: var(--text-muted);
+        font-size: 12px;
+        margin-right: 4px;
+    }
+    .pagination-per, .pagination-page, .pagination-nav, .pagination-showmore, .pagination-showall {
+        background: var(--bg-main);
+        border: 1px solid var(--border);
+        color: var(--text-main);
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.15s;
+    }
+    .pagination-per:hover:not(.active),
+    .pagination-page:hover:not(.active),
+    .pagination-nav:hover:not([disabled]),
+    .pagination-showmore:hover,
+    .pagination-showall:hover {
+        background: var(--bg-hover);
+        border-color: var(--accent);
+    }
+    .pagination-per.active, .pagination-page.active {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+    }
+    .pagination-nav[disabled] {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+    .pagination-sep {
+        display: inline-block;
+        width: 1px;
+        height: 20px;
+        background: var(--border);
+        margin: 0 6px;
+    }
+    .pagination-ellipsis {
+        color: var(--text-muted);
+        padding: 0 4px;
+    }
+    .pagination-showmore {
+        margin-left: 12px;
+        background: var(--bg-main);
+        color: var(--accent);
+        border-color: var(--accent);
+    }
+    .pagination-showall {
+        margin-left: 4px;
+        background: transparent;
+        color: var(--text-muted);
+        font-style: italic;
+    }
+    /* Responsive : empiler info + controls sur mobile */
+    @media (max-width: 900px) {
+        .pagination-bar {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .pagination-controls {
+            width: 100%;
+        }
+    }
+
     .table-scroll { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; min-width: 1200px; }
     th, td { padding: 10px 16px; text-align: left; font-size: 13px; }
@@ -1278,8 +1485,98 @@ $html = @"
     .warn-badge.cpu-throttling { background: #3d2e1a; color: var(--yellow); }
     .warn-badge.disk-full      { background: #3d2a1a; color: #ff9966; }
     .warn-badge.disk-slow      { background: #2a2a3d; color: #99aaff; }
+    /* v1.5 : badge burst pour Event 51 cluster massif (>50 events) */
+    .burst-badge {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 700;
+        background: var(--red);
+        color: white;
+        letter-spacing: 0.5px;
+        vertical-align: middle;
+    }
     .warn-detail               { color: var(--text-muted); font-size: 11px; margin-right: 8px; }
     .kpi-warning               { color: var(--yellow); font-weight: 700; }
+
+    /* v1.6 : bloc CPU dans panel Materiel */
+    .cpu-info-block { padding: 4px 0; }
+    .cpu-info-block .cpu-name {
+        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+        font-size: 12px;
+        color: var(--text);
+        margin-bottom: 4px;
+        word-break: break-word;
+    }
+    .cpu-info-block .cpu-meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .cpu-badge-inline {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 600;
+    }
+    .cpu-badge-inline.ok      { background: rgba(34,197,94,0.15);  color: var(--green); }
+    .cpu-badge-inline.warning { background: rgba(234,179,8,0.15);  color: var(--yellow); }
+    .cpu-badge-inline.danger  { background: rgba(239,68,68,0.15);  color: var(--red); }
+
+    /* v1.6 : bandeau verdict global (4 niveaux) */
+    .verdict-banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        margin: 0 0 12px 0;
+        border-radius: 6px;
+        border-left: 4px solid;
+        font-size: 13px;
+    }
+    .verdict-banner.sain     { background: rgba(34,197,94,0.08);  border-color: var(--green);  color: var(--text); }
+    .verdict-banner.watch    { background: rgba(234,179,8,0.08);  border-color: var(--yellow); color: var(--text); }
+    .verdict-banner.incident { background: rgba(251,146,60,0.10); border-color: #fb923c;       color: var(--text); }
+    .verdict-banner.critical { background: rgba(239,68,68,0.10);  border-color: var(--red);    color: var(--text); }
+    .verdict-banner .v-icon    { font-size: 18px; }
+    .verdict-banner .v-label   { font-weight: 700; margin-right: 6px; }
+    .verdict-banner .v-reasons { color: var(--text-muted); font-size: 12px; }
+
+    /* v1.6 : section Signaux croises (correlations temporelles) */
+    .correlations-block {
+        margin: 10px 0;
+        padding: 10px 12px;
+        background: rgba(139,92,246,0.06);
+        border-left: 3px solid #8b5cf6;
+        border-radius: 4px;
+    }
+    .correlations-block h5 {
+        margin: 0 0 6px 0;
+        font-size: 11px;
+        color: #8b5cf6;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 700;
+    }
+    .correlation-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 4px 0;
+        font-size: 12px;
+        color: var(--text);
+    }
+    .correlation-item .c-icon { font-size: 14px; flex-shrink: 0; }
+    .correlation-item .c-severity { font-weight: 700; margin-right: 4px; }
+    .correlation-item.crit  .c-severity { color: var(--red); }
+    .correlation-item.warn  .c-severity { color: var(--yellow); }
+    .correlation-item .c-detail { color: var(--text-muted); font-size: 11px; }
 
     .uptime-badge, .cpu-badge, .conn-badge, .chassis-badge {
         display: inline-block;
@@ -1380,6 +1677,150 @@ $html = @"
     .detail-section.sec-bootperf{ border-left-color: var(--orange); }
     .detail-section.sec-smart   { border-left-color: var(--cyan); }
     .detail-section.sec-monitors { border-left-color: var(--purple); }
+    /* v1.8 */
+    .detail-section.sec-ram      { border-left-color: var(--cyan); }
+    .detail-section.sec-gpu      { border-left-color: var(--orange); }
+    .detail-section.sec-throttle { border-left-color: var(--red); }
+
+    /* v1.8 : RAM section */
+    .ram-summary {
+        padding: 8px 0 10px 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 8px;
+    }
+    .ram-summary-total {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+    .ram-big {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--cyan);
+    }
+    .ram-unit { font-size: 12px; color: var(--text-muted); }
+    .ram-summary-slots {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-left: 8px;
+    }
+    .ram-summary-meta {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 11px;
+        color: var(--text-muted);
+        flex-wrap: wrap;
+    }
+    .ram-meta-ok { color: var(--green); font-weight: 600; }
+    .ram-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 10px;
+        font-weight: 600;
+    }
+    .ram-badge.upgrade-ok { background: rgba(34,197,94,0.15);  color: var(--green); }
+    .ram-badge.upgrade-no { background: rgba(239,68,68,0.12);  color: var(--red); }
+    .ram-modules {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+    .ram-module-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 4px 6px;
+        background: var(--bg-main);
+        border-radius: 4px;
+        font-size: 11px;
+    }
+    .ram-slot-name {
+        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+        color: var(--text-muted);
+        min-width: 70px;
+    }
+    .ram-capacity {
+        font-weight: 700;
+        color: var(--text);
+        min-width: 50px;
+    }
+    .ram-module-meta {
+        color: var(--text-muted);
+        flex: 1;
+        font-size: 10px;
+    }
+
+    /* v1.8 : GPU section */
+    .gpu-row {
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .gpu-row:last-child { border-bottom: none; }
+    .gpu-name {
+        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+        font-size: 12px;
+        color: var(--text);
+        margin-bottom: 2px;
+    }
+    .gpu-meta {
+        font-size: 11px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+    }
+    .gpu-driver-ok  { color: var(--text-muted); }
+    .gpu-driver-old { color: var(--yellow); }
+    .gpu-old-tag {
+        background: rgba(234,179,8,0.15);
+        color: var(--yellow);
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    /* v1.8 : CPU Throttling section */
+    .throttle-summary {
+        padding: 6px 10px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+    .throttle-sev-info     { background: rgba(59,130,246,0.10); color: var(--cyan);   }
+    .throttle-sev-watch    { background: rgba(234,179,8,0.12);  color: var(--yellow); border-left: 3px solid var(--yellow); padding-left: 8px; }
+    .throttle-sev-critical { background: rgba(239,68,68,0.12);  color: var(--red);    border-left: 3px solid var(--red);    padding-left: 8px; }
+    .throttle-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 4px 0;
+        font-size: 11px;
+    }
+    .throttle-day {
+        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+        color: var(--text);
+        min-width: 90px;
+    }
+    .throttle-type {
+        color: var(--text-muted);
+        flex: 1;
+    }
+    .throttle-count {
+        color: var(--red);
+        font-weight: 600;
+        font-size: 10px;
+    }
+    .throttle-more {
+        font-size: 10px;
+        color: var(--text-faint);
+        font-style: italic;
+        padding: 4px 0 0 0;
+    }
 
     /* Pastilles indicateurs compacts (colonne tableau)
        v5.7 : gap 5px (etait 3px) pour mieux separer les pastilles.
@@ -1678,6 +2119,80 @@ $html = @"
     .global-crasher-stats { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
     .global-crasher-total { color: var(--red); font-weight: 700; }
 
+    /* v1.7 : 3 sections Top Crashers global (Local / Reparti / Bruit) */
+    .crasher-section { margin-bottom: 18px; }
+    .crasher-section-title {
+        margin: 0 0 10px 0;
+        font-size: 13px;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+    }
+    .crasher-section-count {
+        background: var(--bg-alt);
+        color: var(--text-muted);
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    .crasher-section-hint {
+        font-size: 11px;
+        color: var(--text-faint);
+        font-weight: 400;
+        margin-left: 4px;
+    }
+    .crasher-section-empty {
+        padding: 8px 12px;
+        background: var(--bg-main);
+        border-radius: 6px;
+        font-size: 11px;
+        color: var(--text-faint);
+        font-style: italic;
+    }
+    .crasher-collapsible { cursor: pointer; user-select: none; }
+    .crasher-toggle { font-size: 11px; color: var(--text-muted); margin-right: 2px; }
+    .crasher-noise-body { margin-top: 4px; }
+
+    /* Distinction visuelle par niveau (couleur bordure gauche) */
+    .global-crasher-row.local  { border-left-color: var(--red); }
+    .global-crasher-row.spread { border-left-color: var(--yellow); }
+    .global-crasher-row.noise  { border-left-color: var(--text-faint); opacity: 0.75; }
+
+    /* Badge score */
+    .crasher-score {
+        display: inline-block;
+        min-width: 32px;
+        text-align: center;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .crasher-score-local  { background: rgba(239,68,68,0.18); color: var(--red); }
+    .crasher-score-spread { background: rgba(234,179,8,0.18); color: var(--yellow); }
+    .crasher-score-noise  { background: var(--bg-alt);       color: var(--text-muted); }
+
+    /* Cadenas "forced to noise" via blacklist soft */
+    .crasher-forced { font-size: 11px; opacity: 0.6; margin-right: -4px; }
+
+    /* v1.7 : drill-down PC - bruiteurs grises */
+    .crasher-soft-noise { opacity: 0.55; }
+    .crasher-noise-tag {
+        display: inline-block;
+        font-size: 9px;
+        background: var(--bg-alt);
+        color: var(--text-faint);
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-left: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
     /* ===== BOOT BREAKDOWN (v5.2) ===== */
     .boot-breakdown { display: flex; flex-direction: column; gap: 10px; }
     .boot-breakdown-bar {
@@ -1758,9 +2273,9 @@ $html = @"
     <div class="divider"></div>
 
     <label style="color: var(--text-muted); font-size: 12px;">Site :</label>
-    <select id="siteFilter" onchange="render()"><option value="">Tous</option></select>
+    <select id="siteFilter" onchange="filterChanged()"><option value="">Tous</option></select>
     <label style="color: var(--text-muted); font-size: 12px;">CPU :</label>
-    <select id="cpuFilter" onchange="render()">
+    <select id="cpuFilter" onchange="filterChanged()">
         <option value="">Tous</option>
         <option value="Recent">Recent</option>
         <option value="Vieillissant">Vieillissant</option>
@@ -1770,7 +2285,7 @@ $html = @"
 
     <div class="search-wrap">
         <span class="search-icon">&#128269;</span>
-        <input class="search-input" type="text" id="searchInput" placeholder="PC ou utilisateur..." oninput="render()">
+        <input class="search-input" type="text" id="searchInput" placeholder="PC ou utilisateur..." oninput="filterChanged()">
     </div>
     <button class="export-btn" onclick="exportCSV()" title="Exporter la vue courante en CSV">&#8681; CSV</button>
 </div>
@@ -1794,12 +2309,16 @@ $html = @"
         </div>
         <span class="count" id="pcCount"></span>
     </div>
-    <div class="table-scroll">
+    <!-- v1.5 : pagination haut -->
+    <div id="paginationTop"></div>
+    <div class="table-scroll" id="deviceTable">
         <table>
             <thead id="tableHead"></thead>
             <tbody id="tableBody"></tbody>
         </table>
     </div>
+    <!-- v1.5 : pagination bas -->
+    <div id="paginationBottom"></div>
     <div class="legend">
         <div class="legend-item"><div class="legend-dot dot-danger"></div> Crash ou BSOD</div>
         <div class="legend-item"><div class="legend-dot dot-hardware"></div> Erreur mat&eacute;rielle</div>
@@ -1843,7 +2362,17 @@ var state = {
     siteFilter: '',
     cpuFilter: '',
     kpiFilter: null,     // 'offline', 'crash', 'bsod', 'hw', 'bootLong', 'diskAlert', 'oldCpu', 'crashRecent'
-    sort: { col: 'score', dir: 'desc' }
+    sort: { col: 'score', dir: 'desc' },
+    // Pagination : itemsPerPage peut valoir 20, 50, 100, ou 0 (tous)
+    // Persistance via localStorage pour se souvenir du choix utilisateur
+    itemsPerPage: (function() {
+        try {
+            var saved = localStorage.getItem('pcpulse_itemsPerPage');
+            if (saved !== null) return parseInt(saved, 10);
+        } catch (e) {}
+        return 50;  // defaut
+    })(),
+    currentPage: 1
 };
 
 // ===== BUGCHECK MAPPING =====
@@ -1901,6 +2430,284 @@ function timeAgo(dateStr) {
     if (diffH > 0) return 'il y a ' + diffH + 'h';
     if (diffMin > 0) return 'il y a ' + diffMin + 'min';
     return 'a l instant';
+}
+
+// ============================================================
+// v1.6 : VERDICT GLOBAL (4 niveaux)
+// Regle : on remonte tous les criteres observes et on prend le
+// niveau le plus grave. Chaque critere contribue a la liste de
+// raisons affichee en metadata.
+// ============================================================
+// ============================================================
+// v1.7 : DEBRUITAGE DES TOP CRASHERS (Signal vs Bruit)
+// ============================================================
+// Blacklist HARD : processus ecartes completement, invisibles partout.
+// Reserve aux crashers "inactionnables par construction" dont le volume
+// pourrit la vue sans apporter aucune info exploitable.
+var CRASHER_BLACKLIST_HARD = [
+    // Le vrai nom du binaire Microsoft a une typo interne : "searchINbing"
+    // (et non "searchBing" comme on pourrait le croire). On garde les 2 variantes
+    // par securite au cas ou Microsoft corrigerait la typo un jour.
+    'microsoftsearchinbing.exe',  // typo reelle du binaire (cas terrain)
+    'microsoftsearchbing.exe'     // orthographe logique (si jamais corrige)
+];
+
+// Blacklist SOFT : processus toujours affiches, mais forces en section
+// "Bruit ambient" meme si leur score les aurait remontes plus haut.
+// Garde un oeil dessus sans les laisser polluer le top.
+var CRASHER_BLACKLIST_SOFT = [
+    'dellosd.exe',                       // Dell On-Screen Display
+    'shellexperiencehost.exe',           // UI shell Windows, redemarre seul
+    'gamebar.exe',                       // Xbox Game Bar
+    'asussystemanalysis.exe',            // utilitaire ASUS
+    'asusverifyjwt.exe',                 // utilitaire ASUS
+    'dell.techhub.diagnostics.subagent'  // Dell Tech Hub
+];
+
+function isBlacklistedHard(name) {
+    if (!name) return false;
+    var n = String(name).toLowerCase();
+    for (var i = 0; i < CRASHER_BLACKLIST_HARD.length; i++) {
+        if (n.indexOf(CRASHER_BLACKLIST_HARD[i]) >= 0) return true;
+    }
+    return false;
+}
+function isBlacklistedSoft(name) {
+    if (!name) return false;
+    var n = String(name).toLowerCase();
+    for (var i = 0; i < CRASHER_BLACKLIST_SOFT.length; i++) {
+        if (n.indexOf(CRASHER_BLACKLIST_SOFT[i]) >= 0) return true;
+    }
+    return false;
+}
+
+// Scoring : penalise la dispersion entre PC.
+// score = (total/pcCount) / sqrt(pcCount) = moyenne_par_PC / sqrt(PC_impactes)
+// Un processus concentre (8 crashs sur 1 PC) sort plus haut qu'un
+// processus reparti (81 crashs sur 10 PC), qui est typiquement du bruit.
+function computeCrasherScore(total, pcCount) {
+    if (!pcCount || pcCount <= 0) return 0;
+    var avgPerPc = total / pcCount;
+    return avgPerPc / Math.sqrt(pcCount);
+}
+
+// Classification en 3 niveaux :
+//   'local'   (score >= 3)  : concentre sur peu de PC, actionnable
+//   'spread'  (2 <= score < 3) : reparti, possible bug app
+//   'noise'   (score < 2)   : bruit ambient, pas actionnable
+// Les entrees en blacklist SOFT sont forcees en 'noise' peu importe leur score.
+function classifyCrasher(name, total, pcCount) {
+    var score = computeCrasherScore(total, pcCount);
+    if (isBlacklistedSoft(name)) return { level: 'noise', score: score, forced: true };
+    if (score >= 3)              return { level: 'local',  score: score, forced: false };
+    if (score >= 2)              return { level: 'spread', score: score, forced: false };
+    return                              { level: 'noise',  score: score, forced: false };
+}
+
+function computeVerdict(p) {
+    // Donnees sur lesquelles on raisonne
+    var crashCount    = p.crashCount        || 0;
+    var bsodCount     = p.bsodCount         || 0;
+    var hardCrash     = (p.pc && p.pc.TotalHardCrash) ? p.pc.TotalHardCrash : 0;  // v1.6
+    var wheaFatal     = (p.wheaFatal    || []).length;
+    var wheaCorrUniq  = (p.wheaCorrected || []).length;
+    var wheaCorrTot   = p.wheaCorrectedTotal || 0;
+    var cpuCat        = (p.pc && p.pc.CPUAgeCategory) || 'Inconnu';
+    var battPct       = (p.battery && p.battery.HasBattery === true && typeof p.battery.HealthPercent === 'number') ? p.battery.HealthPercent : null;
+    var smartWearMax  = 0;
+    if (p.pc && Array.isArray(p.pc.DiskHealth)) {
+        p.pc.DiskHealth.forEach(function(d) {
+            if (typeof d.WearPct === 'number' && d.WearPct > smartWearMax) smartWearMax = d.WearPct;
+        });
+    }
+    // Burst I/O massif (>= 50 events en un cluster)
+    var hasBurstMassive = (p.warnings || []).some(function(w) { return w.IsBurst === true; });
+    var hasBurstAny     = (p.warnings || []).some(function(w) { return typeof w.Count === 'number' && w.Count > 1; });
+
+    var reasons = [];
+    var level   = 'sain';
+
+    // --- NIVEAU CRITIQUE ---
+    if (wheaFatal > 0) {
+        reasons.push(wheaFatal + ' erreur(s) WHEA fatale(s)');
+        level = 'critical';
+    }
+    if (hardCrash >= 5) {
+        reasons.push(hardCrash + ' hard crashs/30j');
+        level = 'critical';
+    }
+    if (battPct !== null && battPct < 50) {
+        reasons.push('batterie ' + battPct + '%');
+        level = 'critical';
+    }
+    if (smartWearMax > 80) {
+        reasons.push('SSD wear ' + smartWearMax + '%');
+        level = 'critical';
+    }
+    if (cpuCat === 'Ancien' && crashCount >= 1) {
+        reasons.push('CPU ancien + crashs');
+        level = 'critical';
+    }
+
+    // --- NIVEAU INCIDENT PROBABLE ---
+    if (level !== 'critical') {
+        if (hasBurstMassive) {
+            reasons.push('burst I/O massif (>=50 events)');
+            level = 'incident';
+        }
+        if (wheaCorrUniq > 20 || wheaCorrTot > 50) {
+            reasons.push(wheaCorrUniq + ' signatures WHEA corrigees');
+            level = 'incident';
+        }
+        if (bsodCount >= 1) {
+            reasons.push(bsodCount + ' BSOD/30j');
+            level = 'incident';
+        }
+        if (hardCrash >= 2 && hardCrash < 5) {
+            reasons.push(hardCrash + ' hard crashs/30j');
+            level = 'incident';
+        }
+    }
+
+    // --- NIVEAU A SURVEILLER ---
+    if (level !== 'critical' && level !== 'incident') {
+        if (cpuCat === 'Vieillissant') {
+            reasons.push('CPU vieillissant');
+            level = 'watch';
+        }
+        if (battPct !== null && battPct >= 50 && battPct < 70) {
+            reasons.push('batterie ' + battPct + '%');
+            level = 'watch';
+        }
+        if (smartWearMax >= 50 && smartWearMax <= 80) {
+            reasons.push('SSD wear ' + smartWearMax + '%');
+            level = 'watch';
+        }
+        if (hasBurstAny && !hasBurstMassive) {
+            reasons.push('burst I/O isole');
+            level = 'watch';
+        }
+    }
+
+    // Libelles pour affichage
+    var labels = {
+        sain:     { cls: 'sain',     icon: '&#129001;', label: 'Sain' },              // green circle
+        watch:    { cls: 'watch',    icon: '&#129000;', label: 'A surveiller' },      // yellow circle
+        incident: { cls: 'incident', icon: '&#128992;', label: 'Incident probable' }, // orange circle
+        critical: { cls: 'critical', icon: '&#128308;', label: 'Critique' }           // red circle
+    };
+
+    var info = labels[level];
+    return {
+        level:   level,
+        cls:     info.cls,
+        icon:    info.icon,
+        label:   info.label,
+        reasons: reasons
+    };
+}
+
+// ============================================================
+// v1.6 : DETECTION DE PATTERNS TEMPORELS (fenetre 10 min)
+// 5 patterns qui croisent differentes sources pour donner un
+// diagnostic qu'une seule source ne revele pas.
+// ============================================================
+function detectCorrelations(p) {
+    var CORR_WINDOW_MS = 10 * 60 * 1000;  // 10 min
+    var findings = [];
+
+    function tsOf(s) { return parseDate(s).getTime(); }
+
+    // -- Pattern 1 : Burst I/O (>=50 events) -> Hard crash dans les 10 min
+    var bursts = (p.warnings || []).filter(function(w) { return w.IsBurst === true; });
+    var crashTimestamps = (p.crashes || []).map(function(c) { return { ts: tsOf(c.Timestamp), cause: c.CrashCause || '', type: c.Type }; });
+    bursts.forEach(function(b) {
+        var bTs = tsOf(b.Timestamp);
+        var match = crashTimestamps.filter(function(c) {
+            return c.ts >= bTs && (c.ts - bTs) <= CORR_WINDOW_MS;
+        });
+        if (match.length > 0) {
+            findings.push({
+                severity: 'crit',
+                icon: '&#128190;',
+                title: 'Probable panne disque',
+                detail: 'Burst I/O massif (' + b.Count + ' events) le ' + b.Timestamp + ' suivi d un crash materiel dans les 10 min'
+            });
+        }
+    });
+
+    // -- Pattern 2 : WHEA Corrected PCIe -> crash systeme dans les 10 min
+    var wheaPCIe = (p.wheaCorrected || []).filter(function(h) {
+        return (h.ErrorSource || '').toUpperCase().indexOf('PCI') >= 0;
+    });
+    wheaPCIe.forEach(function(h) {
+        var hTs = tsOf(h.LastSeen);
+        var match = crashTimestamps.filter(function(c) {
+            return Math.abs(c.ts - hTs) <= CORR_WINDOW_MS;
+        });
+        if (match.length > 0) {
+            findings.push({
+                severity: 'warn',
+                icon: '&#128268;',
+                title: 'Slot PCIe suspect',
+                detail: 'WHEA PCIe (' + h.Count + ' occurrences) corrélée avec un crash dans les 10 min'
+            });
+        }
+    });
+
+    // -- Pattern 3 : Thermal event + BootTime > 2x moyenne historique
+    var hasThermal = (p.thermal || []).length > 0;
+    var avgBoot = (p.bootPerf && p.bootPerf.Stats && p.bootPerf.Stats.AvgBootTimeMs) ? p.bootPerf.Stats.AvgBootTimeMs : 0;
+    var maxBoot = (p.bootPerf && p.bootPerf.Stats && p.bootPerf.Stats.MaxBootTimeMs) ? p.bootPerf.Stats.MaxBootTimeMs : 0;
+    if (hasThermal && avgBoot > 0 && maxBoot > 2 * avgBoot) {
+        findings.push({
+            severity: 'warn',
+            icon: '&#127777;',
+            title: 'Refroidissement degrade',
+            detail: 'Thermal event + pic de boot a ' + Math.round(maxBoot/1000) + 's (moyenne ' + Math.round(avgBoot/1000) + 's) : ventilo ou pate thermique a verifier'
+        });
+    }
+
+    // -- Pattern 4 : BSOD >=2 avec meme BugCheck sur 7j
+    var SEVEN_DAYS_MS = 7 * 24 * 3600 * 1000;
+    var bsodByCode = {};
+    (p.crashes || []).filter(function(c) { return c.Type === 'BSOD' && c.Detail; }).forEach(function(c) {
+        var code = c.Detail;
+        var ts = tsOf(c.Timestamp);
+        if (!bsodByCode[code]) bsodByCode[code] = [];
+        bsodByCode[code].push(ts);
+    });
+    Object.keys(bsodByCode).forEach(function(code) {
+        var arr = bsodByCode[code].sort(function(a,b){ return b-a; });
+        if (arr.length >= 2 && (arr[0] - arr[arr.length-1]) <= SEVEN_DAYS_MS) {
+            var bugName = bugCheckName(code);
+            findings.push({
+                severity: 'warn',
+                icon: '&#128165;',
+                title: 'Crash recurrent',
+                detail: arr.length + ' BSOD ' + code + (bugName ? ' (' + bugName + ')' : '') + ' en 7 jours'
+            });
+        }
+    });
+
+    // -- Pattern 5 : Hard crash >=2 en 24h
+    var ONE_DAY_MS = 24 * 3600 * 1000;
+    var hardCrashes = (p.crashes || []).filter(function(c) {
+        return c.Type === 'Hard reset' && c.CrashCause && c.CrashCause !== 'UserForcedReset';
+    }).map(function(c) { return tsOf(c.Timestamp); }).sort(function(a,b){ return b-a; });
+    for (var i = 0; i < hardCrashes.length - 1; i++) {
+        if ((hardCrashes[i] - hardCrashes[i+1]) <= ONE_DAY_MS) {
+            findings.push({
+                severity: 'warn',
+                icon: '&#9889;',
+                title: 'Instabilite marquee',
+                detail: '>=2 hard crashs en moins de 24h : surveiller alim / thermique / drivers'
+            });
+            break;  // un seul match suffit
+        }
+    }
+
+    return findings;
 }
 // Format humain de l'uptime a partir d'une valeur en jours (float).
 // Regles :
@@ -1999,15 +2806,24 @@ function toggleTheme() {
 })();
 
 // ===== FILTRES =====
+// v1.5 : wrapper appele par search/site/cpu qui reset la page avant render
+// (evite de se retrouver sur une page qui n'existe plus apres filtrage)
+function filterChanged() {
+    state.currentPage = 1;
+    render();
+}
+
 function setDays(days, btn) {
     state.days = days;
     state.daysBtn = btn;
+    state.currentPage = 1;  // v1.5 : retour page 1 sur changement de filtre
     document.querySelectorAll('.range-btn').forEach(function(b) { b.classList.remove('active'); });
     if (btn) btn.classList.add('active');
     render();
 }
 function toggleMaskHealthy() {
     state.maskHealthy = !state.maskHealthy;
+    state.currentPage = 1;  // v1.5
     document.getElementById('maskHealthyBtn').classList.toggle('active', state.maskHealthy);
     render();
 }
@@ -2037,10 +2853,12 @@ function selectDetailTab(idx, tab) {
 }
 function toggleKpiFilter(key) {
     state.kpiFilter = (state.kpiFilter === key) ? null : key;
+    state.currentPage = 1;  // v1.5
     render();
 }
 function clearKpiFilter() {
     state.kpiFilter = null;
+    state.currentPage = 1;  // v1.5
     render();
 }
 
@@ -2160,7 +2978,11 @@ function enrichPC(pc, cutoff) {
         // v5.7 : moniteurs externes
         monitors: monitors,
         oldMonitors: oldMonitors,
-        oldMonitorAlert: oldMonitorAlert
+        oldMonitorAlert: oldMonitorAlert,
+        // v1.8 : RAM/GPU/throttling (null ou [] si JSON < 1.8)
+        memory: pc.MemoryInventory || null,
+        gpuInventory: pc.GPUInventory || [],
+        hardwareHealth: pc.HardwareHealth || {}
     };
     result.score = computeScore(result);
     return result;
@@ -2257,13 +3079,149 @@ function render() {
     });
 
     sortPCs(visible);
-    renderTable(visible);
+
+    // v1.5 : Pagination
+    // On slice "visible" selon la page courante et itemsPerPage.
+    // Si un filtre change, il est possible que currentPage pointe sur une
+    // page qui n'existe plus (ex: j'etais page 5, je filtre -> 40 PC -> 1 page).
+    // On borne currentPage pour eviter un tableau vide.
+    var totalPages = (state.itemsPerPage === 0) ? 1 : Math.max(1, Math.ceil(visible.length / state.itemsPerPage));
+    if (state.currentPage > totalPages) state.currentPage = totalPages;
+    if (state.currentPage < 1) state.currentPage = 1;
+
+    var visibleSlice;
+    if (state.itemsPerPage === 0) {
+        visibleSlice = visible;  // Tout afficher
+    } else {
+        var startIdx = (state.currentPage - 1) * state.itemsPerPage;
+        var endIdx   = startIdx + state.itemsPerPage;
+        visibleSlice = visible.slice(startIdx, endIdx);
+    }
+
+    renderTable(visibleSlice);
+    renderPagination(visible.length, totalPages);
     renderActiveFilters();
     renderGlobalCrashers(baseFiltered);
     renderBootBreakdown(baseFiltered);
     renderMonitorInventory(baseFiltered);
 
     document.getElementById('pcCount').textContent = visible.length + ' / ' + allEnriched.length + ' appareil(s)';
+}
+
+// ===== v1.5 : PAGINATION =====
+// Rendu du bloc de pagination (affiche en haut et en bas du tableau).
+// totalItems = nombre total de PC apres tous les filtres (pour les compteurs)
+// totalPages = calcule par render() pour coherence
+function renderPagination(totalItems, totalPages) {
+    var containers = ['paginationTop', 'paginationBottom'];
+    var per = state.itemsPerPage;
+    var cur = state.currentPage;
+
+    // Etat actif/inactif pour les selecteurs
+    function perActive(val) { return per === val ? ' active' : ''; }
+
+    // Calculer les bornes d'affichage
+    var startNum, endNum;
+    if (per === 0) {
+        startNum = totalItems > 0 ? 1 : 0;
+        endNum   = totalItems;
+    } else {
+        startNum = totalItems > 0 ? (cur - 1) * per + 1 : 0;
+        endNum   = Math.min(cur * per, totalItems);
+    }
+
+    // Construction des numeros de page (logique "1 ... 3 4 [5] 6 7 ... 20")
+    var pagesHtml = '';
+    if (per > 0 && totalPages > 1) {
+        var range = [];
+        if (totalPages <= 7) {
+            // Peu de pages : on les affiche toutes
+            for (var i = 1; i <= totalPages; i++) range.push(i);
+        } else {
+            // Beaucoup de pages : ellipses intelligentes
+            range.push(1);
+            if (cur > 3) range.push('...');
+            for (var j = Math.max(2, cur - 1); j <= Math.min(totalPages - 1, cur + 1); j++) {
+                range.push(j);
+            }
+            if (cur < totalPages - 2) range.push('...');
+            range.push(totalPages);
+        }
+        range.forEach(function(p) {
+            if (p === '...') {
+                pagesHtml += '<span class="pagination-ellipsis">...</span>';
+            } else {
+                var active = p === cur ? ' active' : '';
+                pagesHtml += '<button class="pagination-page' + active + '" onclick="goToPage(' + p + ')">' + p + '</button>';
+            }
+        });
+    }
+
+    // Bouton Precedent / Suivant
+    var prevDisabled = (per === 0 || cur === 1) ? ' disabled' : '';
+    var nextDisabled = (per === 0 || cur >= totalPages) ? ' disabled' : '';
+
+    // Boutons "afficher plus" et "tout afficher"
+    var canShowMore = (per > 0 && cur < totalPages);
+    var showMoreBtn = canShowMore
+        ? '<button class="pagination-showmore" onclick="showMorePage()" title="Afficher les ' + Math.min(per, totalItems - endNum) + ' PC suivants">+ Afficher ' + Math.min(per, totalItems - endNum) + ' de plus</button>'
+        : '';
+    var showAllBtn = (per !== 0 && totalItems > per)
+        ? '<button class="pagination-showall" onclick="setItemsPerPage(0)" title="Desactiver la pagination et tout afficher">Tout afficher</button>'
+        : '';
+
+    var html =
+        '<div class="pagination-bar">' +
+            '<div class="pagination-info">' +
+                'Affichage ' + startNum + '-' + endNum + ' sur ' + totalItems + ' PC' +
+            '</div>' +
+            '<div class="pagination-controls">' +
+                '<span class="pagination-label">Par page :</span>' +
+                '<button class="pagination-per' + perActive(20)  + '" onclick="setItemsPerPage(20)">20</button>' +
+                '<button class="pagination-per' + perActive(50)  + '" onclick="setItemsPerPage(50)">50</button>' +
+                '<button class="pagination-per' + perActive(100) + '" onclick="setItemsPerPage(100)">100</button>' +
+                '<button class="pagination-per' + perActive(0)   + '" onclick="setItemsPerPage(0)">Tous</button>' +
+                '<span class="pagination-sep"></span>' +
+                '<button class="pagination-nav' + prevDisabled + '" onclick="goToPage(' + (cur - 1) + ')"' + prevDisabled + '>&larr; Prec.</button>' +
+                pagesHtml +
+                '<button class="pagination-nav' + nextDisabled + '" onclick="goToPage(' + (cur + 1) + ')"' + nextDisabled + '>Suiv. &rarr;</button>' +
+                showMoreBtn +
+                showAllBtn +
+            '</div>' +
+        '</div>';
+
+    containers.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = html;
+    });
+}
+
+function setItemsPerPage(n) {
+    state.itemsPerPage = n;
+    state.currentPage = 1;
+    try { localStorage.setItem('pcpulse_itemsPerPage', n); } catch (e) {}
+    render();
+}
+
+function goToPage(n) {
+    state.currentPage = n;
+    render();
+    // Scroll vers le haut du tableau pour le confort utilisateur
+    var tableEl = document.getElementById('deviceTable');
+    if (tableEl) tableEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// "Afficher + de N" : passe a la page suivante sans changer itemsPerPage
+// (difference avec goToPage : ne scroll pas en haut, reste dans la continuite)
+function showMorePage() {
+    state.currentPage++;
+    render();
+}
+
+// Reset currentPage a 1 des qu'un filtre change (sinon on peut se retrouver
+// sur une page qui n'existe plus et voir un tableau vide le temps d'un render)
+function resetPaginationToFirstPage() {
+    state.currentPage = 1;
 }
 
 function renderActiveFilters() {
@@ -2551,12 +3509,14 @@ function renderBootBreakdown(pcs) {
         '<div style="font-size:11px;color:var(--text-muted)">' + pcCountWithBootData + ' PC remontent des donnees de demarrage sur ' + pcs.length + ' (' + grandTotal + ' d&eacute;marrages au total)</div>';
 }
 
-// ===== AGREGATION PARC : TOP CRASHERS GLOBAL =====
+// ===== AGREGATION PARC : TOP CRASHERS GLOBAL (v1.7 : 3 sections) =====
 function renderGlobalCrashers(pcs) {
     var agg = {};
     pcs.forEach(function(p) {
         (p.topCrashers || []).forEach(function(c) {
             var key = c.AppName;
+            // v1.7 : blacklist HARD - on zappe completement a l'agregation
+            if (isBlacklistedHard(key)) return;
             if (!agg[key]) agg[key] = { name: key, total: 0, pcCount: 0, pcSet: {} };
             agg[key].total += c.CrashCount;
             if (!agg[key].pcSet[p.pc.PC]) {
@@ -2565,27 +3525,104 @@ function renderGlobalCrashers(pcs) {
             }
         });
     });
-    var arr = Object.keys(agg).map(function(k) { return agg[k]; });
-    arr.sort(function(a, b) {
-        // Tri : d'abord par nb de PCs affectes, puis par total de crashs
-        if (b.pcCount !== a.pcCount) return b.pcCount - a.pcCount;
-        return b.total - a.total;
+
+    var arr = Object.keys(agg).map(function(k) {
+        var a = agg[k];
+        var cls = classifyCrasher(a.name, a.total, a.pcCount);
+        a.score  = cls.score;
+        a.level  = cls.level;
+        a.forced = cls.forced;
+        return a;
     });
-    var top = arr.slice(0, 20);
+
+    // Tri principal : score decroissant dans chaque section
+    arr.sort(function(a, b) { return b.score - a.score; });
 
     var container = document.getElementById('globalCrashers');
-    if (top.length === 0) {
+    if (arr.length === 0) {
         container.innerHTML = '<div class="detail-empty">Aucun crash d application agrege</div>';
         return;
     }
-    container.innerHTML = top.map(function(c) {
-        return '<div class="global-crasher-row">' +
-               '<span class="global-crasher-name" title="' + c.name + '">' + c.name + '</span>' +
-               '<span class="global-crasher-stats">' +
-               '<span class="global-crasher-total">' + c.total + '</span>' +
-               ' crashs / ' + c.pcCount + ' PC' +
-               '</span></div>';
-    }).join('');
+
+    var local  = arr.filter(function(a) { return a.level === 'local'; });
+    var spread = arr.filter(function(a) { return a.level === 'spread'; });
+    var noise  = arr.filter(function(a) { return a.level === 'noise'; });
+
+    // Helper de rendu d'une ligne crasheur
+    function renderRow(c) {
+        var badgeCls = 'crasher-score-' + c.level;
+        var forcedTag = c.forced ? '<span class="crasher-forced" title="Force en bruit (blacklist soft)">&#128274;</span>' : '';
+        var scoreTxt = c.score.toFixed(1);
+        return '<div class="global-crasher-row ' + c.level + '">' +
+                  '<span class="global-crasher-name" title="' + c.name + '">' + c.name + '</span>' +
+                  forcedTag +
+                  '<span class="crasher-score ' + badgeCls + '" title="Score signal (plus haut = plus concentre sur peu de PC)">' + scoreTxt + '</span>' +
+                  '<span class="global-crasher-stats">' +
+                    '<span class="global-crasher-total">' + c.total + '</span>' +
+                    ' crashs / ' + c.pcCount + ' PC' +
+                  '</span>' +
+                '</div>';
+    }
+
+    var html = '';
+
+    // --- Section 1 : Signaux locaux ---
+    html += '<div class="crasher-section crasher-section-local">' +
+            '<h4 class="crasher-section-title">&#127919; Signaux locaux ' +
+              '<span class="crasher-section-count">' + local.length + '</span>' +
+              '<span class="crasher-section-hint">Crashs concentres sur peu de PC, a investiguer</span>' +
+            '</h4>';
+    if (local.length > 0) {
+        html += '<div class="global-crashers-grid">' + local.map(renderRow).join('') + '</div>';
+    } else {
+        html += '<div class="crasher-section-empty">Aucun signal local detecte</div>';
+    }
+    html += '</div>';
+
+    // --- Section 2 : Problemes repartis ---
+    html += '<div class="crasher-section crasher-section-spread">' +
+            '<h4 class="crasher-section-title">&#9888;&#65039; Problemes repartis ' +
+              '<span class="crasher-section-count">' + spread.length + '</span>' +
+              '<span class="crasher-section-hint">Possibles bugs applicatifs touchant plusieurs PC</span>' +
+            '</h4>';
+    if (spread.length > 0) {
+        html += '<div class="global-crashers-grid">' + spread.map(renderRow).join('') + '</div>';
+    } else {
+        html += '<div class="crasher-section-empty">Aucun probleme reparti detecte</div>';
+    }
+    html += '</div>';
+
+    // --- Section 3 : Bruit ambient (repliable, fermee par defaut) ---
+    html += '<div class="crasher-section crasher-section-noise">' +
+            '<h4 class="crasher-section-title crasher-collapsible" onclick="toggleNoise(this)">' +
+              '<span class="crasher-toggle">&#9656;</span> ' +
+              '&#128266; Bruit ambient ' +
+              '<span class="crasher-section-count">' + noise.length + '</span>' +
+              '<span class="crasher-section-hint">Bruit de fond parc (repli&eacute; par d&eacute;faut)</span>' +
+            '</h4>' +
+            '<div class="crasher-noise-body" style="display:none">';
+    if (noise.length > 0) {
+        html += '<div class="global-crashers-grid">' + noise.map(renderRow).join('') + '</div>';
+    } else {
+        html += '<div class="crasher-section-empty">Pas de bruit residuel</div>';
+    }
+    html += '</div></div>';
+
+    container.innerHTML = html;
+}
+
+// v1.7 : toggle visuel section bruit
+function toggleNoise(el) {
+    var body = el.parentElement.querySelector('.crasher-noise-body');
+    var toggle = el.querySelector('.crasher-toggle');
+    if (!body) return;
+    if (body.style.display === 'none') {
+        body.style.display = '';
+        if (toggle) toggle.innerHTML = '&#9662;';  // fleche bas
+    } else {
+        body.style.display = 'none';
+        if (toggle) toggle.innerHTML = '&#9656;';  // fleche droite
+    }
 }
 
 // ===== AGREGATION PARC : INVENTAIRE MONITORS (v5.7) =====
@@ -2864,11 +3901,25 @@ function renderTable(pcs) {
 }
 
 function renderDetailRow(p, idx, colspan) {
-    // Crashes avec BugCheck symbolique
+    // v1.6 : libelles fins par CrashCause pour les Events 41.
+    // Fallback sur les anciens libelles si CrashCause absent (JSON v1.4/1.5).
+    function crashCauseLabel(cause) {
+        if (cause === 'BSODSilent')        return 'BSOD silencieux';
+        if (cause === 'SleepResumeFailed') return 'Reprise veille rat&eacute;e';
+        if (cause === 'UserForcedReset')   return 'User bouton power';
+        if (cause === 'PowerLoss')         return 'Coupure alim / thermal';
+        if (cause === 'FreezeApp')         return 'Freeze applicatif';
+        if (cause === 'FreezeUnknown')     return 'Freeze (cause inconnue)';
+        return null;
+    }
+
+    // Crashes avec BugCheck symbolique + CrashCause v1.6
     var crashHTML = '';
     if (p.crashes.length > 0) {
         p.crashes.forEach(function(c) {
             var badge = '', detailSpan = '';
+            var causeLbl = crashCauseLabel(c.CrashCause);
+
             if (c.Type === 'BSOD') {
                 badge = '<span class="crash-badge bsod">BSOD</span>';
                 detailSpan = '<span class="crash-stopcode">' + (c.Detail || '') + '</span>';
@@ -2876,11 +3927,14 @@ function renderDetailRow(p, idx, colspan) {
                 if (bugName) detailSpan += '<span class="crash-bugname">' + bugName + '</span>';
             } else if (c.Type === 'Hard reset') {
                 badge = '<span class="crash-badge hard-reset">Hard reset</span>';
+                // v1.6 : preciser la cause si disponible
+                if (causeLbl) detailSpan = '<span class="crash-app">' + causeLbl + '</span>';
             } else if (c.Detail) {
                 badge = '<span class="crash-badge freeze-app">Freeze</span>';
                 detailSpan = '<span class="crash-app">' + c.Detail + '</span>';
             } else {
                 badge = '<span class="crash-badge freeze">Freeze</span>';
+                if (causeLbl) detailSpan = '<span class="crash-app">' + causeLbl + '</span>';
             }
             crashHTML += '<div class="detail-item">' + badge + detailSpan + '<span class="detail-date">' + c.Timestamp + ' <span class="detail-ago">(' + timeAgo(c.Timestamp) + ')</span></span></div>';
         });
@@ -2933,6 +3987,31 @@ function renderDetailRow(p, idx, colspan) {
         bootLongHTML += '<div class="detail-empty">Aucun demarrage detecte</div>';
     }
 
+    // v1.6 : bloc CPU pour le panel Materiel
+    var cpuHTML = '';
+    var cpuCat = p.pc.CPUAgeCategory || 'Inconnu';
+    var cpuBadgeCls = 'ok';
+    if (cpuCat === 'Ancien')       cpuBadgeCls = 'danger';
+    else if (cpuCat === 'Vieillissant') cpuBadgeCls = 'warning';
+    else if (cpuCat === 'Recent')  cpuBadgeCls = 'ok';
+    var cpuMetaParts = [];
+    if (p.pc.CPUVendor) cpuMetaParts.push(p.pc.CPUVendor);
+    if (p.pc.CPUGen)    cpuMetaParts.push('Gen ' + p.pc.CPUGen);
+    if (p.pc.CPUYear)   cpuMetaParts.push(p.pc.CPUYear);
+    if (p.pc.CPUAge !== null && p.pc.CPUAge !== undefined) cpuMetaParts.push(p.pc.CPUAge + ' an(s)');
+    var cpuMetaStr = cpuMetaParts.join(' &middot; ');
+    if (p.pc.CPUName) {
+        cpuHTML = '<div class="cpu-info-block">' +
+                    '<div class="cpu-name">' + p.pc.CPUName + '</div>' +
+                    '<div class="cpu-meta">' +
+                      (cpuMetaStr ? '<span>' + cpuMetaStr + '</span>' : '') +
+                      '<span class="cpu-badge-inline ' + cpuBadgeCls + '">' + cpuCat + '</span>' +
+                    '</div>' +
+                  '</div>';
+    } else {
+        cpuHTML = '<div class="detail-empty">Nom CPU non disponible</div>';
+    }
+
     var diskHTML = '';
     if (p.diskInfo.length > 0) {
         p.diskInfo.forEach(function(d) {
@@ -2946,9 +4025,20 @@ function renderDetailRow(p, idx, colspan) {
     }
 
     var crasherHTML = '';
-    if (p.topCrashers.length > 0) {
-        p.topCrashers.slice(0, 5).forEach(function(tc) {
-            crasherHTML += '<div class="crasher-item"><span class="crasher-name">' + tc.AppName + '</span> <span class="crasher-count">(' + tc.CrashCount + ')</span></div>';
+    // v1.7 : on filtre les blacklist HARD (invisibles) et marque les SOFT (grises).
+    var pcCrashers = (p.topCrashers || []).filter(function(tc) {
+        return !isBlacklistedHard(tc.AppName);
+    });
+    if (pcCrashers.length > 0) {
+        pcCrashers.slice(0, 5).forEach(function(tc) {
+            var isSoft = isBlacklistedSoft(tc.AppName);
+            var rowCls = isSoft ? 'crasher-item crasher-soft-noise' : 'crasher-item';
+            var noiseTag = isSoft ? ' <span class="crasher-noise-tag" title="Crasher connu - bruit ambient">bruit</span>' : '';
+            crasherHTML += '<div class="' + rowCls + '">' +
+                             '<span class="crasher-name">' + tc.AppName + '</span> ' +
+                             '<span class="crasher-count">(' + tc.CrashCount + ')</span>' +
+                             noiseTag +
+                           '</div>';
         });
     } else {
         crasherHTML = '<div class="detail-empty">Aucun crash app</div>';
@@ -3034,7 +4124,24 @@ function renderDetailRow(p, idx, colspan) {
             else if (w.Type === 'CPU throttling') { badgeClass = 'cpu-throttling'; badge = 'CPU'; }
             else if (w.Type === 'Disk full')      { badgeClass = 'disk-full';      badge = 'DISK'; }
             else if (w.Type === 'Disk slow')      { badgeClass = 'disk-slow';      badge = 'I/O'; }
-            perfHTML += '<div class="detail-item"><span class="warn-badge ' + badgeClass + '">' + badge + '</span><span class="warn-detail">' + (w.Detail || '') + '</span><span class="detail-date">' + w.Timestamp + '</span></div>';
+            // v1.5 : affichage enrichi avec Count + burst (backward-compat v1.4-)
+            var detailStr = w.Detail || '';
+            var countStr  = '';
+            var burstStr  = '';
+            if (typeof w.Count === 'number' && w.Count > 1) {
+                var durSec = 0;
+                if (w.FirstSeen && w.LastSeen) {
+                    try { durSec = Math.round((parseDate(w.LastSeen) - parseDate(w.FirstSeen)) / 1000); } catch(e) {}
+                }
+                countStr = ' &times;' + w.Count + ' events';
+                if (durSec <= 1) countStr += ' en 1s';
+                else if (durSec < 60) countStr += ' en ' + durSec + 's';
+                else countStr += ' en ' + Math.round(durSec / 60) + 'min';
+            }
+            if (w.IsBurst === true) {
+                burstStr = ' <span class="burst-badge" title="Burst massif : probable incident mat\u00e9riel">&#128293; BURST</span>';
+            }
+            perfHTML += '<div class="detail-item"><span class="warn-badge ' + badgeClass + '">' + badge + '</span><span class="warn-detail">' + detailStr + countStr + burstStr + '</span><span class="detail-date">' + w.Timestamp + '</span></div>';
         });
     }
     if (p.topRAM.length > 0) {
@@ -3280,6 +4387,128 @@ function renderDetailRow(p, idx, colspan) {
     }
 
     // ========================================================
+    // v1.8 : RAM INVENTORY
+    // ========================================================
+    var ramHTML = '';
+    if (!p.memory) {
+        ramHTML = '<div class="detail-empty">Donn&eacute;es non disponibles (Collector &lt; v1.8)</div>';
+    } else {
+        var mem = p.memory;
+        // Ligne de synthese (totale + slots + max + upgrade possible)
+        var upgradeTag = mem.CanUpgrade
+            ? '<span class="ram-badge upgrade-ok">Upgrade possible</span>'
+            : '<span class="ram-badge upgrade-no">Max atteint</span>';
+        ramHTML = '<div class="ram-summary">' +
+                    '<div class="ram-summary-total">' +
+                      '<span class="ram-big">' + mem.TotalInstalledGB + '</span>' +
+                      '<span class="ram-unit">Go</span>' +
+                      '<span class="ram-summary-slots">installes sur ' + mem.MaxCapacityGB + ' Go max</span>' +
+                    '</div>' +
+                    '<div class="ram-summary-meta">' +
+                      '<span>' + mem.OccupiedSlots + '/' + mem.TotalSlots + ' slots</span>' +
+                      (mem.FreeSlots > 0 ? '<span class="ram-meta-ok">' + mem.FreeSlots + ' libre(s)</span>' : '') +
+                      upgradeTag +
+                    '</div>' +
+                  '</div>';
+        // Detail des barrettes
+        if (mem.Modules && mem.Modules.length > 0) {
+            ramHTML += '<div class="ram-modules">';
+            mem.Modules.forEach(function(mod) {
+                var metaParts = [];
+                if (mod.Type)         metaParts.push(mod.Type);
+                if (mod.SpeedMHz > 0) metaParts.push(mod.SpeedMHz + ' MHz');
+                if (mod.Manufacturer) metaParts.push(mod.Manufacturer);
+                ramHTML += '<div class="ram-module-row">' +
+                             '<span class="ram-slot-name">' + (mod.Slot || '?') + '</span>' +
+                             '<span class="ram-capacity">' + mod.CapacityGB + ' Go</span>' +
+                             '<span class="ram-module-meta">' + metaParts.join(' &middot; ') + '</span>' +
+                           '</div>';
+            });
+            ramHTML += '</div>';
+        }
+    }
+
+    // ========================================================
+    // v1.8 : GPU INVENTORY
+    // ========================================================
+    var gpuHTML = '';
+    var gpuList = p.gpuInventory || [];
+    if (gpuList.length === 0) {
+        gpuHTML = '<div class="detail-empty">Donn&eacute;es non disponibles (Collector &lt; v1.8)</div>';
+    } else {
+        gpuList.forEach(function(g) {
+            // Marquer le driver comme "vieux" si > 2 ans (simple heuristique)
+            var oldDriver = false;
+            if (g.DriverDate) {
+                try {
+                    var dd = parseDate(g.DriverDate + ' 00:00:00');
+                    var yearsDiff = (generatedAt - dd) / (365.25 * 24 * 3600 * 1000);
+                    if (yearsDiff > 2) oldDriver = true;
+                } catch (e) {}
+            }
+            var driverCls = oldDriver ? 'gpu-driver-old' : 'gpu-driver-ok';
+            var metaParts = [];
+            if (g.DriverVersion) metaParts.push('v' + g.DriverVersion);
+            if (g.DriverDate)    metaParts.push(g.DriverDate);
+            gpuHTML += '<div class="gpu-row">' +
+                         '<div class="gpu-name">' + (g.Name || '(GPU inconnu)') + '</div>' +
+                         '<div class="gpu-meta ' + driverCls + '">' + metaParts.join(' &middot; ') +
+                           (oldDriver ? ' <span class="gpu-old-tag">driver &gt;2 ans</span>' : '') +
+                         '</div>' +
+                       '</div>';
+        });
+    }
+
+    // ========================================================
+    // v1.8 : CPU THROTTLING (Kernel-Processor-Power 35/55)
+    // ========================================================
+    var throttleHTML = '';
+    var throttleList = (p.hardwareHealth && p.hardwareHealth.CPUThrottling) ? p.hardwareHealth.CPUThrottling : [];
+    var throttleDays = throttleList.length;
+    // Calcul du Count max sur une seule journee (detecte un gros pic meme si 1 seul jour)
+    var throttleMaxCount = 0;
+    throttleList.forEach(function(t) { if (t.Count > throttleMaxCount) throttleMaxCount = t.Count; });
+
+    if (throttleDays === 0) {
+        throttleHTML = '<div class="detail-empty">Aucun throttling CPU d&eacute;tect&eacute;</div>';
+    } else {
+        // v1.8 : 4 niveaux de severite
+        //   1-7 jours    => Normal usage intensif (info bleu)
+        //   8-20 jours   => A surveiller (jaune)
+        //   >20 jours OU >500 events/jour => Critique (rouge)
+        var sevCls, sevLabel, sevIcon;
+        if (throttleDays > 20 || throttleMaxCount > 500) {
+            sevCls   = 'throttle-sev-critical';
+            sevIcon  = '&#128680;';  // rotating red light
+            sevLabel = sevIcon + ' ' + throttleDays + ' jours de throttling' +
+                       (throttleMaxCount > 500 ? ' (pic &agrave; ' + throttleMaxCount + ' events en 1j)' : '') +
+                       ' - refroidissement &agrave; v&eacute;rifier en priorit&eacute;';
+        } else if (throttleDays >= 8) {
+            sevCls   = 'throttle-sev-watch';
+            sevIcon  = '&#9888;&#65039;';  // warning
+            sevLabel = sevIcon + ' ' + throttleDays + ' jours de throttling - &agrave; surveiller';
+        } else {
+            sevCls   = 'throttle-sev-info';
+            sevIcon  = '&#8505;&#65039;';  // info
+            sevLabel = sevIcon + ' ' + throttleDays + ' jour(s) avec throttling (usage intensif normal)';
+        }
+        throttleHTML = '<div class="throttle-summary ' + sevCls + '">' + sevLabel + '</div>';
+        // Liste des journees (Collector agrege deja par jour)
+        throttleList.slice(0, 5).forEach(function(t) {
+            var typeShort = t.EventId === 35 ? 'Firmware limit' :
+                            t.EventId === 55 ? 'Thermal reduction' : ('Event ' + t.EventId);
+            throttleHTML += '<div class="throttle-row">' +
+                              '<span class="throttle-day">' + t.Day + '</span>' +
+                              '<span class="throttle-type">' + typeShort + '</span>' +
+                              '<span class="throttle-count">&#215;' + t.Count + ' events</span>' +
+                            '</div>';
+        });
+        if (throttleList.length > 5) {
+            throttleHTML += '<div class="throttle-more">+ ' + (throttleList.length - 5) + ' journees plus anciennes</div>';
+        }
+    }
+
+    // ========================================================
     // v5.5 : VUE D'ENSEMBLE (onglet par defaut)
     // Liste les alertes actives en clair sans diluer l'info.
     // Si le PC est tout vert, message encourageant.
@@ -3336,10 +4565,19 @@ function renderDetailRow(p, idx, colspan) {
     }
 
     var overviewHTML;
+    // v1.6 : bandeau verdict global calcule en tete, avant la liste d'alertes
+    var verdict = computeVerdict(p);
+    var verdictHTML = '<div class="verdict-banner ' + verdict.cls + '">' +
+                        '<span class="v-icon">' + verdict.icon + '</span>' +
+                        '<span class="v-label">' + verdict.label + '</span>' +
+                        (verdict.reasons.length > 0
+                          ? '<span class="v-reasons">&middot; ' + verdict.reasons.join(' &middot; ') + '</span>'
+                          : '') +
+                      '</div>';
     if (overview.length === 0) {
-        overviewHTML = '<div class="overview-empty"><strong>&#10003; Tout va bien</strong>Aucune alerte active sur cette p&eacute;riode</div>';
+        overviewHTML = verdictHTML + '<div class="overview-empty"><strong>&#10003; Tout va bien</strong>Aucune alerte active sur cette p&eacute;riode</div>';
     } else {
-        overviewHTML = '<div class="overview-list">' + overview.join('') + '</div>';
+        overviewHTML = verdictHTML + '<div class="overview-list">' + overview.join('') + '</div>';
     }
 
     // ========================================================
@@ -3384,7 +4622,26 @@ function renderDetailRow(p, idx, colspan) {
         '<div class="detail-section" style="flex:1 1 100%;border-left:none;padding-left:0">' +
         overviewHTML + '</div></div>';
 
+    // v1.6 : section Signaux croises (correlations temporelles 10 min)
+    var correlations = detectCorrelations(p);
+    var correlationsHTML = '';
+    if (correlations.length > 0) {
+        correlationsHTML = '<div class="correlations-block">' +
+                             '<h5>&#128269; Signaux crois&eacute;s</h5>';
+        correlations.forEach(function(f) {
+            correlationsHTML += '<div class="correlation-item ' + f.severity + '">' +
+                                  '<span class="c-icon">' + f.icon + '</span>' +
+                                  '<div>' +
+                                    '<span class="c-severity">' + f.title + '</span>' +
+                                    '<div class="c-detail">' + f.detail + '</div>' +
+                                  '</div>' +
+                                '</div>';
+        });
+        correlationsHTML += '</div>';
+    }
+
     var panelStability = '<div class="detail-box">' +
+        (correlationsHTML ? '<div style="flex:1 1 100%">' + correlationsHTML + '</div>' : '') +
         '<div class="detail-section sec-crash"><h4>Crash / Freeze</h4>' + crashHTML + '</div>' +
         '<div class="detail-section sec-hw"><h4>Hardware</h4>' + hwHTML + '</div>' +
         '<div class="detail-section sec-crasher"><h4>Top Crashers</h4>' + crasherHTML + '</div>' +
@@ -3397,6 +4654,10 @@ function renderDetailRow(p, idx, colspan) {
         '</div>';
 
     var panelMaterial = '<div class="detail-box">' +
+        '<div class="detail-section sec-cpu"><h4>CPU</h4>' + cpuHTML + '</div>' +
+        '<div class="detail-section sec-ram"><h4>M&eacute;moire RAM</h4>' + ramHTML + '</div>' +
+        '<div class="detail-section sec-gpu"><h4>GPU &amp; Drivers</h4>' + gpuHTML + '</div>' +
+        '<div class="detail-section sec-throttle"><h4>CPU Throttling</h4>' + throttleHTML + '</div>' +
         '<div class="detail-section sec-disk"><h4>Disque (remplissage)</h4>' + diskHTML + '</div>' +
         '<div class="detail-section sec-smart"><h4>SMART</h4>' + smartHTML + '</div>' +
         '<div class="detail-section sec-battery"><h4>Batterie</h4>' + batteryHTML + '</div>' +
