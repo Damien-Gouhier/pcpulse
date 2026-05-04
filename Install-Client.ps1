@@ -3,7 +3,6 @@
     Install-Client.ps1 - Installe PCPulse sur un PC pilote (avec auto-update)
 .DESCRIPTION
     A executer sur chaque PC pilote en session Administrateur.
-
     Execute en sequence :
       1. Verifie la connectivite au share serveur
       2. Cree C:\ProgramData\PCPulse\
@@ -17,6 +16,8 @@
     si une nouvelle version du Collector est disponible sur le share
     (\\SERVER\PCPulse$\release\) et se met a jour le cas echeant.
 
+    Voir SECURITY.md pour le trust model recommande (ACLs, gMSA, etc.).
+
 .PARAMETER ServerPath
     Chemin UNC du partage serveur (obligatoire).
     Ex: \\SRV-PCPULSE\PCPulse$
@@ -27,27 +28,49 @@
 
 .PARAMETER InitialVersion
     Version a ecrire dans version.txt si aucun n'est fourni dans SourceDir.
-    Par defaut : "1.0".
+    Par defaut : "2.0".
+
+.PARAMETER gMSAName
+    Nom du compte gMSA a utiliser pour la tache planifiee, au lieu de SYSTEM
+    (recommande pour audit propre, voir SECURITY.md).
+    Format : 'nom-du-compte$' (avec le $ final).
+    Pre-requis : le PC doit etre membre du groupe AD ayant
+    PrincipalsAllowedToRetrieveManagedPassword sur le gMSA. Test prealable :
+        Test-ADServiceAccount -Identity 'svc-pcpulse'
+    Si vide ou non fourni, la tache tourne en SYSTEM (comportement par defaut).
+    Si fourni mais le compte n'est pas resolvable depuis ce PC, le script
+    echoue avec un message clair (pas de fallback silencieux sur SYSTEM).
 
 .PARAMETER SkipFirstRun
     Ne pas lancer la tache immediatement apres creation.
 
 .EXAMPLE
+    # Installation classique en SYSTEM
     .\Install-Client.ps1 -ServerPath "\\SRV-PCPULSE\PCPulse$"
+
+.EXAMPLE
+    # Installation avec gMSA dedie (recommande)
+    .\Install-Client.ps1 -ServerPath "\\SRV-PCPULSE\PCPulse$" -gMSAName 'svc-pcpulse$'
 
 .EXAMPLE
     # Avec dossier source alternatif
     .\Install-Client.ps1 -ServerPath "\\SRV-PCPULSE\PCPulse$" -SourceDir "C:\Temp\pcpulse"
 
 .NOTES
-    Version : 2.0 (avec support auto-updater)
-    Auteur  : Damien Gouhier
-    Licence : MIT
+    Version  : 2.0 (support gMSA optionnel, voir SECURITY.md)
+    Auteur   : Damien Gouhier
+    Licence  : MIT
 
     Fichiers attendus dans SourceDir :
-      - 01_Collector.ps1      (obligatoire)
-      - PCPulse-Updater.ps1   (obligatoire)
-      - version.txt           (optionnel, "1.0" par defaut)
+      - 01_Collector.ps1     (obligatoire)
+      - PCPulse-Updater.ps1  (obligatoire)
+      - version.txt          (optionnel, "2.0" par defaut)
+
+    CHANGELOG :
+    v2.0 : Support gMSA optionnel via -gMSAName (au lieu de SYSTEM hardcode).
+           Bump version par defaut 1.0 -> 2.0 pour aligner sur la release v2.0.
+           Pointe vers SECURITY.md pour le trust model.
+    v1.0 : Initiale - installation classique en SYSTEM.
 #>
 
 #Requires -Version 5.1
@@ -59,7 +82,11 @@ param(
 
     [string]$SourceDir = $PSScriptRoot,
 
-    [string]$InitialVersion = '1.0',
+    [string]$InitialVersion = '2.0',
+
+    # v2.0 : support gMSA optionnel pour la tache planifiee
+    # Si vide, on garde l'ancien comportement (SYSTEM via ServiceAccount)
+    [string]$gMSAName = '',
 
     [switch]$SkipFirstRun
 )
@@ -67,29 +94,33 @@ param(
 # ============================================================
 # CONFIGURATION
 # ============================================================
-$LocalPath      = "C:\ProgramData\PCPulse"
-$CollectorSrc   = Join-Path $SourceDir '01_Collector.ps1'
-$UpdaterSrc     = Join-Path $SourceDir 'PCPulse-Updater.ps1'
-$VersionSrc     = Join-Path $SourceDir 'version.txt'
+$LocalPath    = "C:\ProgramData\PCPulse"
+$CollectorSrc = Join-Path $SourceDir '01_Collector.ps1'
+$UpdaterSrc   = Join-Path $SourceDir 'PCPulse-Updater.ps1'
+$VersionSrc   = Join-Path $SourceDir 'version.txt'
 
-$CollectorDst   = Join-Path $LocalPath '01_Collector.ps1'
-$UpdaterDst     = Join-Path $LocalPath 'PCPulse-Updater.ps1'
-$VersionDst     = Join-Path $LocalPath 'version.txt'
-$BackupDir      = Join-Path $LocalPath 'backup'
+$CollectorDst = Join-Path $LocalPath '01_Collector.ps1'
+$UpdaterDst   = Join-Path $LocalPath 'PCPulse-Updater.ps1'
+$VersionDst   = Join-Path $LocalPath 'version.txt'
+$BackupDir    = Join-Path $LocalPath 'backup'
 
-$TaskName       = 'PCPulse-Collector'
+$TaskName     = 'PCPulse-Collector'
 
 # Couleurs
 function Write-Step { Write-Host ("`n===== " + $args[0] + " =====") -ForegroundColor Cyan }
-function Write-OK   { Write-Host ("  [OK] " + $args[0]) -ForegroundColor Green }
-function Write-Warn { Write-Host ("  [!!] " + $args[0]) -ForegroundColor Yellow }
-function Write-Err  { Write-Host ("  [KO] " + $args[0]) -ForegroundColor Red }
-function Write-Info { Write-Host ("  [..] " + $args[0]) -ForegroundColor Gray }
+function Write-OK   { Write-Host (" [OK] " + $args[0]) -ForegroundColor Green }
+function Write-Warn { Write-Host (" [!!] " + $args[0]) -ForegroundColor Yellow }
+function Write-Err  { Write-Host (" [KO] " + $args[0]) -ForegroundColor Red }
+function Write-Info { Write-Host (" [..] " + $args[0]) -ForegroundColor Gray }
 
 Write-Host ""
 Write-Host "======================================================" -ForegroundColor Cyan
-Write-Host "  PCPulse - Install client sur $($env:COMPUTERNAME)"    -ForegroundColor Cyan
-Write-Host "  Mode: avec auto-updater"                              -ForegroundColor Cyan
+Write-Host " PCPulse - Install client sur $($env:COMPUTERNAME)" -ForegroundColor Cyan
+if ($gMSAName) {
+    Write-Host " Mode: avec auto-updater + gMSA ($gMSAName)" -ForegroundColor Cyan
+} else {
+    Write-Host " Mode: avec auto-updater (SYSTEM)" -ForegroundColor Cyan
+}
 Write-Host "======================================================" -ForegroundColor Cyan
 
 # ============================================================
@@ -121,11 +152,44 @@ if (Test-Path $VersionSrc) {
 }
 
 # ============================================================
+# ETAPE 1bis : Validation gMSA (si fourni)
+# ============================================================
+if ($gMSAName) {
+    Write-Step "1bis/7 Validation gMSA"
+
+    # Test-ADServiceAccount n'existe que si RSAT-AD est installe.
+    # On essaye, sinon on skip avec un warning.
+    if (Get-Command Test-ADServiceAccount -ErrorAction SilentlyContinue) {
+        $gmsaShort = $gMSAName -replace '\$$',''
+        try {
+            $ok = Test-ADServiceAccount -Identity $gmsaShort -ErrorAction Stop
+            if ($ok) {
+                Write-OK "gMSA $gMSAName accessible depuis ce PC"
+            } else {
+                Write-Err "Test-ADServiceAccount a retourne False pour $gmsaShort"
+                Write-Err "Verifier que ce PC est dans le groupe AD ayant"
+                Write-Err "PrincipalsAllowedToRetrieveManagedPassword sur le gMSA."
+                Write-Err "Note : un reboot est souvent necessaire apres ajout au groupe."
+                exit 1
+            }
+        } catch {
+            Write-Err "Test-ADServiceAccount a echoue : $_"
+            Write-Err "Le gMSA $gMSAName ne sera probablement pas utilisable."
+            exit 1
+        }
+    } else {
+        Write-Warn "Test-ADServiceAccount non disponible (RSAT-AD non installe sur ce PC)"
+        Write-Warn "On continue sans validation prealable - la tache echouera"
+        Write-Warn "au demarrage si le gMSA n'est pas accessible."
+    }
+}
+
+# ============================================================
 # ETAPE 2 : Test connectivite au share serveur
 # ============================================================
 Write-Step "2/7 Test acces au partage serveur"
-
 $serverName = ($ServerPath -split '\\')[2]
+
 $ping = Test-NetConnection -ComputerName $serverName -Port 445 -WarningAction SilentlyContinue
 if (-not $ping.TcpTestSucceeded) {
     Write-Err "Serveur $serverName injoignable sur le port 445 (SMB)"
@@ -143,8 +207,8 @@ try {
     }
 } catch {
     Write-Warn "Partage $ServerPath inaccessible depuis ce compte utilisateur"
-    Write-Warn "(Note : la tache planifiee tournera en SYSTEM, Kerberos devrait passer)"
-    Write-Warn "On continue (SYSTEM sera teste a l'etape 6)"
+    Write-Warn "(Note : la tache planifiee tournera en SYSTEM/gMSA, Kerberos devrait passer)"
+    Write-Warn "On continue (sera teste a l'etape 6)"
 }
 
 # ============================================================
@@ -203,33 +267,55 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argList
 
 $triggerStartup = New-ScheduledTaskTrigger -AtStartup
 $triggerHourly  = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
-                    -RepetitionInterval (New-TimeSpan -Hours 1) `
-                    -RepetitionDuration (New-TimeSpan -Days 9999)
+                  -RepetitionInterval (New-TimeSpan -Hours 1) `
+                  -RepetitionDuration (New-TimeSpan -Days 9999)
 
-$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' `
-                                        -LogonType ServiceAccount `
-                                        -RunLevel Highest
+# v2.0 : Principal SYSTEM par defaut, ou gMSA si fourni
+if ($gMSAName) {
+    # gMSA : LogonType=Password est obligatoire (pas ServiceAccount)
+    # Note : le compte doit etre au format "DOMAIN\nom$"
+    $gmsaUserId = "$env:USERDOMAIN\$gMSAName"
+    $principal = New-ScheduledTaskPrincipal -UserId $gmsaUserId `
+                                             -LogonType Password `
+                                             -RunLevel Highest
+    Write-OK "Principal : $gmsaUserId (gMSA, LogonType=Password)"
+} else {
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' `
+                                             -LogonType ServiceAccount `
+                                             -RunLevel Highest
+    Write-OK "Principal : SYSTEM (LogonType=ServiceAccount)"
+}
 
 $settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
-    -MultipleInstances IgnoreNew `
-    -RestartCount 2 `
-    -RestartInterval (New-TimeSpan -Minutes 10)
+              -AllowStartIfOnBatteries `
+              -DontStopIfGoingOnBatteries `
+              -StartWhenAvailable `
+              -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
+              -MultipleInstances IgnoreNew `
+              -RestartCount 2 `
+              -RestartInterval (New-TimeSpan -Minutes 10)
 
-Register-ScheduledTask -TaskName $TaskName `
-                       -Description "PCPulse : wrapper updater + collecte horaire" `
-                       -Action $action `
-                       -Trigger @($triggerStartup, $triggerHourly) `
-                       -Principal $principal `
-                       -Settings $settings | Out-Null
-
+try {
+    Register-ScheduledTask -TaskName $TaskName `
+                          -Description "PCPulse : wrapper updater + collecte horaire" `
+                          -Action $action `
+                          -Trigger @($triggerStartup, $triggerHourly) `
+                          -Principal $principal `
+                          -Settings $settings -ErrorAction Stop | Out-Null
+} catch {
+    Write-Err "Echec creation de la tache : $_"
+    if ($gMSAName) {
+        Write-Err "Verifier que :"
+        Write-Err "  1. Le PC est dans le groupe AD pour ce gMSA"
+        Write-Err "  2. Un reboot a eu lieu apres l'ajout au groupe"
+        Write-Err "  3. Le gMSA a 'Log on as a batch job' (via GPO)"
+        Write-Err "Tester avec : Test-ADServiceAccount -Identity '$($gMSAName -replace ''\$$'','')'"
+    }
+    exit 1
+}
 Write-OK "Tache $TaskName creee"
 Write-OK "  Execute  : PCPulse-Updater.ps1 (wrapper de mise a jour)"
 Write-OK "  Triggers : au demarrage + toutes les heures"
-Write-OK "  Identite : SYSTEM (Kerberos pour le share)"
 
 # ============================================================
 # ETAPE 5 : Premier run
@@ -254,7 +340,6 @@ if ($SkipFirstRun) {
         $taskInfo = Get-ScheduledTask -TaskName $TaskName
         if ($taskInfo.State -eq 'Ready') { break }
     }
-
     if ($elapsed -ge $timeout) {
         Write-Warn "Timeout : la tache tourne encore (normal, delai anti-collision)"
     } else {
@@ -300,32 +385,35 @@ try {
 # ETAPE 7 : Resume
 # ============================================================
 Write-Step "7/7 Resume"
-
 Write-Host ""
 Write-Host "======================================================" -ForegroundColor Green
-Write-Host "  Installation terminee sur $($env:COMPUTERNAME)"        -ForegroundColor Green
+Write-Host "  Installation terminee sur $($env:COMPUTERNAME)" -ForegroundColor Green
 Write-Host "======================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "LAYOUT LOCAL :" -ForegroundColor Cyan
 Write-Host "  $LocalPath\"
-Write-Host "    |- 01_Collector.ps1      (version $versionToWrite)"
-Write-Host "    |- PCPulse-Updater.ps1   (wrapper auto-update)"
-Write-Host "    |- version.txt           ($versionToWrite)"
-Write-Host "    |- backup\               (historique versions, rolling 5)"
-Write-Host "    |- updater.log           (cree au 1er run)"
+Write-Host "    |- 01_Collector.ps1       (version $versionToWrite)"
+Write-Host "    |- PCPulse-Updater.ps1    (wrapper auto-update)"
+Write-Host "    |- version.txt            ($versionToWrite)"
+Write-Host "    |- backup\                (historique versions, rolling 5)"
+Write-Host "    |- updater.log            (cree au 1er run)"
 Write-Host ""
 Write-Host "COMMANDES UTILES :" -ForegroundColor Cyan
-Write-Host "  Etat tache  : Get-ScheduledTask -TaskName $TaskName | Format-List"
-Write-Host "  Forcer run  : Start-ScheduledTask -TaskName $TaskName"
-Write-Host "  Log updater : Get-Content $LocalPath\updater.log -Tail 20"
+Write-Host "  Etat tache    : Get-ScheduledTask -TaskName $TaskName | Format-List"
+Write-Host "  Forcer run    : Start-ScheduledTask -TaskName $TaskName"
+Write-Host "  Log updater   : Get-Content $LocalPath\updater.log -Tail 20"
 Write-Host ""
 Write-Host "POUR PUBLIER UNE NOUVELLE VERSION DU COLLECTOR :" -ForegroundColor Cyan
-Write-Host "  1. Sur le serveur, creer/mettre a jour $ServerPath\release\ :"
+Write-Host "  1. Sur le serveur, mettre a jour $ServerPath\release\ :"
 Write-Host "     - Copier le nouveau 01_Collector.ps1"
-Write-Host "     - Ecrire version.txt avec le nouveau numero (ex: 1.1)"
+Write-Host "     - Ecrire version.txt avec le nouveau numero (ex: 2.1)"
 Write-Host "  2. Les PC se mettront a jour dans l'heure qui suit."
 Write-Host ""
-Write-Host "POUR DESINSTALLER :" -ForegroundColor Cyan
+Write-Host "POUR DESINSTALLER (proprement) :" -ForegroundColor Cyan
+Write-Host "  Voir le killswitch (deposer un fichier sentinelle dans \release\)"
+Write-Host "  Voir SECURITY.md > Killswitch pour la procedure complete."
+Write-Host ""
+Write-Host "POUR DESINSTALLER MANUELLEMENT :" -ForegroundColor Cyan
 Write-Host "  Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:`$false"
 Write-Host "  Remove-Item '$LocalPath' -Recurse -Force"
 Write-Host ""

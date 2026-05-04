@@ -2,9 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
-[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)]()
-[![Version](https://img.shields.io/badge/version-1.0-brightgreen)](CHANGELOG.md)
-[![Status](https://img.shields.io/badge/status-pilot-orange)]()
+[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
+[![Version](https://img.shields.io/badge/version-2.0-brightgreen)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Zero-dependency Windows fleet monitoring.**
 > One PowerShell script to collect, one PowerShell script to render a self-contained HTML dashboard. That's it.
@@ -25,6 +25,18 @@ A **Windows fleet monitoring tool** for IT teams who want a fleet health snapsho
 - **No database**, no service, no installed agent.
 - **A shared SMB folder** serves as storage.
 - **A self-contained HTML report** generated on demand, openable on any PC.
+
+## 💡 Why I'm building this
+
+Three reasons, in this order:
+
+1. **Curiosity and learning.** PCPulse is my first real coding project. It's an opportunity to confront real questions: how to think about a data schema that survives evolutions? How to manage a deployment on production endpoints? How to write docs that are actually useful? Etc.
+
+2. **Wanting to give back to open source.** I use free software every day at work. At my modest scale, I'd like to give back a small part of what I receive.
+
+3. **A real-world need.** I manage a fleet of several hundred Windows endpoints and I needed this tool. Rather than depending on a contractor or buying an off-the-shelf solution full of features I'd never use, I preferred to code exactly what I needed. PCPulse is therefore used in production, which forces it to be solid and pragmatic.
+
+If any of these resonate with you, feel free to open an [Issue](https://github.com/Damien-Gouhier/pcpulse/issues) to discuss, contribute, or just share your feedback.
 
 ## ✨ What's collected on each PC
 
@@ -76,6 +88,7 @@ pwsh .\02_Dashboard.ps1 -SharePath ".\examples\demo"
 ```
 
 > 💡 **If Windows blocks execution** with `cannot be loaded... not digitally signed`, it's normal (default Windows protection). Two options:
+>
 > - **One-shot**: add `-ExecutionPolicy Bypass` → `pwsh -ExecutionPolicy Bypass -File .\02_Dashboard.ps1 -SharePath ".\examples\demo"`
 > - **Permanent (recommended)**: run once as admin `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
 
@@ -98,7 +111,7 @@ The HTML opens automatically in your browser. Explore the 5 example scenarios:
                       ▼
      ┌────────────────────────────────────┐
      │   01_Collector.ps1 on each PC      │
-     │   • Scheduled task (SYSTEM)        │
+     │   • Scheduled task (SYSTEM/gMSA)   │
      │   • Runs every 1-4h                │
      │   • Random anti-collision delay    │
      └────────────────┬───────────────────┘
@@ -106,9 +119,14 @@ The HTML opens automatically in your browser. Explore the 5 example scenarios:
                       ▼
             ┌──────────────────────┐
             │   \\SERVER\share\    │
+            │   ├─ release\        │ ◄── read-only for clients
+            │   │   ├─ 01_Collector.ps1
+            │   │   ├─ version.txt
+            │   │   └─ KILLSWITCH.txt (optional)
+            │   ├─ killed\         │
+            │   ├─ logs\           │
             │   ├─ PC1.json        │
             │   ├─ PC2.json        │
-            │   ├─ PC3.json        │
             │   └─ ...             │
             └──────────┬───────────┘
                        │ reads
@@ -130,17 +148,39 @@ The HTML opens automatically in your browser. Explore the 5 example scenarios:
 - **PS 5.1 compatible** on the Collector side (= native Windows 10/11 fleet, no prerequisite install).
 - **Atomic writes**: if the SMB share is unavailable, the Collector buffers locally and catches up on the next run.
 - **Backward compatible**: the Dashboard supports older JSON schemas as the project evolves.
+- **Auto-update**: `PCPulse-Updater.ps1` automatically pulls the latest Collector from `\release\` with SHA256 verification.
+- **Killswitch**: remote uninstall via a sentinel file (see below).
 
 ## ⚙️ Configuration
 
 Two optional files, placed in `$SharePath` (default `C:\PCPulse`):
 
-- **`config.psd1`** — thresholds, score weights, dashboard title, etc.
+- **`config.psd1`** — thresholds, score weights, dashboard title, custom killswitch, etc.
   See [`config.psd1.example`](config.psd1.example) as a documented template.
 - **`ip-ranges.csv`** — IP / hostname → Site mapping (optional, enables the Site column).
   See [`ip-ranges.example.csv`](ip-ranges.example.csv) and [`ip-ranges.README.md`](ip-ranges.README.md).
 
 Both files are excluded from the repo via `.gitignore` to prevent accidental leaks of real data.
+
+## ☠️ Killswitch — remote uninstall
+
+PCPulse ships with a **killswitch** mechanism that allows you to uninstall Collectors from your entire fleet remotely, without physically touching any machine.
+
+**Use cases**:
+- Decommission PCPulse cleanly (replace with another tool)
+- Emergency stop if a critical bug is detected
+- Major migration (kill v1 → install v2 cleanly)
+
+**How it works**:
+1. You drop a sentinel file `KILLSWITCH.txt` in `\\SERVER\PCPulse$\release\` containing the phrase `CONFIRM-UNINSTALL-PCPULSE`
+2. On the next hourly cycle, each PC:
+   - Detects the file
+   - Writes a report to `\killed\<HOSTNAME>.txt`
+   - Removes its scheduled task
+   - Deletes its `C:\ProgramData\PCPulse\` folder
+3. You remove the sentinel file once all PCs have appeared in `\killed\`
+
+**In production**, change the phrase and filename via `config.psd1` to prevent any accidental triggering. See [`config.psd1.example`](config.psd1.example) and [`SECURITY.md`](SECURITY.md) for details.
 
 ## 🎯 Who is this for?
 
@@ -150,6 +190,7 @@ Both files are excluded from the repo via `.gitignore` to prevent accidental lea
 - **Homelab / curious sysadmins** who just want to see their machines' health
 
 **Not suitable for**:
+
 - Real-time monitoring (this is a periodic snapshot, not a live feed)
 - Push alerting (no Slack / email notifications — it's a dashboard)
 - Linux / macOS fleets (Windows only)
@@ -158,12 +199,27 @@ Both files are excluded from the repo via `.gitignore` to prevent accidental lea
 
 The [Quick Start](#-quick-start--try-it-in-3-minutes) isn't enough for production. For a real rollout:
 
-1. Set up an **SMB share** writable by the fleet's machine accounts (Kerberos auth)
-2. Deploy `01_Collector.ps1` to each endpoint + create a **SYSTEM scheduled task** (via Intune, SmartDeploy, GPO…)
-3. Configure `config.psd1` and `ip-ranges.csv` to match your environment
-4. Run `02_Dashboard.ps1` on demand from an admin host with PowerShell 7
+1. Set up an **SMB share** on a Windows server (prefer encrypted SMB3)
+2. Run **`Setup-Server.ps1`** on the server to create the structure and hardened ACLs (admin account required, see [`SECURITY.md`](SECURITY.md) for details)
+3. Deploy `01_Collector.ps1` + `PCPulse-Updater.ps1` to each endpoint via Intune, SmartDeploy, GPO, etc.
+4. Create a **scheduled task** that calls `PCPulse-Updater.ps1 -SharePath \\SERVER\PCPulse$` every 1-4h (as SYSTEM or via gMSA)
+5. Configure `config.psd1` and `ip-ranges.csv` to match your environment
+6. Run `02_Dashboard.ps1` on demand from an admin host with PowerShell 7
 
-👉 Detailed docs coming in `docs/` (INSTALL, DEPLOYMENT-INTUNE, DEPLOYMENT-SMARTDEPLOY, TROUBLESHOOTING, SECURITY).
+👉 Detailed docs coming in `docs/` (INSTALL, DEPLOYMENT-INTUNE, DEPLOYMENT-SMARTDEPLOY, TROUBLESHOOTING).
+
+## 🔐 Security
+
+PCPulse is designed to be **deployed on production endpoints**. As such, the project takes security seriously.
+
+→ **Before any deployment**, read [`SECURITY.md`](SECURITY.md) which details:
+- The **trust model** (who can do what on the share)
+- **Recommended ACLs** (and the attack scenario they close)
+- The **threat model** of the killswitch
+- The **hardening roadmap** (code signing, sanity-checks, etc.)
+- How to **report a vulnerability**
+
+`Setup-Server.ps1` automates the application of recommended hardened ACLs on your existing share.
 
 ## 🛠️ Tech stack
 
@@ -178,6 +234,7 @@ The [Quick Start](#-quick-start--try-it-in-3-minutes) isn't enough for productio
 Contributions are welcome! To discuss an idea, report a bug, or propose an improvement, open a [GitHub Issue](https://github.com/Damien-Gouhier/pcpulse/issues).
 
 For a Pull Request:
+
 1. Fork the repo
 2. Create a branch (`git checkout -b feature/my-feature`)
 3. Commit with a clear message
