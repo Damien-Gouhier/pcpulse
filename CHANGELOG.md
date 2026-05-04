@@ -11,7 +11,7 @@ versionnement respectant [Semantic Versioning](https://semver.org/lang/fr/).
 
 ### 🛡️ Hardening sécurité majeur (release pre-pentest)
 
-Cette release transforme PCPulse d'un outil "fonctionnel" en un outil **pentest-ready**, avec un trust model documenté, des ACLs hardenées par défaut, et un mécanisme killswitch sécurisé. C'est une **release majeure** parce qu'elle introduit un changement de comportement structurant côté serveur (`Setup-Server.ps1` réécrit). Le déploiement client (Collector + Dashboard) reste compatible.
+Cette release transforme PCPulse d'un outil "fonctionnel" en un outil **pentest-ready**, avec un trust model documenté, des ACLs hardenées par défaut, un mécanisme killswitch sécurisé, et des sanity-checks stricts côté Dashboard. C'est une **release majeure** parce qu'elle introduit un changement de comportement structurant côté serveur (`Setup-Server.ps1` réécrit) et un bump du schema JSON. Le Collector et le Dashboard restent compatibles entre eux mais ne sont plus rétrocompatibles avec les schemas antérieurs.
 
 #### Côté serveur : `Setup-Server.ps1` v2.0
 
@@ -68,6 +68,37 @@ KillSwitch = @{
 
 Les valeurs par défaut sont publiques (puisque dans le repo open source). En production, **changer la phrase** pour éviter tout déclenchement par accident. La vraie protection reste les ACLs sur `\release\` (cf. `SECURITY.md`).
 
+#### Côté Collector : `01_Collector.ps1` v2.0 — Bump SchemaVersion
+
+* **SchemaVersion bumpé `1.8` → `2.0`** : tous les JSON produits par le Collector v2.0 portent désormais ce numéro de version, qui est obligatoire pour être accepté par le Dashboard v2.0.
+* Aucun changement fonctionnel côté collecte : les blocs `MemoryInventory`, `GPUInventory`, `HardwareHealth.CPUThrottling`, `Stats.TotalHardCrash`, `Stats.TotalCPUThrottling` (introduits en v1.6/v1.8) restent identiques.
+
+#### Côté Dashboard : `02_Dashboard.ps1` v2.0 — Sanity-checks stricts + sanitization
+
+Réécriture du bloc de lecture des JSON pour fermer une **deuxième faille** identifiée lors de l'audit pré-pentest :
+
+> *"Un PC compromis dépose un JSON contenant `<script>alert('xss')</script>` dans le champ `Machine.PC` ou `CurrentUser`. Quand l'admin ouvre le rapport HTML, le navigateur exécute le script."*
+
+**Validation à 4 niveaux** (rejet si KO) via la nouvelle fonction `Test-PCPulseJson` :
+
+1. **Parsing JSON** — fichier malformé / illisible = rejet
+2. **SchemaVersion** — whitelist stricte `@('2.0')` (plus de tolérance retro-compat sur les anciens schemas). Tout JSON sans `SchemaVersion = '2.0'` est rejeté.
+3. **Machine.PC** — présent, non vide, alphanumérique + tirets/underscores/points (regex `'^[A-Za-z0-9_.-]{1,63}$'`)
+4. **Match nom de fichier ↔ Machine.PC** : un PC compromis ne peut pas se faire passer pour un autre PC du parc (anti-spoofing). Si `LAPTOP-042.json` contient `Machine.PC = "CEO-WORKSTATION"`, c'est rejeté.
+
+**Sanitization en place** des champs string sensibles avant injection dans le HTML généré (via la nouvelle fonction `Get-SafeString`) :
+
+* `Machine.CurrentUser`, `Machine.IPAddress`, `Machine.CPUName`, `Machine.OSCaption`, `Machine.Manufacturer`, `Machine.Model`, `Machine.Site`
+* HTML-encoding des 5 caractères dangereux : `& < > " '` (dans le bon ordre, `&` en premier)
+* Si un PC compromis met `<script>` dans son `CurrentUser`, ça devient `&lt;script&gt;` et s'affiche comme du texte inoffensif
+
+**Nouvelle section HTML "JSON suspects"** affichée en tête du rapport si des rejets sont détectés :
+
+* Panneau visuel rouge/orange pliable
+* Liste chaque rejet avec : nom de fichier, raison, détail technique
+* Indicateur fort pour le pentester : *"vos tentatives sont détectées et journalisées"*
+* Renvoi vers `SECURITY.md` pour le rationale complet
+
 #### Documentation : `SECURITY.md` (nouveau)
 
 Document de sécurité complet, à lire avant tout déploiement :
@@ -91,22 +122,34 @@ Document de sécurité complet, à lire avant tout déploiement :
 
 Nouvelle section `KillSwitch` documentée, avec note de sécurité expliquant le modèle de menace (le pentest se fait sur l'écriture du fichier sentinelle, pas sur la lecture de la phrase).
 
+#### JSON de démo (`examples/demo/`) mis à jour
+
+Les 5 JSON de démo (`LAPTOP-001` à `OFFLINE-005`) sont enrichis pour refléter la structure complète v2.0 :
+
+* `SchemaVersion: "2.0"` (au lieu de `"1.0"`)
+* Ajout des blocs introduits depuis : `MemoryInventory`, `GPUInventory`, `HardwareHealth.CPUThrottling`, `Stats.TotalHardCrash`, `Stats.TotalCPUThrottling`
+* Champs `Machine.LastRealColdBoot` et `Machine.FastStartupEnabled` ajoutés
+* `CrashCause` ajouté sur les Event 41 du LAPTOP-002 (BSOD scenario)
+
+Le scénario `LAPTOP-002` (cas problématique) gagne en cohérence : 10 jours de CPU throttling viennent expliquer les boots lents, la batterie HS, et corréler avec les BSOD MEMORY_MANAGEMENT (probable problème thermique chronique). Démo plus pédagogique pour le visiteur du repo qui découvre PCPulse.
+
 ### 📋 Migration depuis v1.x
 
 Si tu as déjà déployé PCPulse v1.x en production :
 
 1. **Côté serveur** : exécuter le nouveau `Setup-Server.ps1` (en mode `-WhatIf` d'abord pour valider). Backup automatique des ACLs avant modification.
 2. **Côté clients** : remplacer `PCPulse-Updater.ps1` par la v1.1. Comme l'auto-update ne met à jour que le Collector et pas l'Updater lui-même, il faut un push manuel (Intune, SmartDeploy, GPO, ou push SMB direct).
-3. **Optionnel** : créer un gMSA dédié dans AD et l'ajouter aux ACLs via `Setup-Server.ps1 -gMSAName 'svc-pcpulse$'`. Migrer la tâche planifiée des PC vers ce gMSA (recommandé pour audit propre vs SYSTEM).
+3. **Côté Collector** : déposer le nouveau `01_Collector.ps1` v2.0 dans `\release\` + bumper `version.txt` à `2.0`. Les PC se mettront à jour automatiquement au prochain cycle horaire.
+4. **Côté Dashboard** : remplacer `02_Dashboard.ps1` par la v2.0 sur ton poste admin.
+5. **Optionnel** : créer un gMSA dédié dans AD et l'ajouter aux ACLs via `Setup-Server.ps1 -gMSAName 'svc-pcpulse$'`. Migrer la tâche planifiée des PC vers ce gMSA (recommandé pour audit propre vs SYSTEM).
 
-Aucun changement de schéma JSON (toujours v1.8). Le Dashboard fonctionne sans modification.
+⚠️ **Pendant la migration** : le Dashboard v2.0 va rejeter tous les JSON déposés par les Collector v1.x (SchemaVersion non whitelisté). C'est attendu et visible dans la nouvelle section "JSON suspects". Une fois tous les PC à jour, ces rejets disparaissent. Si tu veux éviter cette transition visible, déploie le Collector d'abord, puis le Dashboard.
 
 ### 🛣️ Roadmap (cf. SECURITY.md)
 
 Hardening prévu pour les versions suivantes :
 
-* **Sanity-checks Dashboard** : rejet des JSON aux schémas inattendus, validation `Machine.PC` = nom de fichier
-* **CSP inline HTML** : Content-Security-Policy meta tag dans le HTML généré (anti-XSS)
+* **CSP inline HTML** : Content-Security-Policy meta tag dans le HTML généré (anti-XSS, défense en profondeur des sanity-checks)
 * **Code signing** : signature numérique du Collector et Updater via certificat AD CS
 * **Vérification de signature dans l'Updater** : refus du téléchargement si signature invalide
 * **Détection d'anomalies** : JSON futur, PC qui spam, hostnames inhabituels
