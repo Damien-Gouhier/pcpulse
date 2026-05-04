@@ -247,4 +247,6 @@ Engagement :
 
 ---
 
-*Dernière mise à jour : 2026-05-04 — release v2.0*
+*Dernière mise à jour : 2026-05-04 — release v2.0* 
+
+
