@@ -73,6 +73,13 @@ Les valeurs par défaut sont publiques (puisque dans le repo open source). En pr
 * **SchemaVersion bumpé `1.8` → `2.0`** : tous les JSON produits par le Collector v2.0 portent désormais ce numéro de version, qui est obligatoire pour être accepté par le Dashboard v2.0.
 * Aucun changement fonctionnel côté collecte : les blocs `MemoryInventory`, `GPUInventory`, `HardwareHealth.CPUThrottling`, `Stats.TotalHardCrash`, `Stats.TotalCPUThrottling` (introduits en v1.6/v1.8) restent identiques.
 
+#### Côté Installeur client : `Install-Client.ps1` v2.0 — Support gMSA optionnel
+
+* **Nouveau paramètre `-gMSAName`** : permet de créer la tâche planifiée avec un compte gMSA dédié au lieu de SYSTEM (recommandé pour audit propre, voir `SECURITY.md`).
+* **Validation préalable** via `Test-ADServiceAccount` avant la création de la tâche : si le PC n'est pas autorisé à utiliser le gMSA, le script échoue immédiatement avec un message clair (pas de fallback silencieux sur SYSTEM).
+* **`-InitialVersion`** par défaut bumpé `1.0` → `2.0` pour aligner sur la release.
+* **Mention du killswitch** dans le résumé final : pour la désinstallation propre, l'admin est désormais redirigé vers la procédure killswitch (voir `SECURITY.md`).
+
 #### Côté Dashboard : `02_Dashboard.ps1` v2.0 — Sanity-checks stricts + sanitization
 
 Réécriture du bloc de lecture des JSON pour fermer une **deuxième faille** identifiée lors de l'audit pré-pentest :
@@ -144,6 +151,19 @@ Document de sécurité complet, à lire avant tout déploiement :
 #### `config.psd1.example` enrichi
 
 Nouvelle section `KillSwitch` documentée, avec note de sécurité expliquant le modèle de menace (le pentest se fait sur l'écriture du fichier sentinelle, pas sur la lecture de la phrase).
+
+#### `version.txt` à la racine du repo (nouveau)
+
+Fichier de référence indiquant la version actuelle du Collector dans ce snapshot du repo. Sert :
+- de modèle pour l'utilisateur qui copie sur son serveur (`\\SERVER\PCPulse$\release\version.txt`)
+- de source par défaut pour `Install-Client.ps1` lors de l'installation initiale
+- de marqueur de version pour les futurs outils de check (CI/CD, dependency tracking, etc.)
+
+Contenu : `2.0`.
+
+#### `README.en.md` mis à jour
+
+La version anglaise du README a été synchronisée avec les changements du `README.md` français (sections "Why I'm building this", "Killswitch", "Security").
 
 #### JSON de démo (`examples/demo/`) mis à jour
 
