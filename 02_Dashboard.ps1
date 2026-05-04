@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v1.8
+    PCPulse Dashboard v2.0
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,22 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 1.8
+    Version      : 2.0
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.0 : Sanity-checks stricts + sanitization (release security hardening)
+           - Whitelist stricte des SchemaVersions acceptees ($AcceptedSchemaVersions = @('2.0')).
+             Tout JSON sans SchemaVersion = '2.0' est REJETE (plus de tolerance
+             retro-compat sur les anciens schemas).
+           - Validation structurelle a 4 niveaux (JSON parsing, SchemaVersion,
+             Machine.PC, match nom fichier vs Machine.PC).
+           - HTML-encoding (Get-SafeString) sur toutes les valeurs strings
+             injectees dans le HTML genere : empeche XSS via JSON corrompu.
+           - Match strict nom de fichier vs Machine.PC : un PC compromis ne
+             peut pas se faire passer pour un autre PC du parc (anti-spoofing).
+           - Nouvelle section HTML "JSON suspects" affichee si rejets detectes.
+             Visible par l'admin pour audit + indicateur pentest fort.
+           - Voir SECURITY.md pour le trust model complet.
     v1.8 : Exposition des donnees hardware v1.8 du Collector
            - Panel Materiel enrichi de 3 nouveaux blocs :
              * RAM : installee / slots / capacite max + detail barrettes
@@ -76,7 +89,19 @@ param(
 # ============================================================
 # CONSTANTES
 # ============================================================
-$SchemaCompatible = @('1.4','1.5','1.6','1.7','1.8')   # historique jusqu'à v1.7 + v1.8 (RAM/GPU/CPU Throttling)
+
+# v2.0 : Whitelist STRICTE des SchemaVersions acceptees.
+# Tout JSON sans cette valeur exacte est REJETE (cf. Test-PCPulseJson).
+# Plus de tolerance retro-compat : la release v2.0 marque un nouveau depart
+# avec sanity-checks pentest-compliant. Voir SECURITY.md.
+$AcceptedSchemaVersions = @('2.0')
+
+# v2.0 : Pattern strict pour les noms de PC valides.
+# - Alphanumerique, tirets, underscores, points
+# - Longueur 1 a 63 caracteres (max NetBIOS hostname)
+# - Sert a la fois pour Machine.PC et le nom de fichier .json
+$ValidPCNamePattern = '^[A-Za-z0-9_.-]{1,63}$'
+
 $ConfigFile       = Join-Path $SharePath 'config.psd1'
 $OutputHTML       = Join-Path $env:TEMP ("PCPulse-Dashboard-" + (Get-Date -Format 'yyyyMMdd-HHmm') + '.html')
 
@@ -244,45 +269,223 @@ if (Test-Path $CsvRanges) {
 $showSite = ($rangesIP.Count -gt 0)
 
 # ============================================================
+# v2.0 : SANITY-CHECKS - fonctions de validation et sanitization
+# ============================================================
+# Ces fonctions sont le coeur du hardening pentest v2.0. Elles permettent :
+#   1. De rejeter les JSON malformes / spoofs / aux schemas inconnus
+#   2. De neutraliser les valeurs string suspectes (HTML-encoding) avant
+#      injection dans le rapport HTML genere
+#
+# Voir SECURITY.md pour le trust model complet et les scenarios d'attaque
+# que ces verifications ferment.
+# ============================================================
+
+function Get-SafeString {
+    <#
+    .SYNOPSIS
+        HTML-encode une chaine pour empecher l'injection HTML/XSS.
+    .DESCRIPTION
+        Encode les 5 caracteres dangereux : & < > " '
+        Pour toute chaine destinee a etre injectee dans le HTML genere
+        (que ce soit dans le JS embarque ou directement dans le DOM),
+        on doit passer par cette fonction.
+
+        L'ordre de remplacement est IMPORTANT : & doit etre remplace EN PREMIER
+        sinon on encode les ; des autres replacements.
+    .EXAMPLE
+        Get-SafeString '<script>alert(1)</script>'
+        # Retourne : &lt;script&gt;alert(1)&lt;/script&gt;
+    #>
+    param([string]$InputString)
+    if ([string]::IsNullOrEmpty($InputString)) { return '' }
+    return $InputString `
+        -replace '&', '&amp;' `
+        -replace '<', '&lt;' `
+        -replace '>', '&gt;' `
+        -replace '"', '&quot;' `
+        -replace "'", '&#39;'
+}
+
+function Test-PCPulseJson {
+    <#
+    .SYNOPSIS
+        Valide un JSON PCPulse selon la politique de securite v2.0.
+    .DESCRIPTION
+        4 niveaux de validation strict (rejet si KO) :
+          1. Le fichier parse en JSON ?
+          2. SchemaVersion present et dans la whitelist ?
+          3. Machine.PC present et alphanumerique valide ?
+          4. Machine.PC matche le nom de fichier (anti-spoof) ?
+
+        Apres validation, sanitization en place des champs string les plus
+        sensibles (CurrentUser, IPAddress, CPUName, OSCaption, Site).
+
+        Voir SECURITY.md > "Sanity-checks Dashboard" pour le rationnel complet.
+    .OUTPUTS
+        [pscustomobject] avec les champs :
+          - Valid  : [bool]
+          - Reason : [string] courte description du rejet
+          - Level  : 'Critical' | 'Warning'
+          - Detail : [string] info technique pour le diag
+          - Data   : [pscustomobject] le JSON parse + sanitise (si Valid=true)
+          - File   : [string] nom du fichier
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $FilePath
+    )
+
+    $filename = [IO.Path]::GetFileNameWithoutExtension($FilePath)
+
+    # ---- NIVEAU 1 : Parsing JSON ----
+    try {
+        $raw  = Get-Content -Path $FilePath -Raw -Encoding UTF8 -ErrorAction Stop
+        $data = $raw | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return [pscustomobject]@{
+            Valid  = $false
+            File   = (Split-Path $FilePath -Leaf)
+            Level  = 'Critical'
+            Reason = 'JSON malforme ou illisible'
+            Detail = $_.Exception.Message
+            Data   = $null
+        }
+    }
+
+    # ---- NIVEAU 2 : SchemaVersion ----
+    if (-not $data.SchemaVersion) {
+        return [pscustomobject]@{
+            Valid  = $false
+            File   = (Split-Path $FilePath -Leaf)
+            Level  = 'Critical'
+            Reason = 'SchemaVersion absent'
+            Detail = 'Le JSON ne contient pas le champ SchemaVersion'
+            Data   = $null
+        }
+    }
+    if ($data.SchemaVersion -notin $AcceptedSchemaVersions) {
+        return [pscustomobject]@{
+            Valid  = $false
+            File   = (Split-Path $FilePath -Leaf)
+            Level  = 'Critical'
+            Reason = 'SchemaVersion non supporte'
+            Detail = "trouve='$(Get-SafeString $data.SchemaVersion)', attendu='$($AcceptedSchemaVersions -join "/")'"
+            Data   = $null
+        }
+    }
+
+    # ---- NIVEAU 3 : Machine.PC ----
+    if (-not $data.Machine -or -not $data.Machine.PC) {
+        return [pscustomobject]@{
+            Valid  = $false
+            File   = (Split-Path $FilePath -Leaf)
+            Level  = 'Critical'
+            Reason = 'Machine.PC absent'
+            Detail = 'Champ Machine.PC manquant ou vide'
+            Data   = $null
+        }
+    }
+    if ([string]$data.Machine.PC -notmatch $ValidPCNamePattern) {
+        return [pscustomobject]@{
+            Valid  = $false
+            File   = (Split-Path $FilePath -Leaf)
+            Level  = 'Critical'
+            Reason = 'Machine.PC contient des caracteres invalides'
+            Detail = "valeur='$(Get-SafeString $data.Machine.PC)' (attendu : alphanumerique, tirets, points, underscores, max 63 chars)"
+            Data   = $null
+        }
+    }
+
+    # ---- NIVEAU 4 : Match fichier <-> Machine.PC (anti-spoof) ----
+    if ($data.Machine.PC -ne $filename) {
+        return [pscustomobject]@{
+            Valid  = $false
+            File   = (Split-Path $FilePath -Leaf)
+            Level  = 'Critical'
+            Reason = 'Mismatch nom de fichier / Machine.PC (spoofing suspect)'
+            Detail = "fichier='$filename', JSON='$(Get-SafeString $data.Machine.PC)'"
+            Data   = $null
+        }
+    }
+
+    # ---- SANITIZATION en place des champs string sensibles ----
+    # On HTML-encode les valeurs qu'on injectera dans le rapport HTML.
+    # Si une de ces valeurs contient '<script>...' (PC compromis), elle
+    # devient inoffensive (s'affichera comme texte, pas comme balise).
+
+    if ($data.Machine.PSObject.Properties['CurrentUser']) {
+        $data.Machine.CurrentUser = Get-SafeString $data.Machine.CurrentUser
+    }
+    if ($data.Machine.PSObject.Properties['IPAddress']) {
+        $data.Machine.IPAddress = Get-SafeString $data.Machine.IPAddress
+    }
+    if ($data.Machine.PSObject.Properties['CPUName']) {
+        $data.Machine.CPUName = Get-SafeString $data.Machine.CPUName
+    }
+    if ($data.Machine.PSObject.Properties['OSCaption']) {
+        $data.Machine.OSCaption = Get-SafeString $data.Machine.OSCaption
+    }
+    if ($data.Machine.PSObject.Properties['Manufacturer']) {
+        $data.Machine.Manufacturer = Get-SafeString $data.Machine.Manufacturer
+    }
+    if ($data.Machine.PSObject.Properties['Model']) {
+        $data.Machine.Model = Get-SafeString $data.Machine.Model
+    }
+    if ($data.Machine.PSObject.Properties['Site']) {
+        $data.Machine.Site = Get-SafeString $data.Machine.Site
+    }
+    # Note : Machine.PC est deja valide par regex, pas besoin de sanitize
+
+    return [pscustomobject]@{
+        Valid  = $true
+        File   = (Split-Path $FilePath -Leaf)
+        Level  = $null
+        Reason = $null
+        Detail = $null
+        Data   = $data
+    }
+}
+
+# ============================================================
 # LECTURE DES JSON (avec verification SchemaVersion)
 # ============================================================
 Write-Host "[*] Lecture des donnees depuis $SharePath ..." -ForegroundColor Cyan
 
-$jsonFiles = Get-ChildItem -Path $SharePath -Filter "$FiltrePC.json" -ErrorAction Stop
-$allData   = [System.Collections.Generic.List[PSCustomObject]]::new()
-$schemaWarnings = [System.Collections.Generic.List[string]]::new()
+$jsonFiles      = Get-ChildItem -Path $SharePath -Filter "$FiltrePC.json" -ErrorAction Stop
+$allData        = [System.Collections.Generic.List[PSCustomObject]]::new()
+$rejectedJsons  = [System.Collections.Generic.List[PSCustomObject]]::new()  # v2.0 : pour la section HTML "JSON suspects"
 
 foreach ($file in $jsonFiles) {
-    try {
-        $content = Get-Content -Path $file.FullName -Raw -Encoding UTF8
-        $parsed  = $content | ConvertFrom-Json
+    # v2.0 : validation stricte via Test-PCPulseJson (sanity-checks niveaux 1-4)
+    $check = Test-PCPulseJson -FilePath $file.FullName
 
-        $schema = $parsed.SchemaVersion
-        if (-not $schema) {
-            $schemaWarnings.Add("$($file.Name) : SchemaVersion absent (Collector < v5)")
-        } elseif ($schema -notin $SchemaCompatible) {
-            $schemaWarnings.Add("$($file.Name) : schema $schema (attendu $($SchemaCompatible -join '/'))")
-        }
-
-        $allData.Add($parsed)
-    } catch {
-        Write-Warning "Impossible de lire $($file.Name) : $_"
+    if ($check.Valid) {
+        # Ajouter aux donnees du rapport (deja sanitisees en place)
+        $allData.Add($check.Data)
+    } else {
+        # Rejet : on garde la trace pour la section HTML dediee + log console
+        $rejectedJsons.Add($check)
     }
 }
 
-if ($schemaWarnings.Count -gt 0) {
-    Write-Host "[!] $($schemaWarnings.Count) fichier(s) avec schema non conforme :" -ForegroundColor Yellow
-    $schemaWarnings | Select-Object -First 5 | ForEach-Object {
-        Write-Host "    $_" -ForegroundColor Yellow
+# Logs console
+if ($rejectedJsons.Count -gt 0) {
+    Write-Host "[!] $($rejectedJsons.Count) JSON rejete(s) :" -ForegroundColor Yellow
+    $rejectedJsons | Select-Object -First 5 | ForEach-Object {
+        Write-Host "    - $($_.File) : $($_.Reason)" -ForegroundColor Yellow
+        if ($_.Detail) {
+            Write-Host "      $($_.Detail)" -ForegroundColor DarkGray
+        }
     }
-    if ($schemaWarnings.Count -gt 5) {
-        Write-Host "    ... et $($schemaWarnings.Count - 5) autre(s)" -ForegroundColor Yellow
+    if ($rejectedJsons.Count -gt 5) {
+        Write-Host "    ... et $($rejectedJsons.Count - 5) autre(s) - voir section dediee dans le rapport" -ForegroundColor Yellow
     }
-    Write-Host "    (le Dashboard reste tolerant, mais certaines donnees peuvent manquer)" -ForegroundColor DarkGray
 }
 
 if ($allData.Count -eq 0) {
-    Write-Host "[-] Aucune donnee trouvee." -ForegroundColor Red
+    Write-Host "[-] Aucun JSON valide trouve." -ForegroundColor Red
+    if ($rejectedJsons.Count -gt 0) {
+        Write-Host "    ($($rejectedJsons.Count) JSON ont ete rejetes - voir SECURITY.md)" -ForegroundColor Red
+    }
     exit 1
 }
 Write-Host "[+] $($allData.Count) PC(s) charge(s)" -ForegroundColor Green
@@ -753,6 +956,49 @@ $faviconSvg = @'
 '@
 $faviconBytes = [System.Text.Encoding]::UTF8.GetBytes($faviconSvg)
 $faviconB64   = [Convert]::ToBase64String($faviconBytes)
+
+# ============================================================
+# v2.0 : SECTION HTML "JSON suspects" (rejets sanity-checks)
+# ============================================================
+# Si des JSON ont ete rejetes par Test-PCPulseJson, on construit un panneau
+# d'alerte qui sera affiche en tete du rapport. C'est un indicateur pentest
+# fort : le pentester voit que ses tentatives sont detectees et logees.
+
+$rejectedHtml = ''
+if ($rejectedJsons.Count -gt 0) {
+    $rejectedRows = $rejectedJsons | ForEach-Object {
+        $iconColor = if ($_.Level -eq 'Critical') { '#ff6b6b' } else { '#ffa502' }
+        $fileSafe   = Get-SafeString $_.File
+        $reasonSafe = Get-SafeString $_.Reason
+        $detailSafe = if ($_.Detail) { Get-SafeString $_.Detail } else { '' }
+        @"
+        <div class="rejected-row">
+            <span class="rejected-dot" style="background:$iconColor"></span>
+            <div class="rejected-content">
+                <div class="rejected-file">$fileSafe</div>
+                <div class="rejected-reason"><strong>$reasonSafe</strong></div>
+                <div class="rejected-detail">$detailSafe</div>
+            </div>
+        </div>
+"@
+    }
+
+    $rejectedHtml = @"
+<div class="rejected-panel" id="rejectedPanel">
+    <div class="rejected-header">
+        <span class="rejected-title">&#9888;&#65039; Sanity-checks v2.0 : $($rejectedJsons.Count) JSON rejet&eacute;(s) ou suspect(s)</span>
+        <button class="rejected-toggle" onclick="document.getElementById('rejectedPanel').classList.toggle('collapsed')">D&eacute;velopper / R&eacute;duire</button>
+    </div>
+    <div class="rejected-info">
+        Ces fichiers ont &eacute;t&eacute; <strong>refus&eacute;s</strong> par les sanity-checks et n'apparaissent <strong>pas</strong> dans le rapport.
+        Causes possibles : JSON corrompu, version de schema obsol&egrave;te, ou tentative de spoofing (cf. <code>SECURITY.md</code>).
+    </div>
+    <div class="rejected-list">
+        $($rejectedRows -join "`n")
+    </div>
+</div>
+"@
+}
 
 # ============================================================
 # HTML COMPLET
@@ -1791,9 +2037,8 @@ $html = @"
         font-weight: 600;
         margin-bottom: 8px;
     }
-    .throttle-sev-info     { background: rgba(59,130,246,0.10); color: var(--cyan);   }
-    .throttle-sev-watch    { background: rgba(234,179,8,0.12);  color: var(--yellow); border-left: 3px solid var(--yellow); padding-left: 8px; }
-    .throttle-sev-critical { background: rgba(239,68,68,0.12);  color: var(--red);    border-left: 3px solid var(--red);    padding-left: 8px; }
+    .throttle-sev-info  { background: rgba(234,179,8,0.10);  color: var(--yellow); }
+    .throttle-sev-alert { background: rgba(239,68,68,0.12);  color: var(--red);    border-left: 3px solid var(--red); padding-left: 8px; }
     .throttle-row {
         display: flex;
         gap: 10px;
@@ -2246,6 +2491,96 @@ $html = @"
     .dot-warning  { background: #ffa50233; border: 1px solid var(--orange); }
     .dot-hardware { background: #a855f733; border: 1px solid var(--purple); }
     .dot-ok       { background: #4ecca333; border: 1px solid var(--green); }
+
+    /* v2.0 : panneau "JSON suspects" (rejets sanity-checks) */
+    .rejected-panel {
+        background: linear-gradient(135deg, rgba(255, 107, 107, 0.12), rgba(255, 165, 2, 0.08));
+        border: 1px solid var(--red);
+        border-left: 4px solid var(--red);
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin: 16px 24px;
+    }
+    .rejected-panel.collapsed .rejected-list,
+    .rejected-panel.collapsed .rejected-info {
+        display: none;
+    }
+    .rejected-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+    .rejected-title {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--red);
+    }
+    .rejected-toggle {
+        background: transparent;
+        border: 1px solid var(--text-muted);
+        color: var(--text-muted);
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+    }
+    .rejected-toggle:hover {
+        border-color: var(--text);
+        color: var(--text);
+    }
+    .rejected-info {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-bottom: 12px;
+        line-height: 1.5;
+    }
+    .rejected-info code {
+        background: rgba(255,255,255,0.08);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 11px;
+    }
+    .rejected-list {
+        display: grid;
+        gap: 8px;
+    }
+    .rejected-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        background: rgba(0,0,0,0.18);
+        padding: 10px 12px;
+        border-radius: 6px;
+    }
+    .rejected-dot {
+        flex-shrink: 0;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-top: 4px;
+    }
+    .rejected-content {
+        flex: 1;
+        min-width: 0;
+    }
+    .rejected-file {
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 12px;
+        color: var(--text);
+        margin-bottom: 2px;
+    }
+    .rejected-reason {
+        font-size: 13px;
+        color: var(--text);
+        margin-bottom: 2px;
+    }
+    .rejected-detail {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-family: 'SF Mono', Consolas, monospace;
+        word-break: break-word;
+    }
 </style>
 </head>
 <body>
@@ -2257,6 +2592,8 @@ $html = @"
         <div class="timestamp">G&eacute;n&eacute;r&eacute; le : $($now.ToString('dd/MM/yyyy HH:mm'))</div>
     </div>
 </div>
+
+$rejectedHtml
 
 <div class="toolbar">
     <span class="label">P&eacute;riode :</span>
@@ -4465,33 +4802,14 @@ function renderDetailRow(p, idx, colspan) {
     var throttleHTML = '';
     var throttleList = (p.hardwareHealth && p.hardwareHealth.CPUThrottling) ? p.hardwareHealth.CPUThrottling : [];
     var throttleDays = throttleList.length;
-    // Calcul du Count max sur une seule journee (detecte un gros pic meme si 1 seul jour)
-    var throttleMaxCount = 0;
-    throttleList.forEach(function(t) { if (t.Count > throttleMaxCount) throttleMaxCount = t.Count; });
-
     if (throttleDays === 0) {
         throttleHTML = '<div class="detail-empty">Aucun throttling CPU d&eacute;tect&eacute;</div>';
     } else {
-        // v1.8 : 4 niveaux de severite
-        //   1-7 jours    => Normal usage intensif (info bleu)
-        //   8-20 jours   => A surveiller (jaune)
-        //   >20 jours OU >500 events/jour => Critique (rouge)
-        var sevCls, sevLabel, sevIcon;
-        if (throttleDays > 20 || throttleMaxCount > 500) {
-            sevCls   = 'throttle-sev-critical';
-            sevIcon  = '&#128680;';  // rotating red light
-            sevLabel = sevIcon + ' ' + throttleDays + ' jours de throttling' +
-                       (throttleMaxCount > 500 ? ' (pic &agrave; ' + throttleMaxCount + ' events en 1j)' : '') +
-                       ' - refroidissement &agrave; v&eacute;rifier en priorit&eacute;';
-        } else if (throttleDays >= 8) {
-            sevCls   = 'throttle-sev-watch';
-            sevIcon  = '&#9888;&#65039;';  // warning
-            sevLabel = sevIcon + ' ' + throttleDays + ' jours de throttling - &agrave; surveiller';
-        } else {
-            sevCls   = 'throttle-sev-info';
-            sevIcon  = '&#8505;&#65039;';  // info
-            sevLabel = sevIcon + ' ' + throttleDays + ' jour(s) avec throttling (usage intensif normal)';
-        }
+        // Badge d'alerte si >= 3 jours distincts (seuil d'alerte defini en design)
+        var sevCls = throttleDays >= 3 ? 'throttle-sev-alert' : 'throttle-sev-info';
+        var sevLabel = throttleDays >= 3
+            ? '&#9888;&#65039; ' + throttleDays + ' jours de throttling - refroidissement a verifier'
+            : throttleDays + ' jour(s) avec throttling';
         throttleHTML = '<div class="throttle-summary ' + sevCls + '">' + sevLabel + '</div>';
         // Liste des journees (Collector agrege deja par jour)
         throttleList.slice(0, 5).forEach(function(t) {

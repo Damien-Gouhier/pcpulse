@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v1.8
+    PCPulse Collector v2.0
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,9 +10,13 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 1.8
+    Version      : 2.0
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v2.0 : Bump SchemaVersion 1.8 -> 2.0 (release security hardening).
+           Pas de changement fonctionnel cote collecte. Le Dashboard v2.0
+           rejette desormais les JSON sans SchemaVersion = "2.0" pour
+           reduire la surface d'attaque (cf. SECURITY.md).
     v1.8 : Enrichissement panel Materiel (Wave 2 - hardware)
            - CPU Throttling detaille : nouveaux Events 35/55 Kernel-
              Processor-Power = vrai throttling firmware/thermique.
@@ -36,7 +40,7 @@
              (i5-10500, i7-10700, etc.). Accepte +1 an de decalage
              sur les mobiles Ice Lake 2019 (volume marginal).
            - Nouveau support : Intel Celeron N-series (crucial pour
-             tablettes d'accueil, kiosques, mini-PC budget) :
+             les tablettes d'accueil type TACTILO en creche) :
              * N4000/N4100            -> 2017 (Gemini Lake)
              * N4500/N4505/N5100/N6000 -> 2021 (Jasper Lake)
              * N95/N97/N100/N200/N305 -> 2023 (Alder Lake-N)
@@ -66,7 +70,7 @@
     v1.5 : Clustering des Event 51 (Disk slow / I/O timeout)
            - Avant : chaque Event 51 ecrit en ligne distincte. Un seul
              incident matos pouvait generer des centaines de lignes
-             identiques (ex parc pilote : 957 events pour ~8 incidents
+             identiques (ex pilote : V0059 = 957 events pour ~8 incidents
              reels, dont un burst de 894 en 1 seconde).
            - Fix : regroupement par fenetre de 60 secondes. Une entree
              par cluster, avec Count, FirstSeen, LastSeen, IsBurst.
@@ -101,7 +105,7 @@ param(
 # ============================================================
 # CONSTANTES (non modifiables - structurelles)
 # ============================================================
-$SchemaVersion = '1.8'
+$SchemaVersion = '2.0'
 $ConfigFile    = Join-Path $SharePath 'config.psd1'
 
 # Valeurs par defaut utilisees si config.psd1 est absent/invalide
@@ -260,7 +264,7 @@ function Get-PrimaryIPv4 {
 # v1.3 : Recupere le nom de l'utilisateur interactif actuellement connecte.
 # Necessaire car le Collector tourne en SYSTEM (via tache planifiee), donc
 # $env:USERNAME retourne le nom machine ($env:COMPUTERNAME suivi de '$',
-# ex: "PCNAME$"), qui n'est pas ce qu'on veut afficher dans le Dashboard.
+# ex: "LAPTOP-001$"), qui n'est pas ce qu'on veut afficher dans le Dashboard.
 #
 # Strategie en cascade :
 #   1. Win32_ComputerSystem.UserName (rapide, retourne "DOMAINE\user")
@@ -1237,7 +1241,7 @@ foreach ($ev in $diskFullEvents) {
 # v1.5 : Clustering des Event 51 (Disk slow / I/O timeout)
 # Windows emet souvent des dizaines voire centaines d'Event 51 en
 # meme temps (un par secteur/IRP en timeout) pour UN seul incident.
-# Ex parc pilote : 894 events sur 1 seule seconde = 1 incident matos,
+# Ex parc pilote : V0059 = 894 events sur 1 seule seconde = 1 incident matos,
 # pas 894 evenements distincts.
 # On groupe donc par fenetre de 60s. Chaque cluster ajoute 1 entree avec :
 #   - Count      : nombre d'events dans le cluster
