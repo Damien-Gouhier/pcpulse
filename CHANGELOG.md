@@ -7,6 +7,112 @@ versionnement respectant [Semantic Versioning](https://semver.org/lang/fr/).
 
 ---
 
+## [2.0.0] — 2026-05-04
+
+### 🛡️ Hardening sécurité majeur (release pre-pentest)
+
+Cette release transforme PCPulse d'un outil "fonctionnel" en un outil **pentest-ready**, avec un trust model documenté, des ACLs hardenées par défaut, et un mécanisme killswitch sécurisé. C'est une **release majeure** parce qu'elle introduit un changement de comportement structurant côté serveur (`Setup-Server.ps1` réécrit). Le déploiement client (Collector + Dashboard) reste compatible.
+
+#### Côté serveur : `Setup-Server.ps1` v2.0
+
+Réécriture complète du script d'initialisation du share serveur, focalisée sur la fermeture d'une **faille majeure** identifiée lors de l'audit pré-pentest :
+
+> *"Si un attaquant compromet n'importe quel PC du parc, il peut écrire dans `\release\` (Domain Computers en Modify héritage) et remplacer le Collector par sa version malveillante. Au prochain cycle, les 800 PC du parc téléchargent et exécutent son code en SYSTEM."*
+
+→ **Escalation latérale massive** : 1 endpoint compromis = RCE SYSTEM sur tout le parc.
+
+Le nouveau `Setup-Server.ps1` :
+
+* **Casse l'héritage NTFS** sur la racine du share
+* **Crée les sous-dossiers** `\release\`, `\killed\`, `\logs\` avec **ACLs explicites** par dossier (au lieu d'hériter)
+* **Rétrograde Domain Computers en `ReadAndExecute`** sur `\release\` (lecture seule pour les PC, écriture admin uniquement)
+* **Retire `BUILTIN\Users`** des permissions trop larges (un user lambda du domaine ne peut plus créer de fichiers sur le share)
+* **Réassigne les owners** aux Domain Admins (au lieu de comptes personnels) pour audit propre
+* **Support gMSA** : nouveau paramètre `-gMSAName` pour ajouter un compte de service dédié aux ACLs (recommandé en remplacement de SYSTEM)
+* **Préservation de groupes existants** : nouveau paramètre `-ExtraReadGroups` pour conserver les conventions infra de votre organisation (groupes admins, supervision, etc.)
+* **Idempotent** : peut être relancé sans risque pour re-aligner les ACLs après une modification manuelle
+* **Mode dry-run** via `-WhatIf` pour valider la cible avant exécution
+* **Backup automatique** des ACLs originales dans `\\SERVER\PCPulse$\.acl-backup\` avant toute modification (rollback possible)
+* **3 tests post-application** automatiques (Domain Computers peut lire / ne peut pas modifier / gMSA peut lire `\release\`)
+
+#### Côté Updater : `PCPulse-Updater.ps1` v1.1 — Killswitch
+
+Ajout d'un mécanisme **killswitch** permettant de désinstaller à distance les Collectors de tous les PC du parc, sans toucher physiquement aux machines.
+
+**Cas d'usage** :
+* Décommissionner PCPulse proprement (remplacement par un autre outil)
+* Stop d'urgence si un bug critique est détecté
+* Migration majeure (kill v1 → install v2 propre)
+
+**Workflow** :
+
+1. L'admin dépose un fichier sentinelle dans `\\SERVER\PCPulse$\release\` (par défaut `KILLSWITCH.txt` contenant `CONFIRM-UNINSTALL-PCPULSE`)
+2. Au prochain cycle horaire, chaque PC :
+   * Détecte le fichier
+   * Vérifie le contenu exact (sinon ignore avec un log WARN)
+   * Écrit un rapport dans `\killed\<HOSTNAME>.txt` (timestamp, version, hostname)
+   * Supprime sa tâche planifiée `PCPulse-Collector`
+   * Lance un cleanup différé qui supprime `C:\ProgramData\PCPulse\`
+   * Exit
+3. L'admin retire le fichier sentinelle quand tous les PC sont apparus dans `\killed\` (les PC qui se rallument après coup se kill aussi)
+
+**Personnalisable via `config.psd1`** :
+
+```powershell
+KillSwitch = @{
+    Enabled  = $true
+    Filename = 'NOM_PERSONNALISE.txt'
+    Phrase   = 'PHRASE-COMPLEXE-IMPOSSIBLE-A-DEVINER'
+}
+```
+
+Les valeurs par défaut sont publiques (puisque dans le repo open source). En production, **changer la phrase** pour éviter tout déclenchement par accident. La vraie protection reste les ACLs sur `\release\` (cf. `SECURITY.md`).
+
+#### Documentation : `SECURITY.md` (nouveau)
+
+Document de sécurité complet, à lire avant tout déploiement :
+
+* **Trust model** : qui peut faire quoi sur le share, scénario d'attaque principal, défense
+* **ACLs recommandées** : tableau des permissions par dossier, justifications, pourquoi `ReadAndExecute` et pas `Modify`, pourquoi pas `Authenticated Users`, etc.
+* **Modèle de menace du killswitch** : ce que ça protège, ce que ça ne protège PAS, pourquoi la phrase secrète est de la défense en profondeur (pas la vraie protection)
+* **Surface d'attaque résiduelle** : risques connus avec criticité (🟡/🟢) et mitigations actuelles
+* **Roadmap de hardening** : Fait / En cours / Planifié / À l'étude
+* **Procédure de signalement** des vulnérabilités via GitHub Security Advisories
+* **Références** Microsoft (tier model, gMSA, well-known SIDs)
+
+#### Documentation : `README.md` enrichi
+
+* Nouvelle section **"Pourquoi je développe ça"** expliquant les 3 motivations du projet (curiosité, open source, besoin métier)
+* Nouvelle section **"Killswitch"** synthétique (avec renvoi vers SECURITY.md pour les détails)
+* Nouvelle section **"Sécurité"** qui pointe vers SECURITY.md
+* Architecture (ASCII art) mise à jour pour montrer `\release\`, `\killed\`, `KILLSWITCH.txt`
+
+#### `config.psd1.example` enrichi
+
+Nouvelle section `KillSwitch` documentée, avec note de sécurité expliquant le modèle de menace (le pentest se fait sur l'écriture du fichier sentinelle, pas sur la lecture de la phrase).
+
+### 📋 Migration depuis v1.x
+
+Si tu as déjà déployé PCPulse v1.x en production :
+
+1. **Côté serveur** : exécuter le nouveau `Setup-Server.ps1` (en mode `-WhatIf` d'abord pour valider). Backup automatique des ACLs avant modification.
+2. **Côté clients** : remplacer `PCPulse-Updater.ps1` par la v1.1. Comme l'auto-update ne met à jour que le Collector et pas l'Updater lui-même, il faut un push manuel (Intune, SmartDeploy, GPO, ou push SMB direct).
+3. **Optionnel** : créer un gMSA dédié dans AD et l'ajouter aux ACLs via `Setup-Server.ps1 -gMSAName 'svc-pcpulse$'`. Migrer la tâche planifiée des PC vers ce gMSA (recommandé pour audit propre vs SYSTEM).
+
+Aucun changement de schéma JSON (toujours v1.8). Le Dashboard fonctionne sans modification.
+
+### 🛣️ Roadmap (cf. SECURITY.md)
+
+Hardening prévu pour les versions suivantes :
+
+* **Sanity-checks Dashboard** : rejet des JSON aux schémas inattendus, validation `Machine.PC` = nom de fichier
+* **CSP inline HTML** : Content-Security-Policy meta tag dans le HTML généré (anti-XSS)
+* **Code signing** : signature numérique du Collector et Updater via certificat AD CS
+* **Vérification de signature dans l'Updater** : refus du téléchargement si signature invalide
+* **Détection d'anomalies** : JSON futur, PC qui spam, hostnames inhabituels
+* **Audit logs** : log immuable des actions admin
+
+---
 
 ## [1.8.0] — 2026-04-24
 
@@ -249,7 +355,8 @@ Les Fast Startup et Resume étaient détectés (compteur `Stats.BootsByType` cor
 - Nouveau script `PCPulse-Updater.ps1`, deploye sur chaque PC a cote du
   Collector. Il devient la cible de la tache planifiee (au lieu du Collector
   direct) et verifie a chaque cycle horaire si une nouvelle version est
-  disponible dans `\SERVEUR\shareelease\`.
+  disponible dans `\SERVEUR\share
+elease\`.
 - Workflow de release : l'admin copie le nouveau `01_Collector.ps1` et
   met a jour `version.txt` sur le serveur. Les PC se mettent a jour
   automatiquement dans l'heure qui suit, sans intervention locale.
