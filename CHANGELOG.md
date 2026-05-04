@@ -99,6 +99,29 @@ Réécriture du bloc de lecture des JSON pour fermer une **deuxième faille** id
 * Indicateur fort pour le pentester : *"vos tentatives sont détectées et journalisées"*
 * Renvoi vers `SECURITY.md` pour le rationale complet
 
+**Content-Security-Policy stricte** (`<meta http-equiv="Content-Security-Policy">`) injectée dans le `<head>` du HTML généré, en dernière ligne de défense au cas où la sanitization laisserait passer quelque chose :
+
+```
+default-src 'none';
+script-src 'unsafe-inline';
+style-src 'unsafe-inline';
+img-src data: 'self';
+font-src 'self';
+connect-src 'none';
+frame-src 'none';
+object-src 'none';
+base-uri 'none';
+form-action 'none';
+```
+
+* `default-src 'none'` → tout est interdit par défaut, on autorise au cas par cas
+* `connect-src 'none'` → impossible de faire du fetch/XHR/WebSocket = **pas d'exfiltration de données** possible même si du code malveillant s'exécutait
+* `script-src 'unsafe-inline'` + `style-src 'unsafe-inline'` → JS/CSS inline OK (par design : zéro CDN), mais **pas de script externe**
+* `img-src data: 'self'` → images en data URI (favicon SVG base64) + relatives OK, pas de tracker tiers
+* `frame-src`, `object-src`, `base-uri`, `form-action` à `'none'` → ferme toutes les voies non utilisées (pas d'iframe, pas de Flash/embed, pas de redéfinition de base URL, pas de soumission de formulaire)
+
+→ Combinaison **input filtering** (sanity-checks) + **output policy** (CSP) = défense en profondeur.
+
 #### Documentation : `SECURITY.md` (nouveau)
 
 Document de sécurité complet, à lire avant tout déploiement :
