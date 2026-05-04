@@ -13,7 +13,7 @@
     Version      : 2.0
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
-    v2.0 : Sanity-checks stricts + sanitization (release security hardening)
+    v2.0 : Sanity-checks stricts + sanitization + CSP (release security hardening)
            - Whitelist stricte des SchemaVersions acceptees ($AcceptedSchemaVersions = @('2.0')).
              Tout JSON sans SchemaVersion = '2.0' est REJETE (plus de tolerance
              retro-compat sur les anciens schemas).
@@ -25,6 +25,11 @@
              peut pas se faire passer pour un autre PC du parc (anti-spoofing).
            - Nouvelle section HTML "JSON suspects" affichee si rejets detectes.
              Visible par l'admin pour audit + indicateur pentest fort.
+           - Content-Security-Policy stricte injectee dans le <head> du HTML
+             genere : derniere ligne de defense au cas ou la sanitization
+             aurait rate quelque chose. Bloque toute communication reseau,
+             scripts/styles externes, iframes, formulaires - dans un rapport
+             qui n'en a aucun besoin par design.
            - Voir SECURITY.md pour le trust model complet.
     v1.8 : Exposition des donnees hardware v1.8 du Collector
            - Panel Materiel enrichi de 3 nouveaux blocs :
@@ -1008,6 +1013,23 @@ $html = @"
 <html lang="fr" data-theme="dark">
 <head>
 <meta charset="UTF-8">
+
+<!-- v2.0 : Content-Security-Policy stricte (defense en profondeur des sanity-checks).
+     Ce rapport HTML est genere localement et est entierement autonome :
+       - JS inline (pas de fichier .js externe)
+       - CSS inline (pas de fichier .css externe)
+       - Favicon en data URI (base64 SVG)
+       - Aucun CDN, aucun fetch/AJAX, aucune iframe
+     La CSP ferme donc toutes les voies non utilisees. Si malgre les sanity-checks
+     un caractere bizarre passait dans le DOM, le navigateur :
+       - refuserait de charger un script externe (pas dans script-src)
+       - refuserait toute communication reseau (connect-src 'none')
+       - empecherait l'exfiltration de donnees (form-action 'none')
+     Voir SECURITY.md > "Sanity-checks Dashboard" pour le rationale complet.
+     Note : 'unsafe-inline' est requis pour script-src/style-src car le HTML
+     genere contient du code inline (par design : zero dependance externe). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: 'self'; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,$faviconB64">
 <title>$titleHtml Dashboard</title>
