@@ -1,21 +1,26 @@
-﻿<#
+<#
 .SYNOPSIS
-    PCPulse-Updater.ps1 - Auto-update du Collector depuis le share serveur
+    PCPulse-Updater.ps1 - Auto-update du Collector + KillSwitch
 .DESCRIPTION
     Wrapper execute par la tache planifiee a la place du Collector direct.
-    Verifie a chaque run s'il existe une nouvelle version sur le share,
-    l'applique le cas echeant, puis lance le Collector local.
-
-    Workflow :
-      1. Acquiert un verrou (evite double execution concurrente)
-      2. Compare version locale vs version serveur
+    A chaque run :
+      1. Verifie le killswitch (fichier sentinelle sur le share)
+         -> si actif, auto-desinstalle PCPulse et exit
+      2. Verifie s'il existe une nouvelle version du Collector sur le share
       3. Si diff : backup, copie, verif SHA256, met a jour version locale
       4. Lance le Collector local avec le SharePath fourni
-      5. Libere le verrou
 
-    En cas d'echec a n'importe quelle etape, le Collector deja present
-    localement continue de tourner. AUCUN rollback auto (evite les boucles
-    infernales). Les erreurs sont logees dans updater.log pour diagnostic.
+    Workflow killswitch :
+      - L'admin depose un fichier sentinelle dans \release\ (defaut : KILLSWITCH.txt)
+      - Le fichier doit contenir une phrase de confirmation exacte
+        (defaut : CONFIRM-UNINSTALL-PCPULSE)
+      - Le PC ecrit un rapport dans \killed\<HOSTNAME>.txt
+      - Le PC supprime sa tache planifiee, son dossier local, et exit
+      - L'admin retire le fichier sentinelle quand toutes les machines
+        ont ete kill (cleanup manuel)
+
+    En cas d'echec a n'importe quelle etape (sauf killswitch), le Collector
+    deja present localement continue de tourner. AUCUN rollback auto.
 
 .PARAMETER SharePath
     Chemin UNC du share serveur (ex: \\SRV-PCPULSE\PCPulse$).
@@ -26,24 +31,38 @@
     PCPulse-Updater.ps1 -SharePath "\\SRV-PCPULSE\PCPulse$"
 
 .NOTES
-    Version : 1.0
+    Version : 1.1
     Auteur  : Damien Gouhier
     Licence : MIT
 
+    CHANGELOG :
+    v1.1 : Ajout du killswitch (auto-desinstallation a distance via
+           fichier sentinelle). Configurable via config.psd1.
+    v1.0 : Initiale - auto-update + verification SHA256.
+
     Layout attendu cote serveur :
-      \\SRV-PCPULSE\PCPulse$\
-        release\
-          01_Collector.ps1   (derniere version officielle)
-          version.txt        (ex: "1.1")
+        \\SRV-PCPULSE\PCPulse$\
+            release\
+                01_Collector.ps1   (derniere version officielle)
+                version.txt         (ex: "1.1")
+                KILLSWITCH.txt      (optionnel, declenche le kill)
+            killed\                 (rapports de desinstallation)
 
     Layout genere cote client :
-      C:\ProgramData\PCPulse\
-        01_Collector.ps1     (version courante)
-        PCPulse-Updater.ps1  (ce script)
-        version.txt          (version active)
-        backup\              (5 derniers backups, rolling)
-        updater.log          (log dedie)
-        .update.lock         (lock file temporaire)
+        C:\ProgramData\PCPulse\
+            01_Collector.ps1        (version courante)
+            PCPulse-Updater.ps1     (ce script)
+            version.txt             (version active)
+            backup\                 (5 derniers backups, rolling)
+            updater.log             (log dedie)
+            .update.lock            (lock file temporaire)
+
+    Personnalisation killswitch (optionnel) via config.psd1 :
+        KillSwitch = @{
+            Enabled  = $true
+            Filename = 'MON_NOM.txt'
+            Phrase   = 'MA-PHRASE-SECRETE'
+        }
 #>
 
 #Requires -Version 5.1
@@ -58,16 +77,28 @@ param(
 # ============================================================
 $LocalDir       = "C:\ProgramData\PCPulse"
 $CollectorLocal = Join-Path $LocalDir '01_Collector.ps1'
+$UpdaterLocal   = Join-Path $LocalDir 'PCPulse-Updater.ps1'
 $VersionLocal   = Join-Path $LocalDir 'version.txt'
 $LockFile       = Join-Path $LocalDir '.update.lock'
 $BackupDir      = Join-Path $LocalDir 'backup'
 $UpdaterLog     = Join-Path $LocalDir 'updater.log'
 
-$ReleaseDir     = Join-Path $SharePath 'release'
-$CollectorSrv   = Join-Path $ReleaseDir '01_Collector.ps1'
-$VersionSrv     = Join-Path $ReleaseDir 'version.txt'
+$ReleaseDir   = Join-Path $SharePath 'release'
+$KilledDir    = Join-Path $SharePath 'killed'
+$CollectorSrv = Join-Path $ReleaseDir '01_Collector.ps1'
+$VersionSrv   = Join-Path $ReleaseDir 'version.txt'
 
-$BackupRetention = 5   # nombre de versions a conserver
+$BackupRetention = 5
+
+# Defauts killswitch (si pas surcharge dans config.psd1)
+$KillSwitchDefaults = @{
+    Enabled  = $true
+    Filename = 'KILLSWITCH.txt'
+    Phrase   = 'CONFIRM-UNINSTALL-PCPULSE'
+}
+
+# Nom de la tache planifiee a supprimer lors du kill
+$ScheduledTaskName = 'PCPulse-Collector'
 
 # ============================================================
 # FONCTIONS UTILITAIRES
@@ -80,6 +111,112 @@ function Write-UpdaterLog {
     } catch {
         # Silent : on ne veut pas qu'un probleme de log casse l'updater
     }
+}
+
+function Get-KillSwitchConfig {
+    # Charge la config killswitch depuis config.psd1 si dispo, sinon defauts
+    $cfg = $KillSwitchDefaults.Clone()
+    $configFile = Join-Path $SharePath 'config.psd1'
+
+    if (Test-Path $configFile) {
+        try {
+            $userCfg = Import-PowerShellDataFile -Path $configFile -ErrorAction Stop
+            if ($userCfg.ContainsKey('KillSwitch')) {
+                if ($null -ne $userCfg.KillSwitch.Enabled)  { $cfg.Enabled  = [bool]$userCfg.KillSwitch.Enabled }
+                if ($userCfg.KillSwitch.Filename)            { $cfg.Filename = [string]$userCfg.KillSwitch.Filename }
+                if ($userCfg.KillSwitch.Phrase)              { $cfg.Phrase   = [string]$userCfg.KillSwitch.Phrase }
+            }
+        } catch {
+            Write-UpdaterLog "Echec lecture config.psd1, utilisation des defauts killswitch : $_" 'WARN'
+        }
+    }
+    return $cfg
+}
+
+function Invoke-KillSwitch {
+    # Verifie le fichier sentinelle. Retourne $true si le killswitch
+    # a ete declenche (auto-desinstallation effectuee, l'updater doit exit).
+    $cfg = Get-KillSwitchConfig
+
+    if (-not $cfg.Enabled) {
+        return $false
+    }
+
+    $sentinelFile = Join-Path $ReleaseDir $cfg.Filename
+    if (-not (Test-Path $sentinelFile)) {
+        return $false
+    }
+
+    # Le fichier sentinelle existe : verifier le contenu
+    try {
+        $content = (Get-Content $sentinelFile -Raw -ErrorAction Stop).Trim()
+    } catch {
+        Write-UpdaterLog "Sentinelle detectee mais lecture echouee : $_" 'ERROR'
+        return $false
+    }
+
+    if ($content -ne $cfg.Phrase) {
+        Write-UpdaterLog "Sentinelle '$($cfg.Filename)' detectee mais phrase invalide, kill ignore" 'WARN'
+        return $false
+    }
+
+    # Killswitch confirme : auto-desinstallation
+    Write-UpdaterLog "=== KILLSWITCH ACTIF ===" 'WARN'
+    Write-UpdaterLog "Fichier sentinelle : $sentinelFile"
+    Write-UpdaterLog "Auto-desinstallation en cours..."
+
+    # 1. Ecrire un rapport dans \killed\<HOSTNAME>.txt sur le share
+    try {
+        if (-not (Test-Path $KilledDir)) {
+            New-Item -Path $KilledDir -ItemType Directory -Force | Out-Null
+        }
+        $report = @"
+=== PCPulse Killswitch report ===
+ComputerName : $env:COMPUTERNAME
+Timestamp    : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+Version      : $(if (Test-Path $VersionLocal) { (Get-Content $VersionLocal -Raw).Trim() } else { 'unknown' })
+Sentinelle   : $($cfg.Filename)
+"@
+        $reportFile = Join-Path $KilledDir "$env:COMPUTERNAME.txt"
+        $report | Out-File -FilePath $reportFile -Encoding UTF8 -Force -ErrorAction SilentlyContinue
+        Write-UpdaterLog "Rapport killed ecrit : $reportFile"
+    } catch {
+        Write-UpdaterLog "Echec ecriture rapport killed (non-bloquant) : $_" 'WARN'
+    }
+
+    # 2. Supprimer la tache planifiee (avant de supprimer les fichiers,
+    #    pour eviter qu'elle se relance pendant le cleanup)
+    try {
+        $task = Get-ScheduledTask -TaskName $ScheduledTaskName -ErrorAction SilentlyContinue
+        if ($task) {
+            Unregister-ScheduledTask -TaskName $ScheduledTaskName -Confirm:$false -ErrorAction Stop
+            Write-UpdaterLog "Tache planifiee supprimee : $ScheduledTaskName"
+        }
+    } catch {
+        Write-UpdaterLog "Echec suppression tache planifiee : $_" 'ERROR'
+        # On continue quand meme : si la tache reste, elle re-tentera le kill au prochain cycle
+    }
+
+    # 3. Supprimer le dossier local PCPulse
+    #    Note : on ne peut pas se supprimer soi-meme (ce script est en cours
+    #    d'execution depuis $UpdaterLocal). On lance un job differe qui supprime
+    #    apres notre exit.
+    try {
+        $cleanupCmd = @"
+Start-Sleep -Seconds 5
+Remove-Item -Path '$LocalDir' -Recurse -Force -ErrorAction SilentlyContinue
+"@
+        # Lance un PowerShell detache qui nettoiera apres notre exit
+        Start-Process -FilePath 'powershell.exe' `
+                      -ArgumentList '-NoProfile','-WindowStyle','Hidden','-Command',$cleanupCmd `
+                      -WindowStyle Hidden | Out-Null
+        Write-UpdaterLog "Cleanup differe lance (suppression de $LocalDir dans 5s)"
+    } catch {
+        Write-UpdaterLog "Echec lancement cleanup differe : $_" 'ERROR'
+    }
+
+    Write-UpdaterLog "=== Fin killswitch (exit) ==="
+    return $true
 }
 
 function Invoke-Collector {
@@ -100,7 +237,7 @@ function Invoke-Collector {
 function Remove-OldBackups {
     if (-not (Test-Path $BackupDir)) { return }
     $backups = Get-ChildItem -Path $BackupDir -Filter '01_Collector_v*.ps1' -ErrorAction SilentlyContinue |
-               Sort-Object LastWriteTime -Descending
+        Sort-Object LastWriteTime -Descending
     if ($backups.Count -gt $BackupRetention) {
         $toDelete = $backups | Select-Object -Skip $BackupRetention
         foreach ($b in $toDelete) {
@@ -121,11 +258,20 @@ Write-UpdaterLog "SharePath: $SharePath"
 Write-UpdaterLog "ComputerName: $env:COMPUTERNAME"
 
 # ============================================================
+# ETAPE 0 (NEW v1.1) : KILLSWITCH - verifier AVANT tout le reste
+# ============================================================
+if (Test-Path $ReleaseDir) {
+    if (Invoke-KillSwitch) {
+        # Killswitch declenche : on a auto-desinstalle, on exit immediatement
+        Write-UpdaterLog "=== Fin cycle updater (killswitch) ==="
+        exit 0
+    }
+}
+
+# ============================================================
 # ETAPE 1 : VERROU ANTI-COLLISION
 # ============================================================
 if (Test-Path $LockFile) {
-    # Lock existe : soit une autre instance tourne, soit un crash precedent
-    # a laisse un lock orphelin. On le considere orphelin apres 30 min.
     $lockAge = (Get-Date) - (Get-Item $LockFile).LastWriteTime
     if ($lockAge.TotalMinutes -lt 30) {
         Write-UpdaterLog "Lock actif (age $([int]$lockAge.TotalMinutes) min), abandon" 'WARN'
@@ -136,7 +282,6 @@ if (Test-Path $LockFile) {
 }
 
 try {
-    # Creer le lock file avec timestamp courant
     New-Item -Path $LockFile -ItemType File -Force | Out-Null
 
     # ============================================================
@@ -180,14 +325,13 @@ try {
     # ============================================================
     Write-UpdaterLog "Update detectee : $localVer -> $srvVer"
 
-    # Verifier que le nouveau Collector existe sur le share
     if (-not (Test-Path $CollectorSrv)) {
         Write-UpdaterLog "version.txt annonce $srvVer mais 01_Collector.ps1 absent du share" 'ERROR'
         Invoke-Collector -SharePath $SharePath
         return
     }
 
-    # 5a - Calcul du SHA256 source AVANT copie (source de verite)
+    # 5a - SHA256 source AVANT copie
     try {
         $srvHash = (Get-FileHash -Path $CollectorSrv -Algorithm SHA256 -ErrorAction Stop).Hash
         Write-UpdaterLog "SHA256 serveur : $srvHash"
@@ -197,10 +341,10 @@ try {
         return
     }
 
-    # 5b - Backup de la version actuelle (si elle existe)
+    # 5b - Backup
     $backupFile = $null
     if (Test-Path $CollectorLocal) {
-        $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+        $timestamp  = Get-Date -Format 'yyyyMMdd_HHmmss'
         $backupFile = Join-Path $BackupDir "01_Collector_v${localVer}_${timestamp}.ps1"
         try {
             Copy-Item -Path $CollectorLocal -Destination $backupFile -Force -ErrorAction Stop
@@ -212,13 +356,12 @@ try {
         }
     }
 
-    # 5c - Copie du nouveau Collector
+    # 5c - Copie nouveau Collector
     try {
         Copy-Item -Path $CollectorSrv -Destination $CollectorLocal -Force -ErrorAction Stop
         Write-UpdaterLog "Copie du nouveau Collector OK"
     } catch {
         Write-UpdaterLog "Echec copie du nouveau Collector : $_" 'ERROR'
-        # Tentative de restauration du backup
         if ($backupFile -and (Test-Path $backupFile)) {
             try {
                 Copy-Item -Path $backupFile -Destination $CollectorLocal -Force -ErrorAction Stop
@@ -236,7 +379,6 @@ try {
         $localHash = (Get-FileHash -Path $CollectorLocal -Algorithm SHA256 -ErrorAction Stop).Hash
         if ($localHash -ne $srvHash) {
             Write-UpdaterLog "SHA256 mismatch apres copie (attendu $srvHash, obtenu $localHash)" 'ERROR'
-            # Restaurer le backup
             if ($backupFile -and (Test-Path $backupFile)) {
                 Copy-Item -Path $backupFile -Destination $CollectorLocal -Force
                 Write-UpdaterLog "Backup restaure suite au mismatch SHA256"
@@ -251,32 +393,27 @@ try {
         return
     }
 
-    # 5e - Mise a jour du version.txt local (seulement si tout le reste a reussi)
+    # 5e - Mise a jour version.txt local
     try {
         Set-Content -Path $VersionLocal -Value $srvVer -Encoding UTF8 -ErrorAction Stop
         Write-UpdaterLog "version.txt local mis a jour : $srvVer" 'SUCCESS'
     } catch {
         Write-UpdaterLog "Echec mise a jour version.txt local : $_" 'ERROR'
-        # Le Collector est deja copie, on continue quand meme
     }
 
-    # 5f - Nettoyage des vieux backups (rolling 5)
+    # 5f - Cleanup backups
     Remove-OldBackups
 
     # ============================================================
-    # ETAPE 6 : LANCER LE COLLECTOR (nouvelle version ou ancienne en cas d'echec)
+    # ETAPE 6 : LANCER LE COLLECTOR
     # ============================================================
     Invoke-Collector -SharePath $SharePath
 }
 catch {
     Write-UpdaterLog "Exception non geree : $_" 'ERROR'
-    # Tenter quand meme de lancer le Collector local
     Invoke-Collector -SharePath $SharePath
 }
 finally {
-    # ============================================================
-    # ETAPE 7 : LIBERATION DU VERROU
-    # ============================================================
     if (Test-Path $LockFile) {
         Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
         Write-UpdaterLog "Lock libere"
