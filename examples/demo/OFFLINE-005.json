@@ -1,5 +1,5 @@
 {
-  "SchemaVersion": "1.0",
+  "SchemaVersion": "2.0",
   "Machine": {
     "PC": "OFFLINE-005",
     "CollectedAt": "2026-04-09 07:00:00",
@@ -21,7 +21,9 @@
       "IsLaptop": true,
       "IsDesktop": false,
       "IsAIO": false
-    }
+    },
+    "LastRealColdBoot": "2026-04-08 08:30:00",
+    "FastStartupEnabled": true
   },
   "Events": [],
   "BootDurations": [
@@ -246,7 +248,8 @@
     "WHEA_Fatal": [],
     "WHEA_Corrected": [],
     "GPU_TDR": [],
-    "Thermal": []
+    "Thermal": [],
+    "CPUThrottling": []
   },
   "Stats": {
     "TotalBoots": 15,
@@ -282,6 +285,47 @@
     "BootPerfAlert": false,
     "DiskWorstWear": 5,
     "DiskHealthAlert": false,
-    "MonitorsCount": 0
-  }
+    "MonitorsCount": 0,
+    "TotalHardCrash": 0,
+    "TotalCPUThrottling": 0
+  },
+  "MemoryInventory": {
+    "TotalInstalledGB": 16,
+    "MaxCapacityGB": 32,
+    "TotalSlots": 2,
+    "OccupiedSlots": 2,
+    "FreeSlots": 0,
+    "CanUpgrade": true,
+    "Modules": [
+      {
+        "Slot": "Onboard 1",
+        "Bank": "-",
+        "CapacityGB": 8,
+        "TypeCode": 28,
+        "Type": "LPDDR4",
+        "SpeedMTs": 4266,
+        "Manufacturer": "Micron",
+        "PartNumber": "MT53E1G32D2NP-046",
+        "SerialNumber": "-"
+      },
+      {
+        "Slot": "Onboard 2",
+        "Bank": "-",
+        "CapacityGB": 8,
+        "TypeCode": 28,
+        "Type": "LPDDR4",
+        "SpeedMTs": 4266,
+        "Manufacturer": "Micron",
+        "PartNumber": "MT53E1G32D2NP-046",
+        "SerialNumber": "-"
+      }
+    ]
+  },
+  "GPUInventory": [
+    {
+      "Name": "AMD Radeon(TM) Graphics",
+      "DriverVersion": "31.0.21916.2",
+      "DriverDate": "2024-06-04"
+    }
+  ]
 }

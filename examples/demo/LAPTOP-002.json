@@ -1,5 +1,5 @@
 {
-  "SchemaVersion": "1.0",
+  "SchemaVersion": "2.0",
   "Machine": {
     "PC": "LAPTOP-002",
     "CollectedAt": "2026-04-21 10:48:00",
@@ -21,20 +21,24 @@
       "IsLaptop": true,
       "IsDesktop": false,
       "IsAIO": false
-    }
+    },
+    "LastRealColdBoot": "2026-04-21 08:00:00",
+    "FastStartupEnabled": false
   },
   "Events": [
     {
       "EventId": 41,
       "Timestamp": "2026-04-20 08:00:00",
       "Type": "BSOD",
-      "Detail": "Le système a redémarré sans s'arrêter correctement. BugcheckCode=0x0000007E"
+      "Detail": "Le système a redémarré sans s'arrêter correctement. BugcheckCode=0x0000007E",
+      "CrashCause": "BSODSilent"
     },
     {
       "EventId": 41,
       "Timestamp": "2026-04-17 04:00:00",
       "Type": "Freeze",
-      "Detail": "Le système a redémarré sans s'arrêter correctement"
+      "Detail": "Le système a redémarré sans s'arrêter correctement",
+      "CrashCause": "PowerLoss"
     },
     {
       "EventId": 1074,
@@ -420,7 +424,99 @@
       }
     ],
     "GPU_TDR": [],
-    "Thermal": []
+    "Thermal": [],
+    "CPUThrottling": [
+      {
+        "Day": "2026-04-12",
+        "EventId": 35,
+        "Type": "Firmware throttle",
+        "Count": 145,
+        "FirstSeen": "2026-04-12 10:32:00",
+        "LastSeen": "2026-04-12 17:48:00",
+        "Detail": "Processor was limited by firmware"
+      },
+      {
+        "Day": "2026-04-13",
+        "EventId": 35,
+        "Type": "Firmware throttle",
+        "Count": 189,
+        "FirstSeen": "2026-04-13 09:15:00",
+        "LastSeen": "2026-04-13 18:02:00",
+        "Detail": "Processor was limited by firmware"
+      },
+      {
+        "Day": "2026-04-14",
+        "EventId": 55,
+        "Type": "Thermal power reduction",
+        "Count": 87,
+        "FirstSeen": "2026-04-14 14:05:00",
+        "LastSeen": "2026-04-14 16:32:00",
+        "Detail": "Thermal limit reached"
+      },
+      {
+        "Day": "2026-04-15",
+        "EventId": 35,
+        "Type": "Firmware throttle",
+        "Count": 210,
+        "FirstSeen": "2026-04-15 08:50:00",
+        "LastSeen": "2026-04-15 17:15:00",
+        "Detail": "Processor was limited by firmware"
+      },
+      {
+        "Day": "2026-04-16",
+        "EventId": 55,
+        "Type": "Thermal power reduction",
+        "Count": 156,
+        "FirstSeen": "2026-04-16 11:22:00",
+        "LastSeen": "2026-04-16 17:48:00",
+        "Detail": "Thermal limit reached"
+      },
+      {
+        "Day": "2026-04-17",
+        "EventId": 35,
+        "Type": "Firmware throttle",
+        "Count": 93,
+        "FirstSeen": "2026-04-17 09:45:00",
+        "LastSeen": "2026-04-17 15:30:00",
+        "Detail": "Processor was limited by firmware"
+      },
+      {
+        "Day": "2026-04-18",
+        "EventId": 35,
+        "Type": "Firmware throttle",
+        "Count": 178,
+        "FirstSeen": "2026-04-18 10:12:00",
+        "LastSeen": "2026-04-18 17:55:00",
+        "Detail": "Processor was limited by firmware"
+      },
+      {
+        "Day": "2026-04-19",
+        "EventId": 55,
+        "Type": "Thermal power reduction",
+        "Count": 203,
+        "FirstSeen": "2026-04-19 11:48:00",
+        "LastSeen": "2026-04-19 18:20:00",
+        "Detail": "Thermal limit reached"
+      },
+      {
+        "Day": "2026-04-20",
+        "EventId": 35,
+        "Type": "Firmware throttle",
+        "Count": 167,
+        "FirstSeen": "2026-04-20 09:00:00",
+        "LastSeen": "2026-04-20 17:45:00",
+        "Detail": "Processor was limited by firmware"
+      },
+      {
+        "Day": "2026-04-21",
+        "EventId": 35,
+        "Type": "Firmware throttle",
+        "Count": 52,
+        "FirstSeen": "2026-04-21 08:30:00",
+        "LastSeen": "2026-04-21 10:30:00",
+        "Detail": "Processor was limited by firmware"
+      }
+    ]
   },
   "Stats": {
     "TotalBoots": 19,
@@ -456,6 +552,52 @@
     "BootPerfAlert": true,
     "DiskWorstWear": 28,
     "DiskHealthAlert": false,
-    "MonitorsCount": 1
-  }
+    "MonitorsCount": 1,
+    "TotalHardCrash": 2,
+    "TotalCPUThrottling": 10
+  },
+  "MemoryInventory": {
+    "TotalInstalledGB": 16,
+    "MaxCapacityGB": 32,
+    "TotalSlots": 2,
+    "OccupiedSlots": 2,
+    "FreeSlots": 0,
+    "CanUpgrade": true,
+    "Modules": [
+      {
+        "Slot": "DIMM A",
+        "Bank": "BANK 0",
+        "CapacityGB": 8,
+        "TypeCode": 26,
+        "Type": "DDR4",
+        "SpeedMTs": 2666,
+        "Manufacturer": "SK Hynix",
+        "PartNumber": "HMA81GS6CJR8N-VK",
+        "SerialNumber": "-"
+      },
+      {
+        "Slot": "DIMM B",
+        "Bank": "BANK 2",
+        "CapacityGB": 8,
+        "TypeCode": 26,
+        "Type": "DDR4",
+        "SpeedMTs": 2666,
+        "Manufacturer": "SK Hynix",
+        "PartNumber": "HMA81GS6CJR8N-VK",
+        "SerialNumber": "-"
+      }
+    ]
+  },
+  "GPUInventory": [
+    {
+      "Name": "NVIDIA GeForce GTX 1650",
+      "DriverVersion": "31.0.15.3699",
+      "DriverDate": "2023-02-10"
+    },
+    {
+      "Name": "Intel(R) UHD Graphics",
+      "DriverVersion": "27.20.100.9466",
+      "DriverDate": "2022-08-22"
+    }
+  ]
 }

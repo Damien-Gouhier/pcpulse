@@ -1,5 +1,5 @@
 {
-  "SchemaVersion": "1.0",
+  "SchemaVersion": "2.0",
   "Machine": {
     "PC": "AIO-004",
     "CollectedAt": "2026-04-21 10:57:00",
@@ -21,7 +21,9 @@
       "IsLaptop": false,
       "IsDesktop": false,
       "IsAIO": true
-    }
+    },
+    "LastRealColdBoot": "2026-04-19 11:00:00",
+    "FastStartupEnabled": true
   },
   "Events": [],
   "BootDurations": [
@@ -181,7 +183,8 @@
     "WHEA_Fatal": [],
     "WHEA_Corrected": [],
     "GPU_TDR": [],
-    "Thermal": []
+    "Thermal": [],
+    "CPUThrottling": []
   },
   "Stats": {
     "TotalBoots": 3,
@@ -217,6 +220,47 @@
     "BootPerfAlert": false,
     "DiskWorstWear": 8,
     "DiskHealthAlert": false,
-    "MonitorsCount": 1
-  }
+    "MonitorsCount": 1,
+    "TotalHardCrash": 0,
+    "TotalCPUThrottling": 0
+  },
+  "MemoryInventory": {
+    "TotalInstalledGB": 16,
+    "MaxCapacityGB": 32,
+    "TotalSlots": 2,
+    "OccupiedSlots": 2,
+    "FreeSlots": 0,
+    "CanUpgrade": true,
+    "Modules": [
+      {
+        "Slot": "DIMM 0",
+        "Bank": "BANK 0",
+        "CapacityGB": 8,
+        "TypeCode": 26,
+        "Type": "DDR4",
+        "SpeedMTs": 3200,
+        "Manufacturer": "Kingston",
+        "PartNumber": "KCP432SS8/8",
+        "SerialNumber": "-"
+      },
+      {
+        "Slot": "DIMM 1",
+        "Bank": "BANK 1",
+        "CapacityGB": 8,
+        "TypeCode": 26,
+        "Type": "DDR4",
+        "SpeedMTs": 3200,
+        "Manufacturer": "Kingston",
+        "PartNumber": "KCP432SS8/8",
+        "SerialNumber": "-"
+      }
+    ]
+  },
+  "GPUInventory": [
+    {
+      "Name": "Intel(R) UHD Graphics 750",
+      "DriverVersion": "31.0.101.4502",
+      "DriverDate": "2024-03-12"
+    }
+  ]
 }

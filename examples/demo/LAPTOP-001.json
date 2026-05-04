@@ -1,5 +1,5 @@
 {
-  "SchemaVersion": "1.0",
+  "SchemaVersion": "2.0",
   "Machine": {
     "PC": "LAPTOP-001",
     "CollectedAt": "2026-04-21 10:55:00",
@@ -21,7 +21,9 @@
       "IsLaptop": true,
       "IsDesktop": false,
       "IsAIO": false
-    }
+    },
+    "LastRealColdBoot": "2026-04-15 08:34:00",
+    "FastStartupEnabled": true
   },
   "Events": [
     {
@@ -477,7 +479,8 @@
     "WHEA_Fatal": [],
     "WHEA_Corrected": [],
     "GPU_TDR": [],
-    "Thermal": []
+    "Thermal": [],
+    "CPUThrottling": []
   },
   "Stats": {
     "TotalBoots": 25,
@@ -513,6 +516,47 @@
     "BootPerfAlert": false,
     "DiskWorstWear": 3,
     "DiskHealthAlert": false,
-    "MonitorsCount": 2
-  }
+    "MonitorsCount": 2,
+    "TotalHardCrash": 0,
+    "TotalCPUThrottling": 0
+  },
+  "MemoryInventory": {
+    "TotalInstalledGB": 32,
+    "MaxCapacityGB": 64,
+    "TotalSlots": 2,
+    "OccupiedSlots": 2,
+    "FreeSlots": 0,
+    "CanUpgrade": true,
+    "Modules": [
+      {
+        "Slot": "ChannelA-DIMM0",
+        "Bank": "BANK 0",
+        "CapacityGB": 16,
+        "TypeCode": 26,
+        "Type": "DDR4",
+        "SpeedMTs": 3200,
+        "Manufacturer": "Samsung",
+        "PartNumber": "M471A2K43DB1-CWE",
+        "SerialNumber": "-"
+      },
+      {
+        "Slot": "ChannelB-DIMM0",
+        "Bank": "BANK 2",
+        "CapacityGB": 16,
+        "TypeCode": 26,
+        "Type": "DDR4",
+        "SpeedMTs": 3200,
+        "Manufacturer": "Samsung",
+        "PartNumber": "M471A2K43DB1-CWE",
+        "SerialNumber": "-"
+      }
+    ]
+  },
+  "GPUInventory": [
+    {
+      "Name": "Intel(R) Iris(R) Xe Graphics",
+      "DriverVersion": "31.0.101.5333",
+      "DriverDate": "2024-09-15"
+    }
+  ]
 }

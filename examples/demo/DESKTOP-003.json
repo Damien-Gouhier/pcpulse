@@ -1,5 +1,5 @@
 {
-  "SchemaVersion": "1.0",
+  "SchemaVersion": "2.0",
   "Machine": {
     "PC": "DESKTOP-003",
     "CollectedAt": "2026-04-21 10:38:00",
@@ -21,7 +21,9 @@
       "IsLaptop": false,
       "IsDesktop": true,
       "IsAIO": false
-    }
+    },
+    "LastRealColdBoot": "2026-04-13 11:00:00",
+    "FastStartupEnabled": false
   },
   "Events": [],
   "BootDurations": [
@@ -152,7 +154,8 @@
     "WHEA_Fatal": [],
     "WHEA_Corrected": [],
     "GPU_TDR": [],
-    "Thermal": []
+    "Thermal": [],
+    "CPUThrottling": []
   },
   "Stats": {
     "TotalBoots": 1,
@@ -188,6 +191,36 @@
     "BootPerfAlert": false,
     "DiskWorstWear": 15,
     "DiskHealthAlert": false,
-    "MonitorsCount": 1
-  }
+    "MonitorsCount": 1,
+    "TotalHardCrash": 0,
+    "TotalCPUThrottling": 0
+  },
+  "MemoryInventory": {
+    "TotalInstalledGB": 8,
+    "MaxCapacityGB": 64,
+    "TotalSlots": 4,
+    "OccupiedSlots": 1,
+    "FreeSlots": 3,
+    "CanUpgrade": true,
+    "Modules": [
+      {
+        "Slot": "DIMM_A1",
+        "Bank": "BANK 0",
+        "CapacityGB": 8,
+        "TypeCode": 26,
+        "Type": "DDR4",
+        "SpeedMTs": 2400,
+        "Manufacturer": "Crucial",
+        "PartNumber": "CT8G4DFS824A.M8FE",
+        "SerialNumber": "-"
+      }
+    ]
+  },
+  "GPUInventory": [
+    {
+      "Name": "Intel(R) UHD Graphics 630",
+      "DriverVersion": "27.20.100.9466",
+      "DriverDate": "2022-08-22"
+    }
+  ]
 }
