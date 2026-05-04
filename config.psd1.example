@@ -13,6 +13,7 @@
 # ATTENTION : ne commit jamais ton config.psd1 reel sur GitHub !
 # Il est deja exclu via .gitignore.
 #
+
 @{
     # ===================================================
     # COLLECTE (cote Collector)
@@ -37,29 +38,81 @@
     # 25 % libre = warning orange (hardcode dans le Dashboard)
     SeuilDiskAlert = 10
 
+
     # ===================================================
     # DASHBOARD (cote Dashboard)
     # ===================================================
 
     # Seuils specifiques au Dashboard (par defaut = Collector)
-    SeuilCrashRecent     = 7    # Un crash est "recent" si < 7 jours
-    SeuilDiskWarning     = 25   # Warning orange si disque < 25 % libre
-    SeuilOfflineJours    = 1    # PC offline si collecte > 1 jour
+    SeuilCrashRecent  = 7    # Un crash est "recent" si < 7 jours
+    SeuilDiskWarning  = 25   # Warning orange si disque < 25 % libre
+    SeuilOfflineJours = 1    # PC offline si collecte > 1 jour
 
     # Titre et sous-titre affiches dans le header du Dashboard
-    DashboardTitle       = 'PCPulse'
-    DashboardSubtitle    = 'Supervision du parc'
+    DashboardTitle    = 'PCPulse'
+    DashboardSubtitle = 'Supervision du parc'
 
     # Masquer par defaut les PC sans alerte a l'ouverture du Dashboard ?
     # $true  = affiche uniquement les PC avec au moins 1 probleme
     # $false = affiche tout le parc
     MaskHealthyByDefault = $false
 
+
+    # ===================================================
+    # KILLSWITCH (cote Updater) - introduit en v1.1
+    # ===================================================
+    #
+    # Mecanisme d'auto-desinstallation a distance des Collectors.
+    # Quand l'admin depose le fichier sentinelle (avec la phrase exacte)
+    # dans \release\, chaque PC :
+    #   1. Detecte le fichier au prochain cycle horaire
+    #   2. Verifie le contenu (phrase exacte requise, sinon ignore)
+    #   3. Ecrit un rapport dans \killed\<HOSTNAME>.txt
+    #   4. Supprime sa tache planifiee + son dossier C:\ProgramData\PCPulse
+    #
+    # Utile pour :
+    #   - Decommissionner PCPulse sans toucher physiquement aux PC
+    #   - Stopper rapidement un deploiement en cas de probleme (kill switch)
+    #   - Migrer vers une nouvelle version (kill puis re-deploiement clean)
+    #
+    # SECURITE : la phrase doit etre traitee comme un secret (suffisamment
+    # complexe pour qu'un attaquant ayant ecriture sur \release\ ne puisse
+    # pas la deviner). Si tu pousses ton config.psd1 sur un share accessible
+    # en lecture par les PC, tout PC compromis peut lire la phrase. C'est OK
+    # car de toute facon les PC ont besoin de la lire pour le mecanisme.
+    # Le pentest se fait sur l'ECRITURE du fichier sentinelle (qui doit
+    # etre limitee aux admins). Voir SECURITY.md.
+    #
+    # Si tu veux desactiver completement le killswitch, mets Enabled = $false.
+    # Si la section KillSwitch est absente, des defauts sont appliques :
+    #   Enabled  = $true
+    #   Filename = 'KILLSWITCH.txt'
+    #   Phrase   = 'CONFIRM-UNINSTALL-PCPULSE'
+    #
+    KillSwitch = @{
+
+        # Activer le mecanisme killswitch ?
+        # En production, garder $true. Tu peux mettre $false en dev/test.
+        Enabled = $true
+
+        # Nom du fichier sentinelle a deposer dans \release\ pour declencher
+        # le kill. Choisir un nom non-evocateur en prod (defense en profondeur).
+        Filename = 'KILLSWITCH.txt'
+
+        # Phrase exacte que doit contenir le fichier sentinelle pour valider
+        # le kill. Si le fichier existe mais ne contient pas cette phrase
+        # exacte, l'updater ignore (avec un log WARN).
+        # Choisir une chaine impossible a saisir par accident.
+        Phrase = 'CONFIRM-UNINSTALL-PCPULSE'
+    }
+
+
     # Nom du fichier CSV de mapping IP/hostname -> Site
     # Place ce fichier dans ton $SharePath. Si absent, la colonne
     # "Site" est masquee dans le Dashboard.
     # Voir ip-ranges.example.csv pour le format attendu.
-    CsvRanges            = 'ip-ranges.csv'
+    CsvRanges = 'ip-ranges.csv'
+
 
     # ===================================================
     # PONDERATION DU SCORE DE SANTE
