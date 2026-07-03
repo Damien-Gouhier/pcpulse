@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.0-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.0-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Supervision de parc Windows zéro-dépendance.**
@@ -40,14 +40,14 @@ Si l'un de ces points résonne avec toi, n'hésite pas à ouvrir une [Issue](htt
 
 | Famille | Métriques |
 |---|---|
-| 🔒 **Sécurité** | Statut EDR (SentinelOne), PC offline |
+| 🔒 **Sécurité** | Statut de l'EDR (défini dans config.psd1), PC offline |
 | ⚠️ **Stabilité** | Crashs applicatifs, freezes, BSOD, WHEA fatal/corrected, GPU TDR, throttling thermique |
 | ⚡ **Performance** | Durée des boots, Boot Performance détaillée (MainPath, PostBoot, UserProfile, Explorer init) |
 | 🔧 **Usure matérielle** | Santé batterie (% d'usure + cycles), SMART disque (wear, temp, erreurs), écrans secondaires âgés |
 | 📊 **Inventaire** | CPU (modèle, année, ancienneté), RAM, disques, châssis (Laptop/Desktop/AIO), moniteurs externes (EDID) |
 
 ## 📸 Aperçu
-
+> ⚠️ **Captures en cours de mise à jour** pour refléter la 2.2 (services surveillés configurables, libellés EDR génériques). Les images ci-dessous datent d'une version antérieure.
 ### Vue d'ensemble du parc
 
 Chaque ligne = un PC. Couleur de fond = niveau d'alerte. Tri, filtres (période, site, CPU), recherche.
@@ -145,7 +145,7 @@ Le HTML s'ouvre automatiquement dans ton navigateur. Tu peux explorer les 5 scé
 - **Zéro dépendance externe** : que du PowerShell natif et HTML/CSS/JS inline. Le HTML produit est autonome (aucun CDN, fonctionne offline).
 - **Compatible PS 5.1** côté Collector (= parc Windows 10/11 natif, aucune installation préalable).
 - **Lecture atomique** : si le partage SMB est indisponible, le Collector bufferise localement et rattrape au prochain run.
-- **Rétrocompatible** : le Dashboard accepte les schemas JSON plus anciens au fur et à mesure des évolutions.
+- **Rétrocompatible** : le Dashboard accepte les schémas JSON 2.1 et 2.2 (le temps du rollout poste-par-poste).
 - **Auto-update** : `PCPulse-Updater.ps1` télécharge automatiquement les nouvelles versions du Collector depuis `\release\` avec vérification SHA256.
 - **Killswitch** : auto-désinstallation à distance via fichier sentinelle (voir plus bas).
 
