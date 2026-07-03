@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PCPulse-Updater.ps1 - Auto-update du Collector + KillSwitch
 .DESCRIPTION
@@ -6,9 +6,11 @@
     A chaque run :
       1. Verifie le killswitch (fichier sentinelle sur le share)
          -> si actif, auto-desinstalle PCPulse et exit
-      2. Verifie s'il existe une nouvelle version du Collector sur le share
-      3. Si diff : backup, copie, verif SHA256, met a jour version locale
-      4. Lance le Collector local avec le SharePath fourni
+      2. Self-update : si l'Updater lui-meme differe de release\ (SHA256),
+         se met a jour (effectif au prochain run)
+      3. Verifie s'il existe une nouvelle version du Collector sur le share
+      4. Si diff : backup, copie, verif SHA256, met a jour version locale
+      5. Lance le Collector local avec le SharePath fourni
 
     Workflow killswitch :
       - L'admin depose un fichier sentinelle dans \release\ (defaut : KILLSWITCH.txt)
@@ -31,11 +33,14 @@
     PCPulse-Updater.ps1 -SharePath "\\SRV-PCPULSE\PCPulse$"
 
 .NOTES
-    Version : 1.1
+    Version : 1.2
     Auteur  : Damien Gouhier
     Licence : MIT
 
     CHANGELOG :
+    v1.2 : Self-update de l'Updater par SHA256 (resout le bootstrap : un Updater
+           deploye one-shot par GPO peut desormais se mettre a jour seul, sans
+           re-deploiement). Backups Updater purges par Remove-OldBackups.
     v1.1 : Ajout du killswitch (auto-desinstallation a distance via
            fichier sentinelle). Configurable via config.psd1.
     v1.0 : Initiale - auto-update + verification SHA256.
@@ -43,9 +48,10 @@
     Layout attendu cote serveur :
         \\SRV-PCPULSE\PCPulse$\
             release\
-                01_Collector.ps1   (derniere version officielle)
-                version.txt         (ex: "1.1")
-                KILLSWITCH.txt      (optionnel, declenche le kill)
+                01_Collector.ps1     (derniere version officielle)
+                PCPulse-Updater.ps1  (self-update de l'Updater par SHA256)
+                version.txt          (ex: "2.2.0")
+                KILLSWITCH.txt       (optionnel, declenche le kill)
             killed\                 (rapports de desinstallation)
 
     Layout genere cote client :
@@ -87,6 +93,7 @@ $ReleaseDir   = Join-Path $SharePath 'release'
 $KilledDir    = Join-Path $SharePath 'killed'
 $CollectorSrv = Join-Path $ReleaseDir '01_Collector.ps1'
 $VersionSrv   = Join-Path $ReleaseDir 'version.txt'
+$UpdaterSrv   = Join-Path $ReleaseDir 'PCPulse-Updater.ps1'
 
 $BackupRetention = 5
 
@@ -236,15 +243,89 @@ function Invoke-Collector {
 
 function Remove-OldBackups {
     if (-not (Test-Path $BackupDir)) { return }
-    $backups = Get-ChildItem -Path $BackupDir -Filter '01_Collector_v*.ps1' -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending
-    if ($backups.Count -gt $BackupRetention) {
-        $toDelete = $backups | Select-Object -Skip $BackupRetention
-        foreach ($b in $toDelete) {
-            Remove-Item $b.FullName -Force -ErrorAction SilentlyContinue
-            Write-UpdaterLog "Backup ancien supprime : $($b.Name)"
+    # v1.1 : purge les deux familles de backups (Collector + Updater), retention chacune
+    foreach ($pattern in @('01_Collector_v*.ps1', 'PCPulse-Updater_*.ps1')) {
+        $backups = Get-ChildItem -Path $BackupDir -Filter $pattern -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending
+        if ($backups.Count -gt $BackupRetention) {
+            $toDelete = $backups | Select-Object -Skip $BackupRetention
+            foreach ($b in $toDelete) {
+                Remove-Item $b.FullName -Force -ErrorAction SilentlyContinue
+                Write-UpdaterLog "Backup ancien supprime : $($b.Name)"
+            }
         }
     }
+}
+
+function Update-Self {
+    # ============================================================
+    # v1.1 : SELF-UPDATE de l'Updater par comparaison SHA256.
+    #   - Compare le hash de CE script (local) a release\PCPulse-Updater.ps1
+    #   - Si different : backup, copie, re-verif SHA256, restauration si echec
+    #   - NON-BLOQUANT : tout echec est logge mais n'interrompt pas le cycle
+    #   - La nouvelle version s'applique au PROCHAIN declenchement : ce process
+    #     tourne deja sur l'ancien code charge en memoire, on ne re-execute pas.
+    # ============================================================
+    if (-not (Test-Path $UpdaterSrv)) {
+        return   # Pas d'Updater publie dans release\ : rien a faire
+    }
+
+    try {
+        $srvHash = (Get-FileHash -Path $UpdaterSrv -Algorithm SHA256 -ErrorAction Stop).Hash
+    } catch {
+        Write-UpdaterLog "Self-update : echec lecture SHA256 Updater serveur (non-bloquant) : $_" 'WARN'
+        return
+    }
+
+    $localHash = $null
+    if (Test-Path $UpdaterLocal) {
+        try { $localHash = (Get-FileHash -Path $UpdaterLocal -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $localHash = $null }
+    }
+
+    if ($localHash -and ($localHash -eq $srvHash)) {
+        return   # Updater deja a jour
+    }
+
+    Write-UpdaterLog "Self-update : nouvelle version Updater detectee (local: $localHash | serveur: $srvHash)"
+
+    # Backup de l'Updater courant
+    $timestamp  = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $backupFile = Join-Path $BackupDir "PCPulse-Updater_${timestamp}.ps1"
+    if (Test-Path $UpdaterLocal) {
+        try {
+            Copy-Item -Path $UpdaterLocal -Destination $backupFile -Force -ErrorAction Stop
+            Write-UpdaterLog "Self-update : backup cree : $(Split-Path $backupFile -Leaf)"
+        } catch {
+            Write-UpdaterLog "Self-update : echec backup, abandon (non-bloquant) : $_" 'WARN'
+            return
+        }
+    }
+
+    # Copie du nouvel Updater depuis release\
+    try {
+        Copy-Item -Path $UpdaterSrv -Destination $UpdaterLocal -Force -ErrorAction Stop
+    } catch {
+        Write-UpdaterLog "Self-update : echec copie nouvel Updater : $_" 'ERROR'
+        return
+    }
+
+    # Re-verif SHA256 apres copie (integrite)
+    try {
+        $newHash = (Get-FileHash -Path $UpdaterLocal -Algorithm SHA256 -ErrorAction Stop).Hash
+        if ($newHash -ne $srvHash) {
+            Write-UpdaterLog "Self-update : SHA256 mismatch apres copie (attendu $srvHash, obtenu $newHash)" 'ERROR'
+            if (Test-Path $backupFile) {
+                Copy-Item -Path $backupFile -Destination $UpdaterLocal -Force -ErrorAction SilentlyContinue
+                Write-UpdaterLog "Self-update : backup restaure suite au mismatch SHA256"
+            }
+            return
+        }
+    } catch {
+        Write-UpdaterLog "Self-update : echec re-verif SHA256 (non-bloquant) : $_" 'WARN'
+        return
+    }
+
+    Write-UpdaterLog "Self-update : Updater mis a jour, effectif au prochain cycle" 'SUCCESS'
 }
 
 # ============================================================
@@ -292,6 +373,11 @@ try {
         Invoke-Collector -SharePath $SharePath
         return
     }
+
+    # ============================================================
+    # ETAPE 2b : SELF-UPDATE DE L'UPDATER (effectif au prochain cycle)
+    # ============================================================
+    Update-Self
 
     # ============================================================
     # ETAPE 3 : LECTURE DES VERSIONS
@@ -420,3 +506,4 @@ finally {
     }
     Write-UpdaterLog "=== Fin cycle updater ==="
 }
+

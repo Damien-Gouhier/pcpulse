@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v2.0
+    PCPulse Dashboard v2.2.0
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,248 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.0
+    Version      : 2.2.0
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.2.0 : Generalisation pour publication GitHub (de-vendorise, pilote par config).
+           Le code ne nomme plus aucun produit ; tout le specifique vit dans config.psd1.
+           - Whitelist SchemaVersions : @('2.1') -> @('2.1', '2.2'). Le Dashboard lit les
+             deux pour absorber le rollout poste-par-poste : un poste pas encore passe au
+             Collector 2.2 (JSON 2.1) affiche l'EDR "en attente" (neutre), pas une alerte.
+           - Services critiques : lecture de ServicesHealth.Monitored (liste) au lieu de
+             l'ancien objet unique code en dur. Le service Role='EDR' pilote le score et le
+             badge ; la liste complete apparait dans le drill-down (Services surveilles).
+           - ScoreWeights : poids EDR renomme EDRDown (le code ne nomme plus le vendor).
+             Le fallback JS protege un config qui ne l'aurait pas encore.
+           - PriorityApps ("A investiguer en priorite") externalisee dans config.psd1.
+             Defaut generique = socle bureautique/collab. Les applis metier / securite
+             propres au site vivent dans config.psd1, plus dans le code.
+           - Colonnes CSV EDR renommees (EDRStatus / EDRInstalle / EDRAlerte).
+           NB cote prod : config.psd1 doit declarer MonitoredServices (dont l'entree EDR) et
+           PriorityApps ; sinon l'EDR n'est pas suivi et la liste priorite retombe au defaut.
+    v2.1.14 : Bouton "Tout effacer" dans la barre des filtres actifs.
+           Reinitialise TOUS les filtres d'un coup : les chips (KPI, appli, masquer sains) ET les
+           controles qui n'ont pas de chip a eux seuls (menus site/CPU, champ recherche). Le bouton
+           apparait des qu'au moins un filtre est actif (condition elargie : state + valeur des
+           selects + recherche). Retour a l'etat d'ouverture, tout le parc visible. NB : "masquer
+           sains" repart sur off, qui est deja son defaut (MaskHealthyByDefault = false).
+    v2.1.13 : Piste materielle "memoire" (Phase 2) + recopie des champs additifs 2.1.5.
+           (1) $crasherList recopie desormais les 4 champs du Collector 2.1.5 (HangCount,
+           ErrorCount, FaultModule, ExceptionCode) - ils etaient droppes au re-mapping PS->embed,
+           donc invisibles cote JS. Compteurs castes [int], module/code htmlsafe. Prepare aussi
+           l'affichage detaille du drill-down (a venir).
+           (2) Le drill-down PC leve une "piste a verifier : memoire" quand un poste cumule
+           (a) >=1 crasher de nature memoire (0xc0000005 acces invalide / 0xc0000374 corruption)
+           ET (b) >=1 erreur WHEA de composant RAM. Choix de CO-OCCURRENCE et non de coincidence
+           temporelle a la minute (les WHEA corrigees sont un bruit de fond continu -> faux
+           positifs ; les fatales provoquent un BSOD, pas un crash d'appli). Signal de fond calcule
+           sur l'ensemble des donnees (independant du filtre periode). Encart ambre en tete de la
+           carte Hardware, formule "correlation, pas diagnostic - memtest a envisager". 100% cote
+           Dashboard (ExceptionCode 2.1.5 + WHEA etaient deja dans le JSON). Seuil bas volontaire
+           (>=1 + >=1), a ajuster a l'usage.
+    v2.1.12 : Panneau Top Crashers - section "A investiguer en priorite" + filtre par appli.
+           (1) Nouvelle section EN TETE du panneau, alimentee par une liste d'applis suivies
+           ($priorityApps, desormais dans config.psd1) : applis metier propres au site, socle
+           bureautique/collab, services securite/reseau, etc. - liste definie par chaque site. Ces
+           applis remontent TOUJOURS, quelle que soit leur dispersion - le score de dispersion
+           (concentre = signal / disperse = bruit) noyait sinon une appli metier qui plante
+           modestement sur plusieurs postes (ex une appli metier 10 crashs / 5 PC, classee "bruit ambient",
+           repliee par defaut). classifyCrasher route ces applis vers le niveau 'priority' avant
+           tout autre classement. Volontairement PAS les satellites de fond (updaters/helpers
+           Adobe/Office, famille Dell) qui restent dans le bruit.
+           (2) Chaque ligne du panneau est desormais CLIQUABLE : un clic filtre le tableau sur
+           les seuls PC ayant cette appli en crash (state.appFilter + chip "Appli : ...", applique
+           aussi a l'export CSV). Reutilise le mecanisme de filtre existant. Le nom d'appli (deja
+           ConvertTo-HtmlSafe cote embed) transite par data-appname, lu via dataset (aucune eval
+           JS), avec le & double-encode pour un aller-retour exact. 100% cote Dashboard (aucun
+           changement Collector).
+    v2.1.11 : Refonte UX de la remontee d'anomalies. Le bandeau jaune "Anomalies
+           detectees" (deplie en tete du rapport, avant les KPIs) est RETIRE : il mettait
+           en avant un signal SECONDAIRE (qualite de donnee) au-dessus de l'axe principal
+           (sante du parc). Les anomalies sont desormais signalees PAR PC, sur un axe
+           volontairement distinct de la sante : (1) un badge orange discret sur la ligne
+           du PC (survol = detail des anomalies, clic = filtre), (2) un bouton-filtre
+           "Anomalies (N)" dans la barre de filtres (N = PC impactes), necessaire car le
+           tableau est pagine - un badge seul ne montrerait pas les PC des autres pages.
+           Le filtre reutilise le mecanisme kpiFilter existant. Le calcul des anomalies
+           (Test-PCPulseAnomalies) est inchange ; elles sont desormais injectees par PC
+           dans l'embed (champ Anomalies, ConvertTo-HtmlSafe) puis mappees cote JS. Aucun
+           tri force et pas de categorie dediee dans le drill-down (evite les doublons :
+           un PC douteux est deja classe par son score, un BSOD deja dans Stabilite, un
+           crasher deja dans Crashers).
+    v2.1.10 : Anomalie TruncatedAtCollector - message rendu FACTUEL. L'ancien texte
+           affirmait "PC en boucle d'erreur (reboot loop, RAM exhaustion, spam Event
+           41 ?)" pour TOUTE troncature, ce qui etait faux dans la majorite des cas :
+           un TopCrashers tronque signifie juste qu'un poste a plus de 10 applications
+           distinctes en echec (bruit applicatif normal, ou un agent qui crashe pour de
+           vrai), sans aucun rapport avec un reboot loop - constate sur
+           des postes parfaitement sains (0 Event 41, 0 warning RAM, 1 boot/jour). Le
+           message se contente desormais de constater la troncature ("rapport partiel
+           pour ce PC") et de pointer, PAR ARRAY, ou regarder le vrai signal (liste des
+           crashers pour TopCrashers, onglet Stabilite pour Events/BSOD, etc.). Aucune
+           affirmation non verifiee. La troncature reste une info de VOLUMETRIE, pas un
+           diagnostic de sante. (Limites Collector inchangees : TopCrashers 10, Events
+           et ResourceWarnings 200 - un relevement de la limite TopCrashers cote
+           Collector reste une option si le bruit persiste.)
+    v2.1.9 : RETRAIT de la detection "SimilarHostname" (ANOMALIE #4). Une fois le fix
+           2.1.8 en place, elle s'est revelee inadaptee au parc : la nomenclature etant
+           SEQUENTIELLE (V0390/V0391, 2K5580/2K5581...), toute paire de machines voisines
+           a une distance Levenshtein de 1 -> ~276 faux positifs sur 96 PC, qui noyaient
+           les vraies anomalies (troncature Collector, timestamps futurs, valeurs
+           aberrantes...). L'heuristique "distance <= 1 = suspect" ne peut structurellement
+           pas coexister avec une numerotation incrementale, et le scenario vise (spoofing
+           par nom RESSEMBLANT) est marginal : un JSON malveillant usurpe le nom EXACT.
+           Fonction Get-LevenshteinDistance + boucle + generation d'anomalie retirees ;
+           le rendu generique des anomalies (autres types) est inchange. La section 2.1.8
+           reste dans l'historique si on veut un jour reintroduire un filtre homoglyphe.
+    v2.1.8 : FIX - Get-LevenshteinDistance plantait sur chaque paire de hostnames
+           comparee ("op_Subtraction sur [System.Object[]]" qui defilait). Cause : un
+           piege de parsing PowerShell - "$d[$i-1, $j]" etait interprete comme
+           "$d[$i - (1, $j)]" (soustraction entier - tableau) a cause de la virgule
+           dans l'index. Les expressions arithmetiques des index 2D sont desormais
+           parenthesees : $d[($i-1), $j], $d[$i, ($j-1)], $d[($i-1), ($j-1)].
+           Double effet : plus d'erreurs a l'ecran, ET la detection de hostnames
+           quasi-identiques (typo de renommage AD / spoofing par confusion) refonctionne
+           - elle etait morte depuis toujours (l'erreur non-terminante vidait $dist).
+    v2.1.7 : UI - deux debordements d'affichage en colonne etroite (onglet MATERIEL).
+           - Carte Memoire : un Manufacturer de barrette sans espaces (ex "00000000...",
+             rempli tel quel par certains BIOS) transpercait la colonne. .ram-module-meta
+             passe en min-width:0 + overflow-wrap:anywhere (le flex item retrecit et casse
+             le mot au besoin au lieu de deborder).
+           - Section CPU Throttling : en colonne etroite, "cumul <duree>" et "xN events"
+             debordaient / se chevauchaient. .throttle-row passe en flex-wrap, .throttle-type
+             en min-width:0, .throttle-count en nowrap : le bloc duree/events passe proprement
+             a la ligne si la largeur manque.
+           Cosmetique pur, aucune logique ni donnee touchee.
+    v2.1.6 : SECURITE (durcissement XSS, defense en profondeur). Le rendu client
+           injecte l'embed JSON dans un bloc <script> puis fait du innerHTML ; un
+           endpoint compromis (adversaire du modele de menace) pouvait forger des
+           champs string pour casser le bloc script ou injecter du HTML.
+           - Couche A : le ConvertTo-Json de l'embed passe en -EscapeHandling EscapeHtml.
+             Encode < > & en sequences \uXXXX dans le blob -> plus aucun </script>
+             litteral possible, quel que soit le champ (present, futur, ou oublie au
+             re-mapping). Ferme le vecteur d'execution de code. Aucun impact d'affichage
+             (valeurs identiques apres JSON.parse cote client).
+           - Couche B : les champs string pass-through qui atteignent le DOM sont
+             desormais ConvertTo-HtmlSafe au re-mapping. Texte : BSODs.Nom, Crashes.Type,
+             CrashCause, Boots.PrecedentType/Method/BootType, ResourceWarnings.Type,
+             CPUAgeCategory, ConnectionType. Dates : tous les Timestamp / DateBoot /
+             FirstSeen / LastSeen / Day / CollectedAt / LastBoot. Neutralise l'injection
+             via innerHTML. Sans regression : les valeurs legitimes (libelles, dates ISO)
+             n'ont aucun caractere encodable, comparaisons et parsing JS preserves.
+           - Backlog (durcissement typage embed) : cast strict des champs numeriques non
+             types (EventId, Count, temperatures, CycleCount, ChassisType...) pour fermer
+             le residuel innerHTML sur les nombres. Risque mineur : l'execution de code
+             est deja fermee par la couche A, et l'exfil est bornee par la CSP.
+    v2.1.5 : FIX - le champ Type des TopCrashers etait perdu au re-mapping PS->embed
+           (le bloc $crasherList ne recopiait que AppName et CrashCount). Consequence :
+           c.Type / tc.Type toujours undefined cote JS -> tout traite en crash (fallback
+           legacy), donc la section "Applis en echec recurrent" (2.1.4) restait vide en
+           permanence, le badge du drill-down n'apparaissait jamais, et les echecs
+           applicatifs (ex Bing Wallpaper) repartaient dans le scoring par dispersion.
+           Type est restaure, NORMALISE en whitelist ('app_failure' ou 'crash' par
+           defaut) : un endpoint compromis ne peut mettre qu'une valeur prevue. La
+           feature 2.1.4 est desormais reellement active. Aucune autre logique touchee.
+    v2.1.4 : Top Crashers - qualification "echec applicatif recurrent" (exploite le
+           champ Type du Collector 2.1.3). Un crasher n'est plus classe sur sa seule
+           dispersion : sa NATURE prime.
+           - classifyCrasher recoit le Type. Un 'app_failure' (echec d'install/maj qui
+             boucle, ex Bing Wallpaper) part en categorie 'appfail' quelle que soit sa
+             concentration, au lieu de remonter en "Signal local" a tort. Type absent
+             (JSON d'un Collector < 2.1.3) = traite en crash (retrocompatible).
+           - Panneau global : nouvelle section "Applis en echec recurrent" entre
+             "Problemes repartis" et "Bruit ambient" (registre orange "a reparer").
+           - Drill-down PC : badge "echec recurrent" distinct du badge "bruit".
+           - Les blacklists Hard/Soft restent (vrais crashes inactionnables) ; le Type
+             est complementaire ET generique (plus besoin de blacklister a la main
+             chaque appli bavarde qui echoue sous l'ID 1000).
+    v2.1.3 : Mode tache planifiee pour la regeneration automatique.
+           - Parametre -OutputPath : chemin de sortie fixe (ecrase a chaque run),
+             pour publication. Sans -OutputPath, comportement interactif inchange
+             (fichier horodate dans TEMP + ouverture navigateur).
+           - Parametre -NoLaunch : supprime l'ouverture navigateur (Start-Process)
+             en contexte non interactif (tache planifiee).
+           - Ecriture atomique de la sortie (.tmp puis rename) : une consultation
+             ne tombe jamais sur un HTML partiel pendant la generation.
+           - meta-refresh (600s) injecte UNIQUEMENT en mode -OutputPath : la page
+             publiee se recharge seule ; en interactif, pas de refresh (ne casse
+             pas les filtres/scroll de l'utilisateur). SchemaVersion inchange.
+    v2.1.2 : Passe Dashboard - corrections de rendu / UI.
+           - Z-index du popover KPI : au survol d'une carte (.kpi-group-btn),
+             le transform applique cree un stacking context qui isole le
+             popover ; celui-ci passait donc SOUS le tableau et les boutons
+             de pagination. Corrige en hissant le bouton survole (z-index:100).
+           - Seuil d'age des ecrans secondaires rendu ajustable via un curseur
+             (3-10 ans, defaut 7, persiste en localStorage 'pcpulse_screenAge').
+             Pilote de facon coherente les 3 usages : carte "Ecrans >= N ans",
+             sous-KPI "Ecrans ages" du popover USURE, et marquage dans le detail
+             par PC. Recalcul live via render() (JS pur, aucun changement
+             Collector : les ages AgeYears sont deja cote client).
+           - "Top Crashers parc global" deplace tout en bas de la page
+             (apres le panneau ecrans secondaires).
+           - Detail par PC : exploitation des nouveaux champs du Collector
+             v2.1.1. Lecture PS de Thermal.Zone et CPUThrottling.TotalSeconds
+             (etaient droppes au re-mapping). Affichage : duree cumulee de
+             bridage par jour (signal principal, le compte d'events etant
+             gonfle par coeur), zone ACPI a cote de la temperature sur les
+             events thermiques. typeShort corrige pour l'Event 37 (affichait
+             "Event 37"), et message de severite "refroidissement a verifier"
+             remplace par "bridage CPU par firmware" (le 37 = limitation
+             firmware, souvent power policy, pas forcement thermique).
+    v2.1.1 : Theme sombre neutralise (noir profond). Aucun impact fonctionnel
+           ni sur le contrat JSON (SchemaVersion inchange).
+           - Surfaces du theme dark (:root) passees du bleu-nuit a un noir
+             neutre : --bg-main #0a0a0a, --bg-panel #161616, --border #2b2b2b.
+             Corrige aussi --bg-elevated (row-detail) qui etait plus sombre
+             que le fond -> remis au premier plan (#202020).
+           - Gris de texte neutralises (suppression de la micro-teinte bleue).
+           - Accent (--accent violet) et couleurs semantiques inchanges.
+           - Le theme [data-theme="light"] n'est pas touche.
+    v2.1 : Detection d'anomalies + hardening lecture JSON (consolidation
+           des deux blocs de travaux v2.1 avant publication GitHub).
+           --- Detection d'anomalies (warnings, JSON gardes dans le rapport) ---
+           - Nouvelle fonction Test-PCPulseAnomalies appelee apres Test-PCPulseJson.
+             6 categories detectees :
+               1. Timestamp dans le futur (CollectedAt / DerniereActivite)
+                  -> drift NTP, RTC HS, ou JSON antidate volontairement
+               2. PC zombie (DerniereActivite > 30 jours)
+                  -> PC probablement parti du parc, a faire le menage
+               3. Volumetrie suspecte (taille fichier > 5 MB, arrays
+                  TopCrashers/BSODs/BootDurations/Events/ResourceWarnings
+                  anormalement longs)
+               4. (RETIRE en v2.1.9) Detection Levenshtein des hostnames similaires
+                  -> supprimee : inadaptee a une nomenclature de parc sequentielle
+               5. Valeurs aberrantes (BatteryHealthPct hors [0;100],
+                  DiskWearPct hors [0;100], UptimeDays > 365)
+               6. Arrays tronques au Collector (lecture Meta.TruncatedArrays)
+                  -> volumetrie superieure aux limites : rapport partiel pour ce
+                  PC. Le signal de sante reel est dans le contenu (crashers,
+                  onglet Stabilite), pas dans le flag de troncature.
+           - Nouveau panneau HTML "Anomalies detectees" (jaune) en tete du
+             rapport, distinct du panneau "JSON rejetes" (rouge) :
+                * Rejets   = JSON refuse, donnee perdue (Test-PCPulseJson)
+                * Anomalies = JSON accepte mais flagge (Test-PCPulseAnomalies)
+           - Seuils configurables via $AnomalyThresholds en tete du script.
+           - Comme pour les rejets : indicateur fort pour le pentester que
+             ses tentatives sont detectees et journalisees.
+           --- Hardening lecture JSON (defense en profondeur securite) ---
+           - Whitelist STRICTE des SchemaVersions : passage de @('2.0') a
+             @('2.1'). Les Collector v2.0 sont rejetes (release big bang
+             coordonnee, parc cleane avant deploiement v2.1).
+           - Nouveau NIVEAU 0 dans Test-PCPulseJson : verification de la
+             taille du fichier AVANT Get-Content. Garde-fou anti-DoS contre
+             un PC compromis qui generait un JSON gigantesque pour saturer
+             la memoire du Dashboard.
+                * Hard limit ($MaxJsonSizeBytes = 10 MB)  -> rejet Critical
+                * Soft limit ($WarnJsonSizeBytes = 2 MB)  -> Write-Host warning
+             Distinction importante : le NIVEAU 0 est une mesure de
+             SECURITE (anti-DoS), l'anomalie #3 OversizedJson (5 MB) est
+             une mesure de QUALITE (signal pour l'admin). Les seuils sont
+             complementaires, pas redondants.
+           - Lecture du nouveau bloc Meta.TruncatedArrays produit par le
+             Collector v2.1. Si flag a $true sur n'importe quel array,
+             genere une anomalie "TruncatedAtCollector". Compatible v2.0
+             si bloc Meta absent (test PSObject.Properties).
     v2.0 : Sanity-checks stricts + sanitization + CSP (release security hardening)
            - Whitelist stricte des SchemaVersions acceptees ($AcceptedSchemaVersions = @('2.0')).
              Tout JSON sans SchemaVersion = '2.0' est REJETE (plus de tolerance
@@ -87,19 +326,40 @@
 #>
 
 param(
-    [string]$SharePath = 'C:\PCPulse',
-    [string]$FiltrePC  = '*'
+    [string]$SharePath  = 'C:\PCPulse',
+    [string]$FiltrePC   = '*',
+    [string]$OutputPath = '',
+    [switch]$NoLaunch
 )
 
 # ============================================================
 # CONSTANTES
 # ============================================================
 
-# v2.0 : Whitelist STRICTE des SchemaVersions acceptees.
-# Tout JSON sans cette valeur exacte est REJETE (cf. Test-PCPulseJson).
-# Plus de tolerance retro-compat : la release v2.0 marque un nouveau depart
-# avec sanity-checks pentest-compliant. Voir SECURITY.md.
-$AcceptedSchemaVersions = @('2.0')
+# Whitelist STRICTE des SchemaVersions acceptees.
+# v2.2 : @('2.1', '2.2'). Le rename EDR (schema 2.2) se deploie poste-par-poste,
+# donc pendant le rollout le share contient un melange de JSON 2.1 (postes pas
+# encore a jour) et 2.2. On accepte les deux pour n'exclure aucun poste ; un JSON
+# 2.1 affiche juste l'EDR "en attente" (le Dashboard ne lit plus l'ancien champ,
+# cf. de-vendoring). Les Collector <= 2.0 restent rejetes. Voir SECURITY.md.
+$AcceptedSchemaVersions = @('2.1', '2.2')
+
+# v2.1 : Limites de taille JSON (defense en profondeur SECURITE).
+# - Hard limit 10 MB : rejet AVANT Get-Content. Garde-fou anti-DoS
+#   contre un PC compromis qui generait un JSON enorme pour saturer
+#   la memoire du Dashboard. Le rejet est applique au NIVEAU 0 de
+#   Test-PCPulseJson (premier check, avant le parsing).
+# - Soft limit 2 MB  : Write-Host warning seulement, JSON traite
+#   normalement. Aide a reperer une derive precoce sans bruit user.
+# A distinguer de l'anomalie #3 OversizedJson (5 MB) qui est une
+# mesure de QUALITE (panneau jaune visible utilisateur). Les deux
+# seuils sont complementaires :
+#   0-2 MB    : silence
+#   2-5 MB    : log warning console
+#   5-10 MB   : anomalie soft (panneau jaune utilisateur)
+#   > 10 MB   : rejet hard securite (panneau rouge utilisateur)
+$MaxJsonSizeBytes  = 10MB
+$WarnJsonSizeBytes = 2MB
 
 # v2.0 : Pattern strict pour les noms de PC valides.
 # - Alphanumerique, tirets, underscores, points
@@ -107,8 +367,46 @@ $AcceptedSchemaVersions = @('2.0')
 # - Sert a la fois pour Machine.PC et le nom de fichier .json
 $ValidPCNamePattern = '^[A-Za-z0-9_.-]{1,63}$'
 
+# v2.2.0 : la liste des applis suivies ("A investiguer en priorite") est desormais
+# pilotee par config (cle PriorityApps de config.psd1, defaut generique dans
+# $DefaultConfig). Voir $priorityApps, affecte juste apres le chargement de la config.
+# De-vendorise : aucune appli specifique au site (metier / securite) codee en dur ici.
+
+# v2.0+ : Seuils pour la detection d'anomalies (warnings, pas rejets)
+# Voir SECURITY.md > "Detection d'anomalies"
+$AnomalyThresholds = @{
+    # Anomalie 1 : timestamp dans le futur
+    # Tolerance de 5 minutes pour absorber les drifts NTP normaux entre PC
+    FutureMinutesTolerance = 5
+
+    # Anomalie 2 : PC zombie (n'a pas check-in depuis longtemps)
+    # 30 jours = au-dela, le PC est probablement parti du parc
+    ZombieDaysThreshold = 30
+
+    # Anomalie 3 : volumetrie suspecte
+    # Taille max d'un JSON considere normal (au-dela = potentiel flood)
+    MaxJsonSizeMB = 5
+    # Nombre max d'entrees dans certaines collections "intentionnellement bornees"
+    # Volontairement plus larges que les caps Collector v2.1 (10/10/100/200/200)
+    # pour ne se declencher QUE sur Collector compromis (= JSON forge a la main
+    # qui bypasse les caps officiels). Ceintures et bretelles.
+    MaxTopCrashersCount      = 50
+    MaxBSODsCount            = 100
+    MaxBootDurationsCount    = 200
+    MaxEventsCount           = 500   # v2.1 : nouveau cap Collector (200), seuil anomalie 500
+    MaxResourceWarningsCount = 500   # v2.1 : idem
+
+    # Anomalie 5 : valeurs aberrantes
+    # Battery > 100% ou < 0% est physiquement impossible
+    # Disk wear > 100% est aberrant
+    # Uptime > 365 jours = PC qui n'a jamais reboot depuis 1 an = tres suspect
+    MaxUptimeDays = 365
+}
+
 $ConfigFile       = Join-Path $SharePath 'config.psd1'
-$OutputHTML       = Join-Path $env:TEMP ("PCPulse-Dashboard-" + (Get-Date -Format 'yyyyMMdd-HHmm') + '.html')
+# v2.1.3 : sortie parametrable. -OutputPath => chemin fixe (mode tache, ecrase a chaque run, pour publication).
+# Sans -OutputPath => fichier horodate dans TEMP (mode interactif, comportement historique).
+$OutputHTML       = if ($OutputPath) { $OutputPath } else { Join-Path $env:TEMP ("PCPulse-Dashboard-" + (Get-Date -Format 'yyyyMMdd-HHmm') + '.html') }
 
 # Valeurs par defaut si config.psd1 est absent / corrompu
 $DefaultConfig = @{
@@ -121,6 +419,17 @@ $DefaultConfig = @{
     DashboardSubtitle    = 'Supervision du parc'
     CsvRanges            = 'ip-ranges.csv'
     MaskHealthyByDefault = $false
+
+    # v2.2.0 : applis suivies ("A investiguer en priorite") - de-vendorise, pilote par config.
+    # Defaut generique = socle bureautique/collab (universel). Les applis SPECIFIQUES au site
+    # (metier maison, services securite/reseau, Java metier...) vivent dans config.psd1, jamais
+    # dans le code publie. Le merge remplace cette liste par celle du config.psd1 si presente.
+    PriorityApps = @(
+        'outlook.exe', 'olk.exe', 'winword.exe', 'excel.exe',
+        'ms-teams.exe', 'onedrive.exe', 'acrobat.exe', 'indesign.exe',
+        'chrome.exe', 'msedge.exe'
+    )
+
     ScoreWeights         = @{
         BSOD          = 5
         WHEA          = 4
@@ -131,7 +440,7 @@ $DefaultConfig = @{
         BootLong      = 1
         Offline       = 5
         # v5.3 : EDR down = critique, batterie usee = mineur
-        SentinelDown  = 5
+        EDRDown       = 5
         Battery       = 1
         # v5.4 : BootPerf et SMART
         BootPerfSlow  = 1
@@ -245,6 +554,7 @@ $DashboardTitle       = [string]$cfg.DashboardTitle
 $DashboardSubtitle    = [string]$cfg.DashboardSubtitle
 $MaskHealthyByDefault = [bool]$cfg.MaskHealthyByDefault
 $ScoreWeights         = $cfg.ScoreWeights
+$priorityApps         = @($cfg.PriorityApps)
 
 # Resolution du chemin CSV
 $csvRel = [string]$cfg.CsvRanges
@@ -314,9 +624,12 @@ function Get-SafeString {
 function Test-PCPulseJson {
     <#
     .SYNOPSIS
-        Valide un JSON PCPulse selon la politique de securite v2.0.
+        Valide un JSON PCPulse selon la politique de securite v2.1.
     .DESCRIPTION
-        4 niveaux de validation strict (rejet si KO) :
+        5 niveaux de validation strict (rejet si KO) :
+          0. Taille fichier <= $MaxJsonSizeBytes (10 MB) ?  [v2.1]
+             Verification AVANT lecture pour eviter le DoS memoire.
+             Warning console si taille >= $WarnJsonSizeBytes (2 MB).
           1. Le fichier parse en JSON ?
           2. SchemaVersion present et dans la whitelist ?
           3. Machine.PC present et alphanumerique valide ?
@@ -340,6 +653,41 @@ function Test-PCPulseJson {
     )
 
     $filename = [IO.Path]::GetFileNameWithoutExtension($FilePath)
+
+    # ---- NIVEAU 0 : Taille fichier (v2.1, anti-DoS memoire) ----
+    # On verifie la taille AVANT Get-Content pour eviter qu'un PC compromis
+    # generant un JSON enorme ne sature la memoire du Dashboard.
+    try {
+        $fileSize = (Get-Item -Path $FilePath -ErrorAction Stop).Length
+    } catch {
+        return [pscustomobject]@{
+            Valid  = $false
+            File   = (Split-Path $FilePath -Leaf)
+            Level  = 'Critical'
+            Reason = 'Fichier inaccessible'
+            Detail = $_.Exception.Message
+            Data   = $null
+        }
+    }
+    if ($fileSize -gt $MaxJsonSizeBytes) {
+        $sizeMB     = [math]::Round($fileSize / 1MB, 2)
+        $maxSizeMB  = [math]::Round($MaxJsonSizeBytes / 1MB, 0)
+        return [pscustomobject]@{
+            Valid  = $false
+            File   = (Split-Path $FilePath -Leaf)
+            Level  = 'Critical'
+            Reason = 'JSON trop volumineux (rejet anti-DoS)'
+            Detail = "$sizeMB MB (limite: $maxSizeMB MB) - PC compromis ou bug Collector ?"
+            Data   = $null
+        }
+    }
+    if ($fileSize -gt $WarnJsonSizeBytes) {
+        # Soft warning : on continue mais on signale en console.
+        # L'anomalie #3 (5 MB) prendra le relais cote utilisateur.
+        $sizeMB    = [math]::Round($fileSize / 1MB, 2)
+        $warnSizeMB = [math]::Round($WarnJsonSizeBytes / 1MB, 0)
+        Write-Host "[!] JSON volumineux : $(Split-Path $FilePath -Leaf) ($sizeMB MB > $warnSizeMB MB warning)" -ForegroundColor DarkYellow
+    }
 
     # ---- NIVEAU 1 : Parsing JSON ----
     try {
@@ -450,6 +798,278 @@ function Test-PCPulseJson {
     }
 }
 
+function Test-PCPulseAnomalies {
+    <#
+    .SYNOPSIS
+        Detecte des anomalies "soft" dans un JSON PCPulse deja valide.
+    .DESCRIPTION
+        Complement de Test-PCPulseJson : ne rejette pas les JSON, mais
+        retourne une liste de signaux suspects qui meritent l'attention
+        de l'admin sans pour autant invalider la donnee.
+
+        6 categories detectees :
+          1. Timestamp dans le futur (CollectedAt / DerniereActivite)
+             -> drift NTP, RTC HS, ou JSON antidate volontairement
+          2. PC zombie (DerniereActivite > 30 jours)
+             -> PC probablement parti du parc, a faire le menage
+          3. Volumetrie suspecte (taille fichier, longueur arrays)
+             -> potentiel flood ou bug local
+          4. (RETIRE en v2.1.9) Hostnames suspects (detection Levenshtein)
+             -> supprimee : parc sequentiel -> faux positifs a chaque voisin
+          5. Valeurs aberrantes (HealthPercent hors [0;100], uptime > 1 an, etc.)
+             -> bug WMI ou JSON forge
+          6. Arrays tronques au Collector (v2.1, lecture Meta.TruncatedArrays)
+             -> rapport PARTIEL pour ce PC (volumetrie > limites du Collector).
+                Constat factuel, pas un diagnostic : le signal de sante reel
+                est dans le contenu (count des crashers, onglet Stabilite),
+                pas dans le flag de troncature.
+
+        L'anomalie #4 (similarite hostname) a ete RETIREE en v2.1.9
+        (inadaptee a une nomenclature de parc sequentielle).
+
+        Voir SECURITY.md > "Detection d'anomalies" pour le rationale.
+    .OUTPUTS
+        [array] de [pscustomobject] avec :
+          - Type      : code court (ex: 'FutureTimestamp', 'ZombiePC', etc.)
+          - Reason    : description courte
+          - Detail    : info technique
+    #>
+    param(
+        [Parameter(Mandatory)] [pscustomobject] $Data,
+        [Parameter(Mandatory)] [string] $FilePath
+    )
+
+    $anomalies = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $now = Get-Date
+
+    # --------------------------------------------------------
+    # ANOMALIE 1 : Timestamp dans le futur
+    # --------------------------------------------------------
+    # Tolerance NTP : 5 minutes (les PC peuvent avoir un drift mineur)
+    $futureLimit = $now.AddMinutes($AnomalyThresholds.FutureMinutesTolerance)
+
+    foreach ($field in @('CollectedAt')) {
+        if ($Data.Machine.PSObject.Properties[$field]) {
+            $val = $Data.Machine.$field
+            if ($val) {
+                try {
+                    $parsed = [datetime]::Parse($val)
+                    if ($parsed -gt $futureLimit) {
+                        $delta = ($parsed - $now)
+                        $anomalies.Add([pscustomobject]@{
+                            Type   = 'FutureTimestamp'
+                            Reason = "Machine.$field dans le futur"
+                            Detail = "valeur=$($parsed.ToString('yyyy-MM-dd HH:mm')) (~ $([math]::Round($delta.TotalHours,1))h apres maintenant) - drift NTP ou JSON forge ?"
+                        })
+                    }
+                } catch { }   # parsing rate, on ignore (peut arriver sur des formats exotiques)
+            }
+        }
+    }
+
+    if ($Data.Stats -and $Data.Stats.PSObject.Properties['DerniereActivite']) {
+        $val = $Data.Stats.DerniereActivite
+        if ($val) {
+            try {
+                $parsed = [datetime]::Parse($val)
+                if ($parsed -gt $futureLimit) {
+                    $delta = ($parsed - $now)
+                    $anomalies.Add([pscustomobject]@{
+                        Type   = 'FutureTimestamp'
+                        Reason = "Stats.DerniereActivite dans le futur"
+                        Detail = "valeur=$($parsed.ToString('yyyy-MM-dd HH:mm')) (~ $([math]::Round($delta.TotalHours,1))h apres maintenant)"
+                    })
+                }
+            } catch { }
+        }
+    }
+
+    # --------------------------------------------------------
+    # ANOMALIE 2 : PC zombie (CollectedAt trop ancien)
+    # --------------------------------------------------------
+    if ($Data.Machine.PSObject.Properties['CollectedAt']) {
+        $val = $Data.Machine.CollectedAt
+        if ($val) {
+            try {
+                $parsed = [datetime]::Parse($val)
+                $age = ($now - $parsed)
+                if ($age.TotalDays -gt $AnomalyThresholds.ZombieDaysThreshold) {
+                    $anomalies.Add([pscustomobject]@{
+                        Type   = 'ZombiePC'
+                        Reason = "PC inactif depuis longtemps"
+                        Detail = "derniere collecte il y a $([math]::Round($age.TotalDays,0)) jours (seuil: $($AnomalyThresholds.ZombieDaysThreshold)j) - probablement sorti du parc"
+                    })
+                }
+            } catch { }
+        }
+    }
+
+    # --------------------------------------------------------
+    # ANOMALIE 3 : Volumetrie suspecte
+    # --------------------------------------------------------
+    try {
+        $sizeMB = [math]::Round((Get-Item $FilePath).Length / 1MB, 2)
+        if ($sizeMB -gt $AnomalyThresholds.MaxJsonSizeMB) {
+            $anomalies.Add([pscustomobject]@{
+                Type   = 'OversizedJson'
+                Reason = "Taille JSON anormale"
+                Detail = "$sizeMB MB (seuil: $($AnomalyThresholds.MaxJsonSizeMB) MB) - flood ou bug local ?"
+            })
+        }
+    } catch { }
+
+    # Volumetrie des arrays "intentionnellement bornes"
+    if ($Data.PSObject.Properties['TopCrashers'] -and $Data.TopCrashers) {
+        $cnt = @($Data.TopCrashers).Count
+        if ($cnt -gt $AnomalyThresholds.MaxTopCrashersCount) {
+            $anomalies.Add([pscustomobject]@{
+                Type   = 'OversizedArray'
+                Reason = "TopCrashers anormalement long"
+                Detail = "$cnt entrees (seuil: $($AnomalyThresholds.MaxTopCrashersCount)) - PC qui spam des crashs ?"
+            })
+        }
+    }
+    if ($Data.PSObject.Properties['BSODs'] -and $Data.BSODs) {
+        $cnt = @($Data.BSODs).Count
+        if ($cnt -gt $AnomalyThresholds.MaxBSODsCount) {
+            $anomalies.Add([pscustomobject]@{
+                Type   = 'OversizedArray'
+                Reason = "BSODs anormalement long"
+                Detail = "$cnt entrees (seuil: $($AnomalyThresholds.MaxBSODsCount)) - PC en panne severe ou JSON forge ?"
+            })
+        }
+    }
+    if ($Data.PSObject.Properties['BootDurations'] -and $Data.BootDurations) {
+        $cnt = @($Data.BootDurations).Count
+        if ($cnt -gt $AnomalyThresholds.MaxBootDurationsCount) {
+            $anomalies.Add([pscustomobject]@{
+                Type   = 'OversizedArray'
+                Reason = "BootDurations anormalement long"
+                Detail = "$cnt entrees (seuil: $($AnomalyThresholds.MaxBootDurationsCount)) - HistoriqueJours mal configure ?"
+            })
+        }
+    }
+    # v2.1 : nouveaux arrays a verifier (Events / ResourceWarnings)
+    if ($Data.PSObject.Properties['Events'] -and $Data.Events) {
+        $cnt = @($Data.Events).Count
+        if ($cnt -gt $AnomalyThresholds.MaxEventsCount) {
+            $anomalies.Add([pscustomobject]@{
+                Type   = 'OversizedArray'
+                Reason = "Events anormalement long"
+                Detail = "$cnt entrees (seuil: $($AnomalyThresholds.MaxEventsCount)) - PC en reboot loop ou JSON forge ?"
+            })
+        }
+    }
+    if ($Data.PSObject.Properties['ResourceWarnings'] -and $Data.ResourceWarnings) {
+        $cnt = @($Data.ResourceWarnings).Count
+        if ($cnt -gt $AnomalyThresholds.MaxResourceWarningsCount) {
+            $anomalies.Add([pscustomobject]@{
+                Type   = 'OversizedArray'
+                Reason = "ResourceWarnings anormalement long"
+                Detail = "$cnt entrees (seuil: $($AnomalyThresholds.MaxResourceWarningsCount)) - PC en RAM exhaustion permanente ou JSON forge ?"
+            })
+        }
+    }
+
+    # --------------------------------------------------------
+    # ANOMALIE 5 : Valeurs aberrantes
+    # --------------------------------------------------------
+    # Battery health
+    if ($Data.PSObject.Properties['BatteryInfo'] -and $Data.BatteryInfo) {
+        $bat = $Data.BatteryInfo
+        if ($bat.PSObject.Properties['HasBattery'] -and $bat.HasBattery -eq $true) {
+            if ($bat.PSObject.Properties['HealthPercent']) {
+                $h = $bat.HealthPercent
+                if ($h -lt 0 -or $h -gt 100) {
+                    $anomalies.Add([pscustomobject]@{
+                        Type   = 'OutOfRangeValue'
+                        Reason = "BatteryInfo.HealthPercent hors [0;100]"
+                        Detail = "valeur=$h - bug WMI ou JSON forge ?"
+                    })
+                }
+            }
+        }
+    }
+
+    # Disk wear
+    if ($Data.PSObject.Properties['DiskHealth'] -and $Data.DiskHealth) {
+        foreach ($d in $Data.DiskHealth) {
+            if ($d.PSObject.Properties['WearPct']) {
+                $w = $d.WearPct
+                if ($w -lt 0 -or $w -gt 100) {
+                    $anomalies.Add([pscustomobject]@{
+                        Type   = 'OutOfRangeValue'
+                        Reason = "DiskHealth.WearPct hors [0;100]"
+                        Detail = "disque='$(Get-SafeString $d.FriendlyName)' valeur=$w"
+                    })
+                }
+            }
+        }
+    }
+
+    # Uptime aberrant
+    if ($Data.Machine.PSObject.Properties['UptimeDays']) {
+        $u = $Data.Machine.UptimeDays
+        if ($u -gt $AnomalyThresholds.MaxUptimeDays) {
+            $anomalies.Add([pscustomobject]@{
+                Type   = 'OutOfRangeValue'
+                Reason = "Uptime anormalement long"
+                Detail = "$([math]::Round($u,0)) jours (seuil: $($AnomalyThresholds.MaxUptimeDays)j) - PC jamais reboote ou bug ?"
+            })
+        }
+    }
+
+    # --------------------------------------------------------
+    # ANOMALIE 6 : Arrays tronques au Collector (v2.1)
+    # --------------------------------------------------------
+    # Lecture du bloc Meta.TruncatedArrays produit par le Collector. Si au
+    # moins un array est flagge tronque, la volumetrie de ce PC a depasse les
+    # limites du Collector -> le rapport est PARTIEL pour lui.
+    # v2.1.10 : message rendu FACTUEL. Avant, on affirmait "PC en boucle
+    # d'erreur (reboot loop, RAM exhaustion, spam Event 41)" pour TOUTE
+    # troncature - faux dans la majorite des cas : TopCrashers deborde des
+    # qu'un poste a plus de 10 apps distinctes en echec (bruit applicatif, ou
+    # un agent qui crashe en boucle), sans aucun rapport avec un reboot loop.
+    # Le vrai signal de sante est dans le CONTENU (count des crashers, onglet
+    # Stabilite pour les BSOD/reboots), pas dans le flag de troncature. On se
+    # contente donc de constater la troncature et de pointer ou regarder.
+    #
+    # Compatible v2.0 : si le bloc Meta n'existe pas (JSON antedeluvien
+    # par exemple), on skip silencieusement. Pas d'anomalie generee.
+    if ($Data.PSObject.Properties['Meta'] -and
+        $Data.Meta -and
+        $Data.Meta.PSObject.Properties['TruncatedArrays'] -and
+        $Data.Meta.TruncatedArrays) {
+        $truncatedNames = @()
+        foreach ($prop in $Data.Meta.TruncatedArrays.PSObject.Properties) {
+            if ($prop.Value -eq $true) {
+                $truncatedNames += $prop.Name
+            }
+        }
+        if ($truncatedNames.Count -gt 0) {
+            # Nuance factuelle par array, sans presumer d'un diagnostic systeme.
+            $hints = @()
+            foreach ($tn in $truncatedNames) {
+                switch ($tn) {
+                    'TopCrashers'      { $hints += "beaucoup d'applications distinctes en echec (voir la liste des crashers)" }
+                    'Events'           { $hints += "beaucoup d'evenements systeme (voir l'onglet Stabilite)" }
+                    'ResourceWarnings' { $hints += "beaucoup de signaux ressource RAM/CPU/disque (voir l'onglet Materiel)" }
+                    'BSODs'            { $hints += "beaucoup de BSOD (voir l'onglet Stabilite)" }
+                    'BootDurations'    { $hints += "beaucoup de demarrages sur la periode" }
+                }
+            }
+            $hintTxt = if ($hints.Count -gt 0) { " - " + ($hints -join " ; ") } else { "" }
+            $anomalies.Add([pscustomobject]@{
+                Type   = 'TruncatedAtCollector'
+                Reason = "Array(s) tronque(s) a la collecte - rapport partiel pour ce PC"
+                Detail = "Tronque(s) : $($truncatedNames -join ', ')$hintTxt. Volumetrie reelle superieure aux limites du Collector ; verifier le contenu correspondant."
+            })
+        }
+    }
+
+    return $anomalies.ToArray()
+}
+
 # ============================================================
 # LECTURE DES JSON (avec verification SchemaVersion)
 # ============================================================
@@ -458,6 +1078,8 @@ Write-Host "[*] Lecture des donnees depuis $SharePath ..." -ForegroundColor Cyan
 $jsonFiles      = Get-ChildItem -Path $SharePath -Filter "$FiltrePC.json" -ErrorAction Stop
 $allData        = [System.Collections.Generic.List[PSCustomObject]]::new()
 $rejectedJsons  = [System.Collections.Generic.List[PSCustomObject]]::new()  # v2.0 : pour la section HTML "JSON suspects"
+$anomalyJsons   = [System.Collections.Generic.List[PSCustomObject]]::new()  # v2.0+ : anomalies (warnings) detectees
+$validFiles     = [System.Collections.Generic.List[PSCustomObject]]::new()  # pour anomalie #4 (cross-PC)
 
 foreach ($file in $jsonFiles) {
     # v2.0 : validation stricte via Test-PCPulseJson (sanity-checks niveaux 1-4)
@@ -466,23 +1088,59 @@ foreach ($file in $jsonFiles) {
     if ($check.Valid) {
         # Ajouter aux donnees du rapport (deja sanitisees en place)
         $allData.Add($check.Data)
+        $validFiles.Add([pscustomobject]@{ File = $file; Data = $check.Data; PC = $check.Data.Machine.PC })
+
+        # v2.0+ : detection des anomalies "soft" (warnings, JSON garde dans le rapport)
+        $anomalies = Test-PCPulseAnomalies -Data $check.Data -FilePath $file.FullName
+        foreach ($a in $anomalies) {
+            $anomalyJsons.Add([pscustomobject]@{
+                File   = $file.Name
+                PC     = $check.Data.Machine.PC
+                Type   = $a.Type
+                Reason = $a.Reason
+                Detail = $a.Detail
+            })
+        }
     } else {
         # Rejet : on garde la trace pour la section HTML dediee + log console
         $rejectedJsons.Add($check)
     }
 }
 
-# Logs console
+# v2.1.9 : la detection "SimilarHostname" (ANOMALIE #4, similarite Levenshtein <= 1) a
+# ete RETIREE. Inadaptee a une nomenclature de parc SEQUENTIELLE : deux machines qui se
+# suivent (V0390 / V0391, 2K5580 / 2K5581) ont une distance de 1 -> un faux positif a
+# chaque paire de voisins (276 signaux sur 96 PC), ce qui noyait les vraies anomalies
+# (troncature Collector, timestamps futurs, valeurs aberrantes...). Le scenario vise
+# (spoofing par hostname ressemblant) est marginal : un JSON malveillant usurpe le nom
+# EXACT d'une machine, pas un nom "proche". Historique git si besoin de la reintroduire
+# un jour avec un filtre homoglyphe (ignorer les ecarts purement numeriques).
+
+# Logs console - rejets
 if ($rejectedJsons.Count -gt 0) {
-    Write-Host "[!] $($rejectedJsons.Count) JSON rejete(s) :" -ForegroundColor Yellow
+    Write-Host "[!] $($rejectedJsons.Count) JSON rejete(s) :" -ForegroundColor Red
     $rejectedJsons | Select-Object -First 5 | ForEach-Object {
-        Write-Host "    - $($_.File) : $($_.Reason)" -ForegroundColor Yellow
+        Write-Host "    - $($_.File) : $($_.Reason)" -ForegroundColor Red
         if ($_.Detail) {
             Write-Host "      $($_.Detail)" -ForegroundColor DarkGray
         }
     }
     if ($rejectedJsons.Count -gt 5) {
-        Write-Host "    ... et $($rejectedJsons.Count - 5) autre(s) - voir section dediee dans le rapport" -ForegroundColor Yellow
+        Write-Host "    ... et $($rejectedJsons.Count - 5) autre(s) - voir section dediee dans le rapport" -ForegroundColor Red
+    }
+}
+
+# Logs console - anomalies (warnings)
+if ($anomalyJsons.Count -gt 0) {
+    Write-Host "[!] $($anomalyJsons.Count) anomalie(s) detectee(s) :" -ForegroundColor Yellow
+    $anomalyJsons | Select-Object -First 5 | ForEach-Object {
+        Write-Host "    - $($_.PC) : $($_.Reason)" -ForegroundColor Yellow
+        if ($_.Detail) {
+            Write-Host "      $($_.Detail)" -ForegroundColor DarkGray
+        }
+    }
+    if ($anomalyJsons.Count -gt 5) {
+        Write-Host "    ... et $($anomalyJsons.Count - 5) autre(s) - voir section dediee dans le rapport" -ForegroundColor Yellow
     }
 }
 
@@ -513,31 +1171,31 @@ foreach ($pc in $allData) {
             # v1.6 : propager CrashCause (null sur JSON v1.4/1.5, rempli sur v1.6).
             # Le JS gere les deux cas avec un fallback sur Type/Detail.
             [PSCustomObject]@{
-                Timestamp  = $_.Timestamp
-                Type       = if ($_.Type) { $_.Type } else { 'Freeze' }
+                Timestamp  = ConvertTo-HtmlSafe $_.Timestamp
+                Type       = if ($_.Type) { ConvertTo-HtmlSafe $_.Type } else { 'Freeze' }
                 Detail     = ConvertTo-HtmlSafe $_.Detail
-                CrashCause = $_.CrashCause
+                CrashCause = ConvertTo-HtmlSafe $_.CrashCause
                 Message    = ConvertTo-HtmlSafe $_.Message
             }
         })
 
     $bootList = @($pc.BootDurations | Sort-Object { [datetime]$_.DateBoot } | ForEach-Object {
         [PSCustomObject]@{
-            DateBoot      = $_.DateBoot
+            DateBoot      = ConvertTo-HtmlSafe $_.DateBoot
             DurationMin   = $_.DurationMin
             EstBootLong   = $_.EstBootLong
-            PrecedentType = $_.PrecedentType
-            Method        = if ($_.Method) { $_.Method } else { 'unknown' }
+            PrecedentType = ConvertTo-HtmlSafe $_.PrecedentType
+            Method        = if ($_.Method) { ConvertTo-HtmlSafe $_.Method } else { 'unknown' }
             # v6.0 : fix BootType manquant dans l'embed (le Collector l'ecrivait
             # bien dans le JSON mais le Dashboard ne le recopiait pas dans le
             # payload JS, d'ou le panneau "Repartition demarrages" qui
             # affichait tout en "Inconnu").
-            BootType      = if ($_.BootType) { $_.BootType } else { 'Unknown' }
+            BootType      = if ($_.BootType) { ConvertTo-HtmlSafe $_.BootType } else { 'Unknown' }
         }
     })
 
     $bsodList = @(ConvertTo-Array $pc.BSODs | Where-Object { $_.Date } | ForEach-Object {
-        [PSCustomObject]@{ Date = $_.Date; Nom = $_.Nom }
+        [PSCustomObject]@{ Date = ConvertTo-HtmlSafe $_.Date; Nom = ConvertTo-HtmlSafe $_.Nom }
     })
 
     $warningList = @(ConvertTo-Array $pc.ResourceWarnings | Where-Object { $_.Timestamp } | ForEach-Object {
@@ -545,13 +1203,13 @@ foreach ($pc in $allData) {
         # Les JSON v1.4 n'ont pas ces champs : $_.Count retournera $null et sera serialise
         # en null dans le JSON, ce que le JS gere avec 'typeof w.Count === "number"'.
         [PSCustomObject]@{
-            Timestamp = $_.Timestamp
-            Type      = $_.Type
+            Timestamp = ConvertTo-HtmlSafe $_.Timestamp
+            Type      = ConvertTo-HtmlSafe $_.Type
             Detail    = ConvertTo-HtmlSafe $_.Detail
             Count     = $_.Count
             IsBurst   = $_.IsBurst
-            FirstSeen = $_.FirstSeen
-            LastSeen  = $_.LastSeen
+            FirstSeen = ConvertTo-HtmlSafe $_.FirstSeen
+            LastSeen  = ConvertTo-HtmlSafe $_.LastSeen
         }
     })
 
@@ -577,9 +1235,24 @@ foreach ($pc in $allData) {
     })
 
     $crasherList = @(ConvertTo-Array $pc.TopCrashers | Where-Object { $_.AppName } | ForEach-Object {
+        # v2.1.5 : le champ Type etait perdu ici (recopie AppName/CrashCount seulement),
+        # ce qui laissait la section "Applis en echec recurrent" vide et desactivait le
+        # badge du drill-down (c.Type / tc.Type toujours undefined cote JS -> tout en crash).
+        # On le restaure NORMALISE en whitelist : seule la valeur exacte 'app_failure' passe,
+        # tout le reste (y compris une valeur forgee par un endpoint compromis) tombe sur
+        # 'crash', le comportement legacy sur. Coherent avec le modele de menace.
+        $crasherType = if ("$($_.Type)" -eq 'app_failure') { 'app_failure' } else { 'crash' }
         [PSCustomObject]@{
-            AppName    = ConvertTo-HtmlSafe $_.AppName
-            CrashCount = $_.CrashCount
+            AppName       = ConvertTo-HtmlSafe $_.AppName
+            CrashCount    = $_.CrashCount
+            Type          = $crasherType
+            # v2.1.13 : champs additifs du Collector 2.1.5 (fige/plante + origine), recopies pour
+            # (a) la piste materielle memoire ci-dessous, (b) le futur affichage detaille du drill-down.
+            # Retrocompat : absents d'un JSON < 2.1.5 -> compteurs a 0, module/code a null.
+            HangCount     = [int]$_.HangCount
+            ErrorCount    = [int]$_.ErrorCount
+            FaultModule   = if ($_.FaultModule)   { ConvertTo-HtmlSafe ([string]$_.FaultModule) }   else { $null }
+            ExceptionCode = if ($_.ExceptionCode) { ConvertTo-HtmlSafe ([string]$_.ExceptionCode) } else { $null }
         }
     })
 
@@ -610,7 +1283,7 @@ foreach ($pc in $allData) {
             # Schema v5.2 : lecture directe
             $hwHealth.WHEA_Fatal = @(ConvertTo-Array $hh.WHEA_Fatal | Where-Object { $_.Timestamp } | ForEach-Object {
                 [PSCustomObject]@{
-                    Timestamp   = $_.Timestamp
+                    Timestamp   = ConvertTo-HtmlSafe $_.Timestamp
                     EventId     = $_.EventId
                     Severity    = $_.Severity
                     Component   = ConvertTo-HtmlSafe $_.Component
@@ -626,8 +1299,8 @@ foreach ($pc in $allData) {
                     ErrorSource = ConvertTo-HtmlSafe $_.ErrorSource
                     BDF         = ConvertTo-HtmlSafe $_.BDF
                     Count       = $_.Count
-                    FirstSeen   = $_.FirstSeen
-                    LastSeen    = $_.LastSeen
+                    FirstSeen   = ConvertTo-HtmlSafe $_.FirstSeen
+                    LastSeen    = ConvertTo-HtmlSafe $_.LastSeen
                     Detail      = ConvertTo-HtmlSafe $_.Detail
                 }
             })
@@ -640,7 +1313,7 @@ foreach ($pc in $allData) {
                 $comp = switch ($k) { 'WHEA_CPU' {'CPU'}; 'WHEA_RAM' {'RAM'}; 'WHEA_PCIe' {'PCIe'} }
                 $legacyFatal += @(ConvertTo-Array $hh.$k | Where-Object { $_.Timestamp } | ForEach-Object {
                     [PSCustomObject]@{
-                        Timestamp   = $_.Timestamp
+                        Timestamp   = ConvertTo-HtmlSafe $_.Timestamp
                         EventId     = if ($_.EventId) { $_.EventId } else { 0 }
                         Severity    = 2
                         Component   = $comp
@@ -656,16 +1329,17 @@ foreach ($pc in $allData) {
 
         $hwHealth.GPU_TDR = @(ConvertTo-Array $hh.GPU_TDR | Where-Object { $_.Timestamp } | ForEach-Object {
             [PSCustomObject]@{
-                Timestamp = $_.Timestamp
+                Timestamp = ConvertTo-HtmlSafe $_.Timestamp
                 Driver    = ConvertTo-HtmlSafe $_.Driver
                 Detail    = ConvertTo-HtmlSafe $_.Detail
             }
         })
         $hwHealth.Thermal = @(ConvertTo-Array $hh.Thermal | Where-Object { $_.Timestamp } | ForEach-Object {
             [PSCustomObject]@{
-                Timestamp   = $_.Timestamp
+                Timestamp   = ConvertTo-HtmlSafe $_.Timestamp
                 AlertType   = ConvertTo-HtmlSafe $_.AlertType
                 Temperature = ConvertTo-HtmlSafe $_.Temperature
+                Zone        = ConvertTo-HtmlSafe $_.Zone
                 Detail      = ConvertTo-HtmlSafe $_.Detail
             }
         })
@@ -673,13 +1347,14 @@ foreach ($pc in $allData) {
         if ($hh.PSObject.Properties['CPUThrottling']) {
             $hwHealth.CPUThrottling = @(ConvertTo-Array $hh.CPUThrottling | Where-Object { $_.Day } | ForEach-Object {
                 [PSCustomObject]@{
-                    Day       = $_.Day
-                    EventId   = $_.EventId
-                    Type      = ConvertTo-HtmlSafe $_.Type
-                    Count     = $_.Count
-                    FirstSeen = $_.FirstSeen
-                    LastSeen  = $_.LastSeen
-                    Detail    = ConvertTo-HtmlSafe $_.Detail
+                    Day          = ConvertTo-HtmlSafe $_.Day
+                    EventId      = $_.EventId
+                    Type         = ConvertTo-HtmlSafe $_.Type
+                    Count        = $_.Count
+                    TotalSeconds = $_.TotalSeconds
+                    FirstSeen    = ConvertTo-HtmlSafe $_.FirstSeen
+                    LastSeen     = ConvertTo-HtmlSafe $_.LastSeen
+                    Detail       = ConvertTo-HtmlSafe $_.Detail
                 }
             })
         }
@@ -727,22 +1402,29 @@ foreach ($pc in $allData) {
     }
 
     # ================================================================
-    # SERVICES HEALTH (v5.3+) : null si absent
-    # On structure en tableau de services pour faciliter l'extensibilite
-    # (on pourra rajouter FortiClient/Intune/Dell sans casser le dashboard)
+    # SERVICES HEALTH (v2.2 : liste Monitored pilotee par config)
+    # On recopie chaque service surveille du JSON. HtmlSafe sur le texte, cast
+    # strict sur les bool. Le JS repere Role='EDR' pour le score/badge ; les
+    # autres services sont affiches dans le drill-down.
     # ================================================================
     $servicesEmbed = $null
-    if ($pc.ServicesHealth -and $pc.ServicesHealth.SentinelAgent) {
-        $sa = $pc.ServicesHealth.SentinelAgent
+    if ($pc.ServicesHealth -and $pc.ServicesHealth.Monitored) {
+        $monitoredEmbed = [System.Collections.Generic.List[PSCustomObject]]::new()
+        foreach ($svc in @($pc.ServicesHealth.Monitored)) {
+            if (-not $svc) { continue }
+            $monitoredEmbed.Add([PSCustomObject]@{
+                Id          = ConvertTo-HtmlSafe ([string]$svc.Id)
+                DisplayName = ConvertTo-HtmlSafe ([string]$svc.DisplayName)
+                ServiceName = ConvertTo-HtmlSafe ([string]$svc.ServiceName)
+                Role        = ConvertTo-HtmlSafe ([string]$svc.Role)
+                Installed   = [bool]$svc.Installed
+                Status      = ConvertTo-HtmlSafe ([string]$svc.Status)
+                StartType   = ConvertTo-HtmlSafe ([string]$svc.StartType)
+                IsAlert     = [bool]$svc.IsAlert
+            })
+        }
         $servicesEmbed = [PSCustomObject]@{
-            SentinelAgent = [PSCustomObject]@{
-                DisplayName = ConvertTo-HtmlSafe ([string]$sa.DisplayName)
-                ServiceName = ConvertTo-HtmlSafe ([string]$sa.ServiceName)
-                Installed   = [bool]$sa.Installed
-                Status      = ConvertTo-HtmlSafe ([string]$sa.Status)
-                StartType   = ConvertTo-HtmlSafe ([string]$sa.StartType)
-                IsAlert     = [bool]$sa.IsAlert
-            }
+            Monitored = @($monitoredEmbed)
         }
     }
 
@@ -755,7 +1437,7 @@ foreach ($pc in $allData) {
         $lastBootEmbed = $null
         if ($bp.LastBoot) {
             $lastBootEmbed = [PSCustomObject]@{
-                Timestamp                   = $bp.LastBoot.Timestamp
+                Timestamp                   = ConvertTo-HtmlSafe $bp.LastBoot.Timestamp
                 Level                       = ConvertTo-HtmlSafe ([string]$bp.LastBoot.Level)
                 BootTimeMs                  = [int64]$bp.LastBoot.BootTimeMs
                 MainPathBootTimeMs          = [int64]$bp.LastBoot.MainPathBootTimeMs
@@ -771,7 +1453,7 @@ foreach ($pc in $allData) {
         if ($bp.History) {
             $historyEmbed = @(ConvertTo-Array $bp.History | ForEach-Object {
                 [PSCustomObject]@{
-                    Timestamp                   = $_.Timestamp
+                    Timestamp                   = ConvertTo-HtmlSafe $_.Timestamp
                     Level                       = ConvertTo-HtmlSafe ([string]$_.Level)
                     BootTimeMs                  = [int64]$_.BootTimeMs
                     MainPathBootTimeMs          = [int64]$_.MainPathBootTimeMs
@@ -895,17 +1577,17 @@ foreach ($pc in $allData) {
         IP               = ConvertTo-HtmlSafe $pc.Machine.IP
         Site             = ConvertTo-HtmlSafe $site
         CurrentUser      = ConvertTo-HtmlSafe $pc.Machine.CurrentUser
-        LastBoot         = $pc.Machine.LastBoot
+        LastBoot         = ConvertTo-HtmlSafe $pc.Machine.LastBoot
         UptimeDays       = $pc.Machine.UptimeDays
-        CollectedAt      = $pc.Machine.CollectedAt
+        CollectedAt      = ConvertTo-HtmlSafe $pc.Machine.CollectedAt
         IsOffline        = $isOffline
         CPUName          = ConvertTo-HtmlSafe $cpuName
         CPUVendor        = ConvertTo-HtmlSafe $pc.Machine.CPUVendor
         CPUGen           = $pc.Machine.CPUGen
         CPUYear          = $pc.Machine.CPUYear
         CPUAge           = $pc.Machine.CPUAge
-        CPUAgeCategory   = if ($pc.Machine.CPUAgeCategory) { $pc.Machine.CPUAgeCategory } else { 'Inconnu' }
-        ConnectionType   = if ($pc.Machine.ConnectionType) { $pc.Machine.ConnectionType } else { 'Inconnu' }
+        CPUAgeCategory   = if ($pc.Machine.CPUAgeCategory) { ConvertTo-HtmlSafe $pc.Machine.CPUAgeCategory } else { 'Inconnu' }
+        ConnectionType   = if ($pc.Machine.ConnectionType) { ConvertTo-HtmlSafe $pc.Machine.ConnectionType } else { 'Inconnu' }
         # v5.6 : chassis info (peut etre null si Collector < v5.6)
         ChassisInfo      = if ($pc.Machine.ChassisInfo) {
             [PSCustomObject]@{
@@ -943,16 +1625,33 @@ foreach ($pc in $allData) {
         # v1.8 additions
         MemoryInventory  = $memoryEmbed
         GPUInventory     = $gpuEmbed
+        # v2.1.11 : anomalies de ce PC (pour le badge + le filtre cote tableau).
+        # $anomalyJsons est deja complet a ce stade (rempli a la lecture des fichiers).
+        # ConvertTo-HtmlSafe car ces valeurs atteignent le DOM (badge/tooltip).
+        Anomalies        = @($anomalyJsons | Where-Object { $_.PC -eq $pc.Machine.PC } | ForEach-Object {
+            [PSCustomObject]@{
+                Type   = ConvertTo-HtmlSafe ([string]$_.Type)
+                Reason = ConvertTo-HtmlSafe ([string]$_.Reason)
+                Detail = ConvertTo-HtmlSafe ([string]$_.Detail)
+            }
+        })
     })
 }
 
 # Force l'array meme avec 1 seul element (bug ConvertTo-Json connu)
-$jsonEmbed    = ConvertTo-Json -InputObject @($embedData) -Depth 6
+$jsonEmbed    = ConvertTo-Json -InputObject @($embedData) -Depth 6 -EscapeHandling EscapeHtml
 $weightsEmbed = ConvertTo-Json -InputObject $ScoreWeights -Compress
 
 $titleHtml    = ConvertTo-HtmlSafe $DashboardTitle
 $subtitleHtml = ConvertTo-HtmlSafe $DashboardSubtitle
+# v2.1.3 : meta-refresh UNIQUEMENT en mode publie (-OutputPath). En interactif, vide : un refresh
+# rechargerait un fichier statique et reinitialiserait filtres/scroll de l'utilisateur.
+$metaRefresh  = if ($OutputPath) { '<meta http-equiv="refresh" content="600">' } else { '' }
 $maskHealthyJs = if ($MaskHealthyByDefault) { 'true' } else { 'false' }
+
+# v2.1.12 : liste des applis suivies serialisee en minuscules pour le rapprochement JS.
+$priorityAppsJson = @($priorityApps | ForEach-Object { ([string]$_).ToLowerInvariant() }) | ConvertTo-Json -Compress
+if (-not $priorityAppsJson) { $priorityAppsJson = '[]' }
 $showSiteJs    = if ($showSite) { 'true' } else { 'false' }
 
 # Favicon SVG minimaliste (moniteur avec barres) encode en data URI
@@ -991,7 +1690,7 @@ if ($rejectedJsons.Count -gt 0) {
     $rejectedHtml = @"
 <div class="rejected-panel" id="rejectedPanel">
     <div class="rejected-header">
-        <span class="rejected-title">&#9888;&#65039; Sanity-checks v2.0 : $($rejectedJsons.Count) JSON rejet&eacute;(s) ou suspect(s)</span>
+        <span class="rejected-title">&#9940; Sanity-checks v2.0 : $($rejectedJsons.Count) JSON rejet&eacute;(s)</span>
         <button class="rejected-toggle" onclick="document.getElementById('rejectedPanel').classList.toggle('collapsed')">D&eacute;velopper / R&eacute;duire</button>
     </div>
     <div class="rejected-info">
@@ -1004,6 +1703,20 @@ if ($rejectedJsons.Count -gt 0) {
 </div>
 "@
 }
+
+# v2.1.11 : le panneau "Anomalies detectees" (bandeau jaune deplie en tete) a ete
+# RETIRE. Les anomalies sont desormais signalees PAR PC : un badge sur la ligne du
+# tableau (+ tooltip au survol) et un filtre "Anomalies" en un clic dans la barre de
+# filtres. Le calcul reste (Test-PCPulseAnomalies -> $anomalyJsons) ; ces anomalies
+# sont injectees par PC dans l'embed (champ Anomalies) plus bas.
+$anomalyHtml = ''
+
+# v2.1.11 : bouton-filtre "Anomalies (N)" dans la barre de filtres (remplace le
+# point d'entree qu'etait le bandeau). N = nombre de PC impactes. Absent si aucune.
+$anomalyFilterBtn = if ($anomalyJsons.Count -gt 0) {
+    $nbAnomPC = @($anomalyJsons | Select-Object -ExpandProperty PC -Unique).Count
+    "<button class=""filter-btn filter-btn-anomaly"" id=""anomalyFilterBtn"" onclick=""toggleKpiFilter('anomaly')"" title=""N'afficher que les PC avec une anomalie (donnee a verifier)"">&#9888;&#65039; Anomalies ($nbAnomPC)</button>"
+} else { '' }
 
 # ============================================================
 # HTML COMPLET
@@ -1031,6 +1744,7 @@ $html = @"
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: 'self'; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+$metaRefresh
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,$faviconB64">
 <title>$titleHtml Dashboard</title>
 <style>
@@ -1042,27 +1756,27 @@ $html = @"
        pour matcher la lisibilite du theme clair.
     */
     :root {
-        --bg-main:      #1a1a2e;
-        --bg-panel:     #22223d;
-        --bg-elevated:  #121a2e;
-        --border:       #3a3a5c;    /* un peu plus clair pour qu'on voie les traits */
-        --text-main:    #f0f2f8;    /* etait #eee -> plus blanc pur */
-        --text-dim:     #c8cbd6;    /* etait #aaa -> +20 en lumiere */
-        --text-muted:   #9ea3b3;    /* etait #888 -> +22 en lumiere (lisible en labels) */
-        --text-faint:   #7a8192;    /* etait #666 -> +28 (WCAG AA atteint) */
-        --text-ghost:   #5e6478;    /* etait #555 -> placeholders */
-        --accent:       #8d85ff;    /* etait #6c63ff -> accent plus lumineux sur fond sombre */
-        --green:        #5dd4a8;    /* etait #4ecca3 -> plus vif */
-        --orange:       #ffb84d;    /* etait #ffa502 -> plus vif */
-        --red:          #ff7a7a;    /* etait #ff6b6b -> plus vif */
+        --bg-main:      #0a0a0a;    /* v2.1.1 : dark neutre - noir profond (plus de teinte bleue) */
+        --bg-panel:     #161616;    /* cartes : contraste net avec le fond */
+        --bg-elevated:  #202020;    /* row-detail : passe au 1er plan (etait + sombre que tout) */
+        --border:       #2b2b2b;    /* bordure visible pour delimiter les cartes (pas d'ombre en dark) */
+        --text-main:    #f5f5f5;    /* blanc neutre (etait legerement bleute) */
+        --text-dim:     #c9c9ce;
+        --text-muted:   #a1a1aa;    /* labels - contraste eleve sur fond noir */
+        --text-faint:   #76767e;    /* WCAG AA */
+        --text-ghost:   #585860;    /* placeholders */
+        --accent:       #8d85ff;    /* inchange : seul le FOND bleu posait probleme */
+        --green:        #5dd4a8;
+        --orange:       #ffb84d;
+        --red:          #ff7a7a;
         --pink:         #ffa8f0;
-        --cyan:         #38bcd2;    /* etait #17a2b8 -> plus lumineux */
-        --purple:       #b570f7;    /* etait #a855f7 -> plus lumineux */
-        --yellow:       #ffc555;    /* etait #ffaa44 -> plus lumineux */
-        --bg-danger:    #2a1a1a;
-        --bg-hw:        #2a1a3a;
-        --bg-warning:   #2a2a1a;
-        --bg-success:   #1a2a22;
+        --cyan:         #38bcd2;
+        --purple:       #b570f7;
+        --yellow:       #ffc555;
+        --bg-danger:    #241a1a;    /* cartes en alerte : teinte sombre calee sur le niveau panel */
+        --bg-hw:        #1f1726;
+        --bg-warning:   #232017;
+        --bg-success:   #15211b;
     }
     [data-theme="light"] {
         --bg-main:      #f4f5fa;
@@ -1146,6 +1860,21 @@ $html = @"
     .range-btn:hover, .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
     .range-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
     .filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+    /* v2.1.11 : badge anomalie sur la ligne PC (donnee a verifier) + bouton-filtre associe.
+       Registre orange (--orange) pour rester distinct de l'axe sante (score/pastilles). */
+    .anomaly-badge {
+        cursor: pointer;
+        color: var(--orange);
+        font-size: 13px;
+        margin-left: 5px;
+        vertical-align: middle;
+        opacity: 0.85;
+    }
+    .anomaly-badge:hover { opacity: 1; }
+    .filter-btn-anomaly { border-color: var(--orange); color: var(--orange); }
+    .filter-btn-anomaly:hover { border-color: var(--orange); color: var(--orange); background: rgba(255, 165, 2, 0.12); }
+    .filter-btn-anomaly.active { background: var(--orange); color: #1a1a1a; border-color: var(--orange); }
 
     .divider {
         width: 1px;
@@ -1393,6 +2122,7 @@ $html = @"
     .kpi-group-btn:hover {
         border-color: var(--accent);
         transform: translateY(-1px);
+        z-index: 100;   /* v2.1.2 : le transform ci-dessus cree un stacking context ; sans ce z-index le popover passe sous le tableau et la pagination */
     }
     .kpi-group-btn.active {
         border-color: var(--accent);
@@ -2018,6 +2748,8 @@ $html = @"
     .ram-module-meta {
         color: var(--text-muted);
         flex: 1;
+        min-width: 0;              /* v2.1.7 : autorise le flex item a retrecir sous la largeur du contenu */
+        overflow-wrap: anywhere;   /* v2.1.7 : casse un Manufacturer sans espaces (ex "00000000...") au lieu de deborder */
         font-size: 10px;
     }
 
@@ -2063,7 +2795,8 @@ $html = @"
     .throttle-sev-alert { background: rgba(239,68,68,0.12);  color: var(--red);    border-left: 3px solid var(--red); padding-left: 8px; }
     .throttle-row {
         display: flex;
-        gap: 10px;
+        flex-wrap: wrap;       /* v2.1.7 : en colonne etroite, dur/count passent a la ligne au lieu de deborder */
+        gap: 4px 10px;         /* row-gap 4px (si wrap) / column-gap 10px */
         align-items: center;
         padding: 4px 0;
         font-size: 11px;
@@ -2076,11 +2809,19 @@ $html = @"
     .throttle-type {
         color: var(--text-muted);
         flex: 1;
+        min-width: 0;          /* v2.1.7 : laisse le type retrecir plutot que pousser cumul/events hors ligne */
+    }
+    .throttle-dur {
+        color: var(--orange);
+        font-weight: 600;
+        font-size: 11px;
+        white-space: nowrap;
     }
     .throttle-count {
-        color: var(--red);
-        font-weight: 600;
+        color: var(--text-faint);
+        font-weight: 400;
         font-size: 10px;
+        white-space: nowrap;   /* v2.1.7 : "xN events" ne se coupe pas */
     }
     .throttle-more {
         font-size: 10px;
@@ -2213,6 +2954,26 @@ $html = @"
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 10px;
     }
+    /* v2.1.2 : bandeau + curseur de seuil d'age des ecrans secondaires */
+    .monitor-panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+    }
+    #monitorPanel h3 { margin: 0; }
+    .screen-age-control {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 12px;
+        color: var(--text-dim);
+    }
+    .screen-age-control label { white-space: nowrap; text-transform: uppercase; letter-spacing: 0.4px; font-size: 11px; }
+    .screen-age-control input[type="range"] { width: 130px; accent-color: var(--accent); cursor: pointer; }
+    .screen-age-control .sac-val { color: var(--accent); font-weight: 600; white-space: nowrap; }
     .monitor-inv-tile {
         background: var(--bg-main);
         border: 1px solid var(--border);
@@ -2441,6 +3202,26 @@ $html = @"
     }
     .crasher-score-local  { background: rgba(239,68,68,0.18); color: var(--red); }
     .crasher-score-spread { background: rgba(234,179,8,0.18); color: var(--yellow); }
+
+    /* v2.1.12 : applis suivies ("A investiguer en priorite") - registre accent,
+       volontairement distinct des niveaux de gravite (rouge/jaune/orange). */
+    .crasher-score-priority { background: rgba(141,133,255,0.20); color: var(--accent); }
+    .global-crasher-row.priority { border-left-color: var(--accent); }
+    .global-crasher-row.priority .global-crasher-name { color: var(--accent); }
+    /* v2.1.12 : lignes cliquables (tout le panneau) -> filtre les PC concernes */
+    .global-crasher-row.clickable { cursor: pointer; transition: background .1s ease, box-shadow .1s ease; }
+    .global-crasher-row.clickable:hover { background: var(--bg-elevated); }
+    .global-crasher-row.active { background: rgba(141,133,255,0.14); box-shadow: inset 0 0 0 1px var(--accent); }
+
+    /* v2.1.13 : encart piste materielle memoire (registre ambre "a verifier", pas rouge alarme) */
+    .memory-piste { margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; background: rgba(255,184,77,0.10); border-left: 3px solid var(--orange); }
+    .memory-piste-head { font-size: 11px; font-weight: 700; color: var(--orange); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .memory-piste-body { font-size: 12px; color: var(--text-main); line-height: 1.5; }
+    .memory-piste-note { display: block; margin-top: 4px; font-size: 11px; color: var(--text-muted); font-style: italic; }
+
+    /* v2.1.14 : bouton "tout effacer" dans la barre des filtres actifs */
+    .clear-all-filters { background: transparent; border: 1px solid var(--text-faint); color: var(--text-muted); font-size: 11px; padding: 3px 10px; border-radius: 12px; cursor: pointer; margin-left: 4px; font-family: inherit; }
+    .clear-all-filters:hover { border-color: var(--red); color: var(--red); }
     .crasher-score-noise  { background: var(--bg-alt);       color: var(--text-muted); }
 
     /* Cadenas "forced to noise" via blacklist soft */
@@ -2453,6 +3234,21 @@ $html = @"
         font-size: 9px;
         background: var(--bg-alt);
         color: var(--text-faint);
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-left: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    /* v2.1.4 : Applis en echec recurrent (Type app_failure) - registre "a reparer" */
+    .global-crasher-row.appfail { border-left-color: var(--orange); }
+    .crasher-score-appfail { background: rgba(230,126,34,0.18); color: var(--orange); }
+    .crasher-appfail-tag {
+        display: inline-block;
+        font-size: 9px;
+        background: rgba(230,126,34,0.18);
+        color: var(--orange);
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
@@ -2603,6 +3399,7 @@ $html = @"
         font-family: 'SF Mono', Consolas, monospace;
         word-break: break-word;
     }
+
 </style>
 </head>
 <body>
@@ -2617,6 +3414,8 @@ $html = @"
 
 $rejectedHtml
 
+$anomalyHtml
+
 <div class="toolbar">
     <span class="label">P&eacute;riode :</span>
     <button class="range-btn" onclick="setDays(1, this)">24h</button>
@@ -2628,6 +3427,7 @@ $rejectedHtml
 
     <button class="filter-btn" id="maskHealthyBtn" onclick="toggleMaskHealthy()" title="Masquer les PC sans probleme">Masquer sains</button>
     <button class="filter-btn" id="advancedColsBtn" onclick="toggleAdvancedCols()" title="Afficher les colonnes techniques (Crash, BSOD, HW, Disque, Perf)">Vue d&eacute;taill&eacute;e</button>
+    $anomalyFilterBtn
 
     <div class="divider"></div>
 
@@ -2691,15 +3491,23 @@ $rejectedHtml
     <div id="bootBreakdown" class="boot-breakdown"></div>
 </div>
 
+<!-- v5.7 : inventaire des moniteurs externes du parc -->
+<div class="global-panel" id="monitorPanel" style="display:none">
+    <div class="monitor-panel-head">
+        <h3>&Eacute;crans secondaires branch&eacute;s</h3>
+        <div class="screen-age-control">
+            <label for="screenAgeSlider">Seuil de renouvellement</label>
+            <input type="range" id="screenAgeSlider" min="3" max="10" step="1" value="7">
+            <span class="sac-val"><span id="screenAgeValue">7</span>&nbsp;ans et +</span>
+        </div>
+    </div>
+    <div class="monitor-inventory" id="monitorInventory"></div>
+</div>
+
+<!-- v2.1.2 : Top Crashers deplace tout en bas de page -->
 <div class="global-panel">
     <h3>Top Crashers parc global</h3>
     <div class="global-crashers-grid" id="globalCrashers"></div>
-</div>
-
-<!-- v5.7 : inventaire des moniteurs externes du parc -->
-<div class="global-panel" id="monitorPanel" style="display:none">
-    <h3>&Eacute;crans secondaires branch&eacute;s</h3>
-    <div class="monitor-inventory" id="monitorInventory"></div>
 </div>
 
 <script>
@@ -2709,9 +3517,13 @@ var scoreWeights  = $weightsEmbed;
 var showSite      = $showSiteJs;
 var seuilBootLong    = $SeuilBootLong;
 var seuilCrashRecent = $SeuilCrashRecent;
+// v2.1.2 : seuil d'age des ecrans secondaires (curseur), persiste en localStorage. Defaut 7 ans, borne 3-10.
+var screenAgeThreshold = (function() { var v = parseInt(localStorage.getItem('pcpulse_screenAge'), 10); return (v >= 3 && v <= 10) ? v : 7; })();
 var seuilDiskAlert   = $SeuilDiskAlert;
 var seuilDiskWarning = $SeuilDiskWarning;
 var generatedAt   = new Date('$($now.ToString("yyyy-MM-ddTHH:mm:ss"))');
+// v2.1.12 : applis suivies (minuscules) - remontees dans la section "A investiguer en priorite".
+var priorityApps  = $priorityAppsJson;
 
 // ===== ETAT UI =====
 var state = {
@@ -2721,6 +3533,7 @@ var state = {
     siteFilter: '',
     cpuFilter: '',
     kpiFilter: null,     // 'offline', 'crash', 'bsod', 'hw', 'bootLong', 'diskAlert', 'oldCpu', 'crashRecent'
+    appFilter: null,     // v2.1.12 : nom d'appli (clic sur un crasher) -> filtre les PC qui l'ont en crash
     sort: { col: 'score', dir: 'desc' },
     // Pagination : itemsPerPage peut valoir 20, 50, 100, ou 0 (tous)
     // Persistance via localStorage pour se souvenir du choix utilisateur
@@ -2779,6 +3592,16 @@ function bugCheckName(stopCode) {
 
 // ===== UTILS =====
 function parseDate(s) { return new Date(s.replace(' ', 'T')); }
+// v2.1.2 : formatage lisible d'une duree en secondes (throttling cumule par jour)
+function fmtDuration(sec) {
+    if (sec === null || sec === undefined || isNaN(sec) || sec <= 0) return '';
+    sec = Math.round(sec);
+    if (sec < 60) return sec + ' s';
+    var m = Math.floor(sec / 60), s = sec % 60;
+    if (m < 60) return m + ' min' + (s ? ' ' + s + ' s' : '');
+    var h = Math.floor(m / 60); m = m % 60;
+    return h + ' h' + (m ? ' ' + m + ' min' : '');
+}
 function timeAgo(dateStr) {
     var d = parseDate(dateStr);
     var diffMs = generatedAt - d;
@@ -2839,6 +3662,13 @@ function isBlacklistedSoft(name) {
     }
     return false;
 }
+// v2.1.12 : appli suivie (match EXACT, insensible a la casse). Les noms sont
+// deja normalises par le Collector (Get-CrasherKey) et htmlsafe cote embed ;
+// pour les libelles simples de la liste, la casse est la seule variation possible.
+function isPriorityApp(name) {
+    if (!name) return false;
+    return priorityApps.indexOf(String(name).toLowerCase()) !== -1;
+}
 
 // Scoring : penalise la dispersion entre PC.
 // score = (total/pcCount) / sqrt(pcCount) = moyenne_par_PC / sqrt(PC_impactes)
@@ -2855,7 +3685,16 @@ function computeCrasherScore(total, pcCount) {
 //   'spread'  (2 <= score < 3) : reparti, possible bug app
 //   'noise'   (score < 2)   : bruit ambient, pas actionnable
 // Les entrees en blacklist SOFT sont forcees en 'noise' peu importe leur score.
-function classifyCrasher(name, total, pcCount) {
+function classifyCrasher(name, total, pcCount, type) {
+    // v2.1.12 : une appli suivie remonte TOUJOURS dans sa section dediee, avant
+    // tout autre classement (nature ou dispersion). On conserve son score pour
+    // trier la section, mais il ne decide plus de sa place.
+    if (isPriorityApp(name)) return { level: 'priority', score: computeCrasherScore(total, pcCount), forced: false };
+    // v2.1.4 : la NATURE prime sur la dispersion. Un echec applicatif recurrent
+    // (Type 'app_failure', ex Bing Wallpaper) n'est pas un crash : il part dans
+    // sa categorie 'appfail' quelle que soit sa concentration, au lieu de
+    // remonter en 'local' a tort. Type absent (JSON legacy) = traite en crash.
+    if (type === 'app_failure') return { level: 'appfail', score: total, forced: false };
     var score = computeCrasherScore(total, pcCount);
     if (isBlacklistedSoft(name)) return { level: 'noise', score: score, forced: true };
     if (score >= 3)              return { level: 'local',  score: score, forced: false };
@@ -3109,7 +3948,7 @@ function computeScore(p) {
     s += p.bootLongCount      * scoreWeights.BootLong;
     if (p.pc.IsOffline)       s += scoreWeights.Offline;
     // v5.3 / v5.4 : nouvelles penalites (defensif si weights absents du config ancien)
-    if (p.sentinelAlert)      s += (scoreWeights.SentinelDown || 5);
+    if (p.edrAlert)      s += (scoreWeights.EDRDown || 5);
     if (p.batteryAlert)       s += (scoreWeights.Battery      || 1);
     if (p.bootPerfAlert)      s += (scoreWeights.BootPerfSlow || 1);
     if (p.diskSmartAlert)     s += (scoreWeights.DiskHealth   || 3);
@@ -3220,6 +4059,34 @@ function clearKpiFilter() {
     state.currentPage = 1;  // v1.5
     render();
 }
+// v2.1.12 : filtre par appli (clic sur un crasher dans le panneau Top Crashers).
+function toggleAppFilter(name) {
+    if (!name) return;
+    state.appFilter = (state.appFilter === name) ? null : name;
+    state.currentPage = 1;
+    render();
+}
+function clearAppFilter() {
+    state.appFilter = null;
+    state.currentPage = 1;
+    render();
+}
+// v2.1.14 : reinitialise TOUS les filtres d'un coup - les chips (KPI, appli, masquer sains)
+// ET les controles qui n'ont pas de chip (menus site/CPU, champ recherche). Retour a l'etat
+// d'ouverture : tout le parc visible.
+function clearAllFilters() {
+    state.kpiFilter   = null;
+    state.appFilter   = null;
+    state.maskHealthy = false;
+    state.siteFilter  = '';
+    state.cpuFilter   = '';
+    var mb = document.getElementById('maskHealthyBtn'); if (mb) mb.classList.remove('active');
+    var sf = document.getElementById('siteFilter');     if (sf) sf.value = '';
+    var cf = document.getElementById('cpuFilter');      if (cf) cf.value = '';
+    var si = document.getElementById('searchInput');    if (si) si.value = '';
+    state.currentPage = 1;
+    render();
+}
 
 // ===== ENRICHISSEMENT DES PC =====
 // Calcule pour chaque PC les compteurs filtres par la periode + le score
@@ -3274,8 +4141,14 @@ function enrichPC(pc, cutoff) {
     var battery = pc.BatteryInfo || null;
     var batteryAlert = !!(battery && battery.IsAlert);
 
-    var sentinel = (pc.ServicesHealth && pc.ServicesHealth.SentinelAgent) ? pc.ServicesHealth.SentinelAgent : null;
-    var sentinelAlert = !!(sentinel && sentinel.IsAlert);
+    // v2.2 : services surveilles (liste pilotee par config). Le service Role='EDR'
+    // pilote le score/badge ; la liste complete est montree dans le drill-down.
+    var monitoredServices = (pc.ServicesHealth && pc.ServicesHealth.Monitored) ? pc.ServicesHealth.Monitored : [];
+    var edr = null;
+    for (var mi = 0; mi < monitoredServices.length; mi++) {
+        if (monitoredServices[mi] && monitoredServices[mi].Role === 'EDR') { edr = monitoredServices[mi]; break; }
+    }
+    var edrAlert = !!(edr && edr.IsAlert);
 
     var bootPerf = pc.BootPerformance || null;
     var bootPerfAlert = !!(bootPerf && bootPerf.IsAlert);
@@ -3293,17 +4166,37 @@ function enrichPC(pc, cutoff) {
 
     // v5.7 : moniteurs externes (peut etre absent si Collector < v5.5)
     var monitors = pc.Monitors || [];
-    var SEUIL_MONITOR_OLD_YEARS = 7;
+    var SEUIL_MONITOR_OLD_YEARS = screenAgeThreshold;
     var oldMonitors = monitors.filter(function(m) {
         return m.AgeYears !== null && m.AgeYears !== undefined && m.AgeYears >= SEUIL_MONITOR_OLD_YEARS;
     });
     var oldMonitorAlert = oldMonitors.length > 0;
+
+    // v2.1.13 : piste materielle "memoire". Co-occurrence (PAS coincidence a la minute,
+    // qui serait bruyante : les WHEA corrigees sont un bruit de fond continu, les fatales
+    // provoquent un BSOD pas un crash d'appli). Signal de fond du PC -> calcule sur l'ensemble
+    // des donnees (hw.WHEA_* complet, TopCrashers global), independamment du filtre periode.
+    // Garde-fou : uniquement les codes de NATURE memoire (acces invalide / corruption), jamais
+    // .NET ni fige. C'est une PISTE (memtest a envisager), pas un diagnostic.
+    var MEMORY_EXCEPTION_CODES = ['0xc0000005', '0xc0000374'];
+    var memoryCrashers = (pc.TopCrashers || []).filter(function(c) {
+        return c.ExceptionCode && MEMORY_EXCEPTION_CODES.indexOf(String(c.ExceptionCode).toLowerCase()) !== -1;
+    });
+    var ramWheaFatal     = (hw.WHEA_Fatal     || []).filter(function(h) { return h.Component === 'RAM'; });
+    var ramWheaCorrected = (hw.WHEA_Corrected || []).filter(function(h) { return h.Component === 'RAM'; });
+    var memoryPiste = {
+        active: (memoryCrashers.length > 0) && ((ramWheaFatal.length + ramWheaCorrected.length) > 0),
+        crashers: memoryCrashers,
+        ramFatal: ramWheaFatal,
+        ramCorrected: ramWheaCorrected
+    };
 
     var result = {
         pc: pc,
         crashes: crashes, boots: boots, bsods: bsods, warnings: warnings,
         topRAM: pc.TopRAM || [], diskInfo: pc.DiskInfo || [], diskAlerts: diskAlerts,
         topCrashers: pc.TopCrashers || [],
+        anomalies: pc.Anomalies || [],
         bootsLongs: bootsLongs, dernierBoot: dernierBoot,
         bootsByType: bootsByType,
         crashCount: crashes.length,
@@ -3317,6 +4210,7 @@ function enrichPC(pc, cutoff) {
         wheaCorrected: wheaCorrected,
         wheaCorrectedTotal: wheaCorrectedTotal,
         fatalByComponent: fatalByComponent,
+        memoryPiste: memoryPiste,
         gpuTDR: gpuTDR,
         thermal: thermal,
         // hwCount = seulement les alertes qui doivent impacter le score
@@ -3326,8 +4220,9 @@ function enrichPC(pc, cutoff) {
         // v5.3 / v5.4
         battery: battery,
         batteryAlert: batteryAlert,
-        sentinel: sentinel,
-        sentinelAlert: sentinelAlert,
+        monitoredServices: monitoredServices,
+        edr: edr,
+        edrAlert: edrAlert,
         bootPerf: bootPerf,
         bootPerfAlert: bootPerfAlert,
         diskHealth: diskHealth,
@@ -3394,12 +4289,14 @@ function matchKpiFilter(p, filter) {
         case 'oldCpu':      return p.pc.CPUAgeCategory === 'Ancien';
         case 'crashRecent': return (p.pc.Crashes || []).some(function(c) { return parseDate(c.Timestamp) >= crashRecentCutoff; });
         // v5.3 / v5.4
-        case 'edrDown':     return p.sentinelAlert;
+        case 'edrDown':     return p.edrAlert;
         case 'battery':     return p.batteryAlert;
         case 'bootPerf':    return p.bootPerfAlert;
         case 'smart':       return p.diskSmartAlert;
         // v5.7
         case 'oldMonitor':  return p.oldMonitorAlert;
+        // v2.1.11 : PC ayant au moins une anomalie (donnee a verifier)
+        case 'anomaly':     return (p.anomalies || []).length > 0;
         default: return true;
     }
 }
@@ -3408,6 +4305,10 @@ function matchKpiFilter(p, filter) {
 function render() {
     var cutoff = new Date(generatedAt);
     cutoff.setDate(cutoff.getDate() - state.days);
+
+    // v2.1.11 : etat visuel du bouton-filtre Anomalies (peut ne pas exister si 0 anomalie)
+    var anomBtn = document.getElementById('anomalyFilterBtn');
+    if (anomBtn) anomBtn.classList.toggle('active', state.kpiFilter === 'anomaly');
 
     var searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
     state.siteFilter = document.getElementById('siteFilter').value;
@@ -3433,7 +4334,11 @@ function render() {
     // Vue tableau : on applique kpiFilter + maskHealthy
     var visible = baseFiltered.filter(function(p) {
         if (!matchKpiFilter(p, state.kpiFilter)) return false;
-        if (state.maskHealthy && p.score === 0) return false;
+        // v2.1.11 : le filtre "anomaly" prime sur maskHealthy (axe orthogonal a la sante).
+        // Sinon un PC sain-mais-anormal serait masque et le compteur du bouton mentirait.
+        if (state.maskHealthy && state.kpiFilter !== 'anomaly' && p.score === 0) return false;
+        // v2.1.12 : filtre par appli (clic sur un crasher) - garde les PC qui l'ont en crash.
+        if (state.appFilter && !(p.topCrashers || []).some(function(c) { return String(c.AppName).toLowerCase() === state.appFilter.toLowerCase(); })) return false;
         return true;
     });
 
@@ -3605,6 +4510,16 @@ function renderActiveFilters() {
     if (state.maskHealthy) {
         chips.push('<span class="active-filter-chip">PC sains masques <span class="close" onclick="toggleMaskHealthy()">&times;</span></span>');
     }
+    if (state.appFilter) {
+        chips.push('<span class="active-filter-chip">Appli&nbsp;: ' + state.appFilter + ' <span class="close" onclick="clearAppFilter()">&times;</span></span>');
+    }
+    // v2.1.14 : bouton "tout effacer" des qu'un filtre quelconque est actif - y compris les
+    // menus site/CPU et la recherche, qui ne generent pas de chip a eux seuls.
+    var searchActive = (document.getElementById('searchInput').value || '').trim().length > 0;
+    var anyFilter = !!(state.kpiFilter || state.appFilter || state.maskHealthy || state.siteFilter || state.cpuFilter || searchActive);
+    if (anyFilter) {
+        chips.push('<button class="clear-all-filters" onclick="clearAllFilters()" title="Reinitialiser tous les filtres">&times; Tout effacer</button>');
+    }
     container.innerHTML = chips.join('');
 }
 
@@ -3633,7 +4548,7 @@ function renderKpis(pcs) {
     var pcWithCorrected = pcs.filter(function(p) { return p.wheaCorrected.length > 0; }).length;
     var totalOldCPU = pcs.filter(function(p) { return p.pc.CPUAgeCategory === 'Ancien'; }).length;
 
-    var totalEdrDown = pcs.filter(function(p) { return p.sentinelAlert; }).length;
+    var totalEdrDown = pcs.filter(function(p) { return p.edrAlert; }).length;
     var totalBatteryWorn = pcs.filter(function(p) { return p.batteryAlert; }).length;
     var totalBootPerfSlow = pcs.filter(function(p) { return p.bootPerfAlert; }).length;
     var totalSmartAlert = pcs.filter(function(p) { return p.diskSmartAlert; }).length;
@@ -3720,7 +4635,7 @@ function renderKpis(pcs) {
             { k: 'smart',      label: 'SMART alerte',                     v: totalSmartAlert,   level: (totalSmartAlert > 0 ? 'warn' : 'neutral') },
             { k: 'battery',    label: 'Batterie us&eacute;e (&lt;60%)',   v: totalBatteryWorn,  level: (totalBatteryWorn > 0 ? 'warn' : 'neutral') },
             { k: 'oldCpu',     label: 'CPU anciens',                      v: totalOldCPU,       level: (totalOldCPU > 0 ? 'danger' : 'neutral') },
-            { k: 'oldMonitor', label: 'Ecrans &acirc;g&eacute;s (&ge;7 ans)', v: pcWithOldMonitor, level: (pcWithOldMonitor > 0 ? 'warn' : 'neutral') }
+            { k: 'oldMonitor', label: 'Ecrans &acirc;g&eacute;s (&ge;' + screenAgeThreshold + ' ans)', v: pcWithOldMonitor, level: (pcWithOldMonitor > 0 ? 'warn' : 'neutral') }
         ]
     };
 
@@ -3876,8 +4791,11 @@ function renderGlobalCrashers(pcs) {
             var key = c.AppName;
             // v1.7 : blacklist HARD - on zappe completement a l'agregation
             if (isBlacklistedHard(key)) return;
-            if (!agg[key]) agg[key] = { name: key, total: 0, pcCount: 0, pcSet: {} };
+            if (!agg[key]) agg[key] = { name: key, total: 0, pcCount: 0, pcSet: {}, isCrash: false };
             agg[key].total += c.CrashCount;
+            // v2.1.4 : un vrai crash (ou Type absent = JSON legacy) prime sur l'agregat ;
+            // une cle reste 'app_failure' seulement si TOUTES ses occurrences le sont.
+            if (c.Type !== 'app_failure') agg[key].isCrash = true;
             if (!agg[key].pcSet[p.pc.PC]) {
                 agg[key].pcCount++;
                 agg[key].pcSet[p.pc.PC] = true;
@@ -3887,7 +4805,7 @@ function renderGlobalCrashers(pcs) {
 
     var arr = Object.keys(agg).map(function(k) {
         var a = agg[k];
-        var cls = classifyCrasher(a.name, a.total, a.pcCount);
+        var cls = classifyCrasher(a.name, a.total, a.pcCount, a.isCrash ? 'crash' : 'app_failure');
         a.score  = cls.score;
         a.level  = cls.level;
         a.forced = cls.forced;
@@ -3903,27 +4821,53 @@ function renderGlobalCrashers(pcs) {
         return;
     }
 
-    var local  = arr.filter(function(a) { return a.level === 'local'; });
-    var spread = arr.filter(function(a) { return a.level === 'spread'; });
-    var noise  = arr.filter(function(a) { return a.level === 'noise'; });
+    var priority = arr.filter(function(a) { return a.level === 'priority'; });
+    var local   = arr.filter(function(a) { return a.level === 'local'; });
+    var spread  = arr.filter(function(a) { return a.level === 'spread'; });
+    var appfail = arr.filter(function(a) { return a.level === 'appfail'; });
+    var noise   = arr.filter(function(a) { return a.level === 'noise'; });
 
     // Helper de rendu d'une ligne crasheur
     function renderRow(c) {
-        var badgeCls = 'crasher-score-' + c.level;
         var forcedTag = c.forced ? '<span class="crasher-forced" title="Force en bruit (blacklist soft)">&#128274;</span>' : '';
-        var scoreTxt = c.score.toFixed(1);
-        return '<div class="global-crasher-row ' + c.level + '">' +
+        // v2.1.4 : rendu specifique pour un echec applicatif (pas de score de
+        // dispersion, libelle "echecs" au lieu de "crashs").
+        var badgeHtml, statsWord;
+        if (c.level === 'appfail') {
+            badgeHtml = '<span class="crasher-score crasher-score-appfail" title="Installation ou mise a jour qui echoue en boucle">&#128295; echec</span>';
+            statsWord = ' echecs / ';
+        } else {
+            badgeHtml = '<span class="crasher-score crasher-score-' + c.level + '" title="Score signal (plus haut = plus concentre sur peu de PC)">' + c.score.toFixed(1) + '</span>';
+            statsWord = ' crashs / ';
+        }
+        // v2.1.12 : ligne cliquable -> filtre les PC concernes. Le nom vient de l'embed
+        // (deja ConvertTo-HtmlSafe) : sur dans un attribut, et lu via dataset (aucune eval JS).
+        var activeCls = (state.appFilter && state.appFilter === c.name) ? ' active' : '';
+        return '<div class="global-crasher-row ' + c.level + ' clickable' + activeCls + '" data-appname="' + String(c.name).replace(/&/g, '&amp;') + '">' +
                   '<span class="global-crasher-name" title="' + c.name + '">' + c.name + '</span>' +
                   forcedTag +
-                  '<span class="crasher-score ' + badgeCls + '" title="Score signal (plus haut = plus concentre sur peu de PC)">' + scoreTxt + '</span>' +
+                  badgeHtml +
                   '<span class="global-crasher-stats">' +
                     '<span class="global-crasher-total">' + c.total + '</span>' +
-                    ' crashs / ' + c.pcCount + ' PC' +
+                    statsWord + c.pcCount + ' PC' +
                   '</span>' +
                 '</div>';
     }
 
     var html = '';
+
+    // --- Section 0 : Applis suivies (v2.1.12) ---
+    // Toujours en tete, AVANT le classement par dispersion : une appli metier qui
+    // plante de facon repartie (ex une appli metier 10 crashs / 5 PC) ne doit pas se noyer dans le bruit.
+    if (priority.length > 0) {
+        html += '<div class="crasher-section crasher-section-priority">' +
+                '<h4 class="crasher-section-title">&#128204; A investiguer en priorite ' +
+                  '<span class="crasher-section-count">' + priority.length + '</span>' +
+                  '<span class="crasher-section-hint">Applis suivies, remont&eacute;es quelle que soit leur dispersion &middot; cliquer pour filtrer les PC concern&eacute;s</span>' +
+                '</h4>' +
+                '<div class="global-crashers-grid">' + priority.map(renderRow).join('') + '</div>' +
+                '</div>';
+    }
 
     // --- Section 1 : Signaux locaux ---
     html += '<div class="crasher-section crasher-section-local">' +
@@ -3948,6 +4892,20 @@ function renderGlobalCrashers(pcs) {
         html += '<div class="global-crashers-grid">' + spread.map(renderRow).join('') + '</div>';
     } else {
         html += '<div class="crasher-section-empty">Aucun probleme reparti detecte</div>';
+    }
+    html += '</div>';
+
+    // --- Section 2bis : Applis en echec recurrent (Type app_failure) ---
+    // v2.1.4 : echecs d'install/maj qui bouclent, distincts des vrais crashes.
+    html += '<div class="crasher-section crasher-section-appfail">' +
+            '<h4 class="crasher-section-title">&#128295; Applis en echec recurrent ' +
+              '<span class="crasher-section-count">' + appfail.length + '</span>' +
+              '<span class="crasher-section-hint">Installation ou mise a jour qui echoue en boucle, a reparer ou desinstaller</span>' +
+            '</h4>';
+    if (appfail.length > 0) {
+        html += '<div class="global-crashers-grid">' + appfail.map(renderRow).join('') + '</div>';
+    } else {
+        html += '<div class="crasher-section-empty">Aucune appli en echec recurrent</div>';
     }
     html += '</div>';
 
@@ -4020,7 +4978,7 @@ function renderMonitorInventory(pcs) {
         var key = m.Manufacturer || m.ManufacturerCode || '?';
         manufCount[key] = (manufCount[key] || 0) + 1;
         if (m.AgeYears !== null && m.AgeYears !== undefined) {
-            if (m.AgeYears >= 7) oldCount++;
+            if (m.AgeYears >= screenAgeThreshold) oldCount++;
             ageSum += m.AgeYears;
             ageCount++;
         }
@@ -4048,7 +5006,7 @@ function renderMonitorInventory(pcs) {
 
     html += '<div class="monitor-inv-tile">' +
             '<div class="monitor-inv-value" style="color:' + (oldCount > 0 ? 'var(--orange)' : 'var(--text-muted)') + '">' + oldCount + '</div>' +
-            '<div class="monitor-inv-label">&Eacute;crans &ge; 7 ans</div>' +
+            '<div class="monitor-inv-label">&Eacute;crans &ge; ' + screenAgeThreshold + ' ans</div>' +
             '<div class="monitor-inv-sub">candidats au renouvellement</div>' +
             '</div>';
 
@@ -4111,10 +5069,10 @@ function renderTable(pcs) {
         var pc = p.pc;
         var rowClass = 'row-ok';
         if (p.crashCount > 0 || p.bsodCount > 0) rowClass = 'row-danger';
-        else if (p.hwCount > 0 || p.sentinelAlert || p.diskSmartAlert) rowClass = 'row-hardware';
+        else if (p.hwCount > 0 || p.edrAlert || p.diskSmartAlert) rowClass = 'row-hardware';
         else if (p.bootLongCount > 0 || p.diskAlertCount > 0 || p.batteryAlert || p.bootPerfAlert) rowClass = 'row-warning';
 
-        var scoreCell = '<span class="score-badge ' + scoreClass(p.score) + '" title="Score = BSOD:' + p.bsodCount + ' Crash:' + p.crashCount + ' WHEAFatal:' + p.wheaFatal.length + ' GPU:' + p.gpuTDR.length + ' Thermal:' + p.thermal.length + ' BootLong:' + p.bootLongCount + ' Disk:' + p.diskAlertCount + (p.pc.IsOffline ? ' +Offline' : '') + (p.sentinelAlert ? ' +EDR' : '') + (p.batteryAlert ? ' +Batt' : '') + (p.bootPerfAlert ? ' +BootSlow' : '') + (p.diskSmartAlert ? ' +SMART' : '') + '">' + p.score + '</span>';
+        var scoreCell = '<span class="score-badge ' + scoreClass(p.score) + '" title="Score = BSOD:' + p.bsodCount + ' Crash:' + p.crashCount + ' WHEAFatal:' + p.wheaFatal.length + ' GPU:' + p.gpuTDR.length + ' Thermal:' + p.thermal.length + ' BootLong:' + p.bootLongCount + ' Disk:' + p.diskAlertCount + (p.pc.IsOffline ? ' +Offline' : '') + (p.edrAlert ? ' +EDR' : '') + (p.batteryAlert ? ' +Batt' : '') + (p.bootPerfAlert ? ' +BootSlow' : '') + (p.diskSmartAlert ? ' +SMART' : '') + '">' + p.score + '</span>';
 
         var statusBadge = pc.IsOffline
             ? '<span class="badge badge-offline">OFFLINE</span>'
@@ -4199,15 +5157,15 @@ function renderTable(pcs) {
         } else {
             indB = '<span class="indicator-dot ok" title="Batterie OK : ' + p.battery.HealthPercent + '% (' + p.battery.HealthCategory + ')">B</span>';
         }
-        // EDR SentinelOne
-        if (!p.sentinel) {
-            indE = '<span class="indicator-dot na" title="Donn&eacute;e EDR absente (Collector &lt; v5.3)">E</span>';
-        } else if (!p.sentinel.Installed) {
-            indE = '<span class="indicator-dot ko" title="SentinelOne NON INSTALLE">E</span>';
-        } else if (p.sentinelAlert) {
-            indE = '<span class="indicator-dot ko" title="SentinelAgent : ' + p.sentinel.Status + '">E</span>';
+        // EDR (service Role='EDR', pilote par config)
+        if (!p.edr) {
+            indE = '<span class="indicator-dot na" title="Aucune donn&eacute;e EDR (poste en cours de MAJ Collector, ou aucun service EDR configur&eacute;)">E</span>';
+        } else if (!p.edr.Installed) {
+            indE = '<span class="indicator-dot ko" title="' + p.edr.DisplayName + ' NON INSTALLE">E</span>';
+        } else if (p.edrAlert) {
+            indE = '<span class="indicator-dot ko" title="' + p.edr.DisplayName + ' : ' + p.edr.Status + '">E</span>';
         } else {
-            indE = '<span class="indicator-dot ok" title="SentinelAgent : Running">E</span>';
+            indE = '<span class="indicator-dot ok" title="' + p.edr.DisplayName + ' : Running">E</span>';
         }
         // Boot Performance
         if (!p.bootPerf || !p.bootPerf.LastBoot) {
@@ -4230,9 +5188,20 @@ function renderTable(pcs) {
         }
         var indicatorsCell = '<div class="indicator-row">' + indB + indE + indBP + indS + '</div>';
 
+        // v2.1.11 : badge anomalie (donnee a verifier) - cliquable pour filtrer,
+        // detail au survol. stopPropagation pour ne pas ouvrir le drill-down au clic.
+        var anomalyBadge = '';
+        if (p.anomalies && p.anomalies.length > 0) {
+            var anomTitle = p.anomalies.map(function(a) {
+                return a.Reason + (a.Detail ? ' - ' + a.Detail : '');
+            }).join(' | ');
+            anomalyBadge = ' <span class="anomaly-badge" title="' + anomTitle +
+                           '" onclick="event.stopPropagation(); toggleKpiFilter(\'anomaly\')">&#9888;</span>';
+        }
+
         tbody += '<tr class="' + rowClass + ' row-main" onclick="toggleDetail(\'detail-' + idx + '\')">' +
             '<td>' + scoreCell + '</td>' +
-            '<td><span class="toggle-icon">&#9654;</span>' + pc.PC + '</td>' +
+            '<td><span class="toggle-icon">&#9654;</span>' + pc.PC + anomalyBadge + '</td>' +
             '<td>' + statusBadge + '</td>' +
             siteCell +
             '<td>' + pc.IP + '</td>' +
@@ -4390,13 +5359,22 @@ function renderDetailRow(p, idx, colspan) {
     });
     if (pcCrashers.length > 0) {
         pcCrashers.slice(0, 5).forEach(function(tc) {
+            // v2.1.4 : la nature (echec applicatif) prime sur le tag bruit.
+            var isAppFail = (tc.Type === 'app_failure');
             var isSoft = isBlacklistedSoft(tc.AppName);
-            var rowCls = isSoft ? 'crasher-item crasher-soft-noise' : 'crasher-item';
-            var noiseTag = isSoft ? ' <span class="crasher-noise-tag" title="Crasher connu - bruit ambient">bruit</span>' : '';
+            var rowCls = 'crasher-item';
+            var tag = '';
+            if (isAppFail) {
+                rowCls = 'crasher-item crasher-appfail';
+                tag = ' <span class="crasher-appfail-tag" title="Installation ou mise a jour qui echoue en boucle - a reparer ou desinstaller">echec recurrent</span>';
+            } else if (isSoft) {
+                rowCls = 'crasher-item crasher-soft-noise';
+                tag = ' <span class="crasher-noise-tag" title="Crasher connu - bruit ambient">bruit</span>';
+            }
             crasherHTML += '<div class="' + rowCls + '">' +
                              '<span class="crasher-name">' + tc.AppName + '</span> ' +
                              '<span class="crasher-count">(' + tc.CrashCount + ')</span>' +
-                             noiseTag +
+                             tag +
                            '</div>';
         });
     } else {
@@ -4442,9 +5420,10 @@ function renderDetailRow(p, idx, colspan) {
 
         // Thermal
         p.thermal.forEach(function(h) {
+            var thermInfo = (h.Temperature || '') + (h.Zone ? ' &middot; ' + h.Zone : '');
             hwHTML += '<div class="detail-item">' +
                 '<span class="hw-badge thermal">' + h.AlertType + '</span>' +
-                '<span class="detail-info">' + (h.Temperature || '') + '</span>' +
+                '<span class="detail-info">' + thermInfo + '</span>' +
                 '<span class="detail-date">' + h.Timestamp + '</span></div>';
         });
     }
@@ -4473,6 +5452,21 @@ function renderDetailRow(p, idx, colspan) {
 
     if (!hasFatal && !hasCorrected) {
         hwHTML = '<div class="detail-empty">Aucune erreur materielle</div>';
+    }
+
+    // v2.1.13 : encart piste memoire, prefixe a la carte Hardware (toujours rendue -> visible
+    // meme si les WHEA RAM sont hors de la periode selectionnee, car la piste est un signal global).
+    if (p.memoryPiste && p.memoryPiste.active) {
+        var mp = p.memoryPiste;
+        var crashNames = mp.crashers.map(function(c) { return c.AppName + ' (' + c.ExceptionCode + ')'; }).join(', ');
+        var ramCount = mp.ramFatal.length + mp.ramCorrected.reduce(function(s, c) { return s + (c.Count || 1); }, 0);
+        var pisteHTML = '<div class="memory-piste">' +
+            '<div class="memory-piste-head">&#128269; Piste &agrave; v&eacute;rifier &middot; m&eacute;moire</div>' +
+            '<div class="memory-piste-body">Ce poste cumule des plantages applicatifs de type m&eacute;moire (' + crashNames + ') ' +
+            'et des erreurs mat&eacute;rielles RAM (WHEA &times;' + ramCount + '). Un test m&eacute;moire (memtest) serait &agrave; envisager.' +
+            '<span class="memory-piste-note">Corr&eacute;lation, pas diagnostic &middot; sur l\'ensemble des donn&eacute;es collect&eacute;es.</span>' +
+            '</div></div>';
+        hwHTML = pisteHTML + hwHTML;
     }
 
     var perfHTML = '';
@@ -4547,27 +5541,31 @@ function renderDetailRow(p, idx, colspan) {
         }
     }
 
-    // EDR SentinelOne dans la meme section
+    // Services surveilles (v2.2 : liste pilotee par config). Badge = DisplayName du
+    // service (vient du config) ; [Role] indique le service structurant (ex EDR).
     var edrHTML = '';
-    if (!p.sentinel) {
-        edrHTML = '<div class="detail-empty">Donn&eacute;es EDR absentes (Collector &lt; v5.3)</div>';
+    if (!p.monitoredServices || p.monitoredServices.length === 0) {
+        edrHTML = '<div class="detail-empty">Aucun service surveill&eacute; (poste en cours de MAJ Collector, ou config MonitoredServices vide)</div>';
     } else {
-        var edrBadge, edrBadgeClass;
-        if (!p.sentinel.Installed) {
-            edrBadge = 'NON INSTALL&Eacute;'; edrBadgeClass = 'bsod';
-        } else if (p.sentinelAlert) {
-            edrBadge = p.sentinel.Status;     edrBadgeClass = 'hard-reset';
-        } else {
-            edrBadge = 'Running';              edrBadgeClass = 'freeze-app';
-        }
-        edrHTML = '<div class="detail-item">' +
-            '<span class="crash-badge ' + edrBadgeClass + '">SentinelOne</span>' +
-            '<span class="detail-info" style="flex:1">' + p.sentinel.DisplayName + ' (' + p.sentinel.ServiceName + ')</span>' +
-            '<span class="detail-date">' + edrBadge + '</span>' +
-            '</div>';
-        if (p.sentinel.Installed) {
-            edrHTML += '<div class="batt-meta" style="margin-top:6px">Type d&eacute;marrage : <strong>' + p.sentinel.StartType + '</strong></div>';
-        }
+        p.monitoredServices.forEach(function(svc) {
+            var svcBadge, svcBadgeClass;
+            if (!svc.Installed) {
+                svcBadge = 'NON INSTALL&Eacute;'; svcBadgeClass = 'bsod';
+            } else if (svc.IsAlert) {
+                svcBadge = svc.Status;             svcBadgeClass = 'hard-reset';
+            } else {
+                svcBadge = 'Running';              svcBadgeClass = 'freeze-app';
+            }
+            var roleTag = svc.Role ? ' <span class="detail-info">[' + svc.Role + ']</span>' : '';
+            edrHTML += '<div class="detail-item">' +
+                '<span class="crash-badge ' + svcBadgeClass + '">' + svc.DisplayName + '</span>' +
+                '<span class="detail-info" style="flex:1">' + svc.ServiceName + roleTag + '</span>' +
+                '<span class="detail-date">' + svcBadge + '</span>' +
+                '</div>';
+            if (svc.Installed) {
+                edrHTML += '<div class="batt-meta" style="margin-top:6px">Type d&eacute;marrage : <strong>' + svc.StartType + '</strong></div>';
+            }
+        });
     }
 
     // ========================================================
@@ -4712,7 +5710,7 @@ function renderDetailRow(p, idx, colspan) {
         monitorsHTML = '<div class="detail-empty">Aucun &eacute;cran secondaire branch&eacute; (ou Collector &lt; v5.5)</div>';
     } else {
         monitorsList.forEach(function(mon) {
-            var isOld = (mon.AgeYears !== null && mon.AgeYears !== undefined && mon.AgeYears >= 7);
+            var isOld = (mon.AgeYears !== null && mon.AgeYears !== undefined && mon.AgeYears >= screenAgeThreshold);
             var cardCls = 'monitor-card' + (isOld ? ' old' : '');
             var displayName = mon.Model || mon.ProductCode || '(mod&egrave;le inconnu)';
             var displayManuf = mon.Manufacturer || mon.ManufacturerCode || '?';
@@ -4830,16 +5828,17 @@ function renderDetailRow(p, idx, colspan) {
         // Badge d'alerte si >= 3 jours distincts (seuil d'alerte defini en design)
         var sevCls = throttleDays >= 3 ? 'throttle-sev-alert' : 'throttle-sev-info';
         var sevLabel = throttleDays >= 3
-            ? '&#9888;&#65039; ' + throttleDays + ' jours de throttling - refroidissement a verifier'
-            : throttleDays + ' jour(s) avec throttling';
+            ? '&#9888;&#65039; ' + throttleDays + ' jours de bridage CPU par firmware'
+            : throttleDays + ' jour(s) avec bridage firmware';
         throttleHTML = '<div class="throttle-summary ' + sevCls + '">' + sevLabel + '</div>';
         // Liste des journees (Collector agrege deja par jour)
         throttleList.slice(0, 5).forEach(function(t) {
-            var typeShort = t.EventId === 35 ? 'Firmware limit' :
-                            t.EventId === 55 ? 'Thermal reduction' : ('Event ' + t.EventId);
+            var typeShort = t.EventId === 55 ? 'Thermal reduction' : 'Firmware limit';
+            var durTxt = fmtDuration(t.TotalSeconds);
             throttleHTML += '<div class="throttle-row">' +
                               '<span class="throttle-day">' + t.Day + '</span>' +
                               '<span class="throttle-type">' + typeShort + '</span>' +
+                              (durTxt ? '<span class="throttle-dur">cumul ' + durTxt + '</span>' : '') +
                               '<span class="throttle-count">&#215;' + t.Count + ' events</span>' +
                             '</div>';
         });
@@ -4864,9 +5863,10 @@ function renderDetailRow(p, idx, colspan) {
     if (p.pc.IsOffline) {
         overview.push(ovAlert('critical', '&#128268;', '<strong>Machine hors-ligne</strong> depuis ' + timeAgo(p.pc.CollectedAt), ''));
     }
-    if (p.sentinelAlert) {
-        var edrStatus = p.sentinel && p.sentinel.Installed ? p.sentinel.Status : 'NON INSTALL&Eacute;';
-        overview.push(ovAlert('critical', '&#128737;', '<strong>EDR SentinelOne</strong> en probl&egrave;me', edrStatus));
+    if (p.edrAlert) {
+        var edrStatus = p.edr && p.edr.Installed ? p.edr.Status : 'NON INSTALL&Eacute;';
+        var edrName = p.edr ? p.edr.DisplayName : 'EDR';
+        overview.push(ovAlert('critical', '&#128737;', '<strong>EDR (' + edrName + ')</strong> en probl&egrave;me', edrStatus));
     }
     if (p.bsodCount > 0) {
         overview.push(ovAlert('critical', '&#128165;', '<strong>' + p.bsodCount + ' BSOD</strong> sur la p&eacute;riode', ''));
@@ -4930,7 +5930,7 @@ function renderDetailRow(p, idx, colspan) {
     var cntStability = p.crashCount + p.bsodCount + p.hwCount + (p.wheaCorrected ? p.wheaCorrected.length : 0);
     var cntBoot      = p.bootLongCount + (p.bootPerfAlert ? 1 : 0);
     var cntMaterial  = p.diskAlertCount + (p.diskSmartAlert ? p.diskSmartAlerts.length : 0) + (p.batteryAlert ? 1 : 0) + (p.oldMonitorAlert ? p.oldMonitors.length : 0);
-    var cntSecurity  = (p.sentinelAlert ? 1 : 0);
+    var cntSecurity  = (p.edrAlert ? 1 : 0);
     var cntOverview  = overview.length;
 
     function tabBtn(key, label, count, icon) {
@@ -5005,7 +6005,7 @@ function renderDetailRow(p, idx, colspan) {
         '</div>';
 
     var panelSecurity = '<div class="detail-box">' +
-        '<div class="detail-section sec-edr" style="flex:1 1 100%;max-width:720px"><h4>EDR (SentinelOne)</h4>' + edrHTML + '</div>' +
+        '<div class="detail-section sec-edr" style="flex:1 1 100%;max-width:720px"><h4>Services surveill&eacute;s</h4>' + edrHTML + '</div>' +
         '</div>';
 
     return '<tr class="row-detail" id="detail-' + idx + '">' +
@@ -5040,7 +6040,9 @@ function exportCSV() {
                 (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) === -1) return false;
         }
         if (!matchKpiFilter(p, state.kpiFilter)) return false;
-        if (state.maskHealthy && p.score === 0) return false;
+        if (state.maskHealthy && state.kpiFilter !== 'anomaly' && p.score === 0) return false;
+        // v2.1.12 : filtre par appli (clic sur un crasher) - garde les PC qui l'ont en crash.
+        if (state.appFilter && !(p.topCrashers || []).some(function(c) { return String(c.AppName).toLowerCase() === state.appFilter.toLowerCase(); })) return false;
         return true;
     });
     sortPCs(visible);
@@ -5055,7 +6057,7 @@ function exportCSV() {
                    'DisquesCritiques', 'PctLibreMin', 'Warnings',
                    // v5.3 / v5.4
                    'BatterieSantePct', 'BatterieCategorie', 'BatterieCycles', 'BatterieAlerte',
-                   'SentinelStatus', 'SentinelInstalle', 'SentinelAlerte',
+                   'EDRStatus', 'EDRInstalle', 'EDRAlerte',
                    'BootTimeMs', 'PostBootMs', 'BootPerfAlerte',
                    'DiskWorstWearPct', 'DiskSmartAlerte', 'DiskSmartRaisons',
                    // v5.7
@@ -5074,9 +6076,9 @@ function exportCSV() {
         var battCat   = (p.battery && p.battery.HasBattery) ? p.battery.HealthCategory : '';
         var battCycle = (p.battery && p.battery.HasBattery && p.battery.CycleCount != null) ? p.battery.CycleCount : '';
         var battAlert = p.batteryAlert ? 'OUI' : 'NON';
-        var senStat   = p.sentinel ? p.sentinel.Status : '';
-        var senInst   = p.sentinel ? (p.sentinel.Installed ? 'OUI' : 'NON') : '';
-        var senAlert  = p.sentinelAlert ? 'OUI' : 'NON';
+        var edrStat    = p.edr ? p.edr.Status : '';
+        var edrInst    = p.edr ? (p.edr.Installed ? 'OUI' : 'NON') : '';
+        var edrAlertStr = p.edrAlert ? 'OUI' : 'NON';
         var btMs      = (p.bootPerf && p.bootPerf.LastBoot) ? p.bootPerf.LastBoot.BootTimeMs : '';
         var pbMs      = (p.bootPerf && p.bootPerf.LastBoot) ? p.bootPerf.LastBoot.BootPostBootTimeMs : '';
         var bpAlert   = p.bootPerfAlert ? 'OUI' : 'NON';
@@ -5117,7 +6119,7 @@ function exportCSV() {
             p.diskAlertCount, minPctFree, p.warningCount,
             // v5.3 / v5.4
             battPct, battCat, battCycle, battAlert,
-            senStat, senInst, senAlert,
+            edrStat, edrInst, edrAlertStr,
             btMs, pbMs, bpAlert,
             worstWear, smartAlert, smartRaisons,
             // v5.7
@@ -5160,6 +6162,36 @@ try {
     }
 } catch(e) {}
 
+// v2.1.2 : curseur de seuil d'age des ecrans secondaires (persiste en localStorage)
+(function initScreenAgeSlider() {
+    var sl  = document.getElementById('screenAgeSlider');
+    var lbl = document.getElementById('screenAgeValue');
+    if (!sl) return;
+    sl.value = screenAgeThreshold;
+    if (lbl) lbl.textContent = screenAgeThreshold;
+    sl.addEventListener('input', function() {
+        screenAgeThreshold = parseInt(sl.value, 10);
+        if (lbl) lbl.textContent = screenAgeThreshold;
+        try { localStorage.setItem('pcpulse_screenAge', screenAgeThreshold); } catch(e) {}
+        render();   // re-enrichit tous les PC avec le nouveau seuil -> carte + KPI + detail realignes
+    });
+})();
+
+// v2.1.12 : delegation de clic sur le panneau Top Crashers. Le container
+// #globalCrashers est statique (seul son innerHTML change au render), donc un
+// seul listener suffit et survit a tous les re-rendus.
+(function() {
+    var gc = document.getElementById('globalCrashers');
+    if (gc) {
+        gc.addEventListener('click', function(e) {
+            var row = (e.target && e.target.closest) ? e.target.closest('.global-crasher-row') : null;
+            if (row && row.dataset && row.dataset.appname) {
+                toggleAppFilter(row.dataset.appname);
+            }
+        });
+    }
+})();
+
 try {
     render();
 } catch(e) {
@@ -5178,8 +6210,15 @@ try {
 # ============================================================
 # EXPORT ET OUVERTURE
 # ============================================================
-Set-Content -Path $OutputHTML -Value $html -Encoding UTF8
+# v2.1.3 : ecriture atomique (.tmp puis rename) - une consultation ne tombe jamais
+# sur un HTML a moitie ecrit pendant la generation (important en mode publie/tache).
+$tmpOut = "$OutputHTML.tmp"
+Set-Content -Path $tmpOut -Value $html -Encoding UTF8
+Move-Item -Path $tmpOut -Destination $OutputHTML -Force
 Write-Host "[+] Dashboard genere : $OutputHTML" -ForegroundColor Green
-Write-Host "[*] Ouverture dans le navigateur..." -ForegroundColor Cyan
 
-Start-Process -FilePath $OutputHTML
+# v2.1.3 : pas d'ouverture navigateur en mode tache (-NoLaunch). En interactif, on ouvre comme avant.
+if (-not $NoLaunch) {
+    Write-Host "[*] Ouverture dans le navigateur..." -ForegroundColor Cyan
+    Start-Process -FilePath $OutputHTML
+}

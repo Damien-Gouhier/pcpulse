@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v2.0
+    PCPulse Collector v2.2.0
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,9 +10,127 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.0
+    Version      : 2.2.0
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v2.2.0 : Generalisation pour publication GitHub (de-vendorise, pilote par config).
+           BREAKING - SchemaVersion 2.1 -> 2.2. Le bloc "services critiques" ne
+           surveille plus un service code en dur : il lit la cle MonitoredServices
+           de config.psd1 (liste des services a surveiller).
+           - Chaque entree : Id / ServiceName / DisplayName / Role / AlertIfNotInstalled.
+             Match sur ServiceName puis fallback DisplayName (robustesse multi-versions).
+             AlertIfNotInstalled (defaut vrai) : service declare mais absent = alerte.
+           - Schema JSON : l'ancien objet unique code en dur (un service) devient une
+             liste ServicesHealth.Monitored. Le champ Role laisse le Dashboard reperer
+             le service structurant (ex EDR) pour le score - interpretation cote Dashboard.
+           - Retrait des raccourcis EDR de Stats (non lus par le Dashboard, ils
+             nommaient le vendor).
+           - Aucun nom de produit dans le code : les vraies valeurs vivent dans config.psd1
+             (non publie). Defaut generique : MonitoredServices vide.
+           NB : le Dashboard 2.2 whiteliste 2.1 ET 2.2 pour absorber le rollout poste-par-poste.
+    v2.1.5 : Top Crashers - detail fige/plante + module fautif + code exception (Phase 1).
+           Chaque entree TopCrashers gagne 4 champs ADDITIFS (SchemaVersion reste "2.1",
+           retrocompatible : un Dashboard plus ancien ignore ce qu'il ne connait pas) :
+           - HangCount     : nb de figes  (Application Hang,  event 1002)
+           - ErrorCount    : nb de plantes (Application Error, event 1000)
+           - FaultModule   : module fautif DOMINANT des plantes (Properties[3], en minuscule) ;
+                             $null si l'appli n'a que des figes (un gel n'a pas de module)
+           - ExceptionCode : code exception DOMINANT des plantes (Properties[6]), normalise en
+                             '0x%08x' via ConvertTo-ExceptionCodeHex ; $null idem
+           Le module/code n'est lu QUE pour le provider 'Application Error' : la structure
+           Properties[] differe selon le provider, et un Hang n'a ni module ni code. CrashCount
+           et Type inchanges. Le brut est stocke tel quel ; la traduction en clair (fige/plante,
+           origine du module, nature du code) est faite cote Dashboard.
+           NB : timestamps par incident + correlation materielle = Phase 2 (PAS fait ici).
+    v2.1.4 : CPU profiling - fix de la nomenclature AMD recente (faux "Ancien").
+           - AMD Ryzen serie 200 mobile (2025), ex "Ryzen 5 220" : le profiling
+             capturait le 1er chiffre du modele ("2") comme generation et le mappait
+             sur Ryzen 2000 (2018) -> faux classement "Ancien" a 8 ans. On distingue
+             desormais par la LONGUEUR du numero (comme le fix Intel gen 10+) : 3
+             chiffres = serie 200 (2025, Recent), 4 chiffres = nomenclature classique
+             (1er chiffre = generation). Aucun Ryzen historique n'a 3 chiffres.
+           - AMD Ryzen AI sans "PRO" (ex "Ryzen AI 9 365", "Ryzen AI Max+ 395") :
+             la branche exigeait le mot "PRO" et laissait les Ryzen AI grand public
+             en "Inconnu". La regex n'exige plus "PRO" (Ryzen AI = 2024).
+           Aucun impact sur le schema (champs Machine.CPU* inchanges).
+    v2.1.3 : Top Crashers - distinction crash reel vs echec applicatif recurrent.
+           Contrat de schema INCHANGE au sens strict (SchemaVersion reste "2.1") :
+           ajout d'un champ additif Type sur chaque entree TopCrashers, plus deux
+           stats additives TopAppFailureApp / TopAppFailureCount.
+           - Un event 1000/1002 du log Application n'est un vrai crash que si son
+             ProviderName est "Application Error" (1000) ou "Application Hang"
+             (1002). D'autres sources (ex Bing Wallpaper) ecrivent SOUS l'ID 1000
+             sans etre des crashes : ce sont des echecs applicatifs recurrents.
+           - Chaque entree TopCrashers porte desormais Type = 'crash' | 'app_failure'
+             (un vrai crash prime si une cle recoit les deux). Le Dashboard peut
+             ainsi qualifier "appli en echec recurrent" != "application qui plante".
+           - Stats.TopCrasherApp / .TopCrasherCount pointent maintenant sur le
+             premier VRAI crash (Type 'crash'), plus sur l'echec au count le plus
+             eleve. Ajout de TopAppFailureApp / TopAppFailureCount en miroir.
+    v2.1.2 : Fiabilisation de Top Crashers (agregation par cle normalisee).
+           Contrat de schema INCHANGE (memes champs AppName / CrashCount) :
+           seule la VALEUR de AppName est normalisee -> SchemaVersion reste "2.1".
+           - Probleme : certaines sources tierces (ex Bing Wallpaper) ecrivent
+             leurs events sous l'ID 1000 (log Application) avec un Properties[0]
+             multi-lignes contenant un GUID / chemin / .tmp variable a chaque
+             occurrence. La cle d'agregation etant le contenu brut, un meme
+             probleme devenait N "apps" distinctes -> array gonfle, tronque, et
+             vrais crashers noyes (ex V0002 : ~6 lignes Bing Wallpaper +
+             TruncatedArrays.TopCrashers=True masquant le reste).
+           - Nouvelle fonction Get-CrasherKey : pour un message multi-lignes on
+             agrege sur la 1ere ligne (ou la valeur de "category:"), et on ecrase
+             les tokens variables (GUID, chemins, hex longs). Un exe classique
+             ("msiexec.exe") ressort inchange. Resultat : 1 entree consolidee par
+             probleme, plus de troncature parasite, vrai top crasher visible.
+    v2.1.1 : Correction de la detection throttling / thermal (Wave 3 - fix).
+           Verification de la semantique reelle de chaque Event (doc MS +
+           releves terrain), suite a des faux positifs "throttling" sur des
+           machines saines. Le contrat de schema JSON est INCHANGE (memes
+           champs HardwareHealth.Thermal / .CPUThrottling), seuls le contenu
+           et les libelles changent -> SchemaVersion reste "2.1".
+           - SUPPRIME : collecte Kernel-Processor-Power 26/35/55 (Appel 4).
+             Ces 3 events sont INFORMATIFS (capabilities power management +
+             config BIOS, Level Information), pas du throttling. Ils
+             generaient des centaines de fausses lignes "Performance reduite"
+             (1 par coeur a chaque boot/resume).
+           - THROTTLING reel = Event 37 (Kernel-Processor-Power, Warning) :
+             "speed limited by system firmware". Desormais agrege par jour
+             AVEC duree cumulee (les "Z secondes" du message), filtre par
+             provider, relibelle "Performance limitee par firmware" (cause
+             le plus souvent power policy / PL, pas forcement thermique).
+           - THERMAL critique = Events 86 (arret) + 88 (hibernation) du
+             provider Kernel-Power (Level Error). AJOUT du 86 (n'etait pas
+             collecte = trou de detection). Extraction de la temperature
+             critique (_CRT en Kelvin -> Celsius) et de la zone ACPI.
+           - RETIRE du thermal : Event 125 (= enumeration de zone thermique
+             au boot, Kernel-Power, Level Information) etiquete a tort
+             "Surchauffe Critique".
+           - CORRIGE : Event 2019 (source srv) etait etiquete "Disk full".
+             C'est en realite l'epuisement du pool nonpage (memoire kernel).
+             Reclasse en "Nonpaged pool exhaustion". La branche "Disk full"
+             est supprimee (remplissage disque deja couvert par la mesure WMI).
+           - Nettoyage : bloc $systemIdsBulk qui etait duplique.
+    v2.1 : Defense en profondeur cote Collector - cap des arrays.
+           Bump SchemaVersion 2.0 -> 2.1.
+           - Garde-fou contre les PC en boucle d'erreur generant des JSON
+             disproportionnes (ex : reboot loop, spam Event 41, RAM
+             exhaustion permanente). Cap applique a 5 arrays :
+               * TopCrashers       : 10  (formalise, etait deja en hardcode)
+               * BSODs             : 10  (formalise, idem)
+               * BootDurations     : 100 (~30j x 3 boots/jour max)
+               * Events            : 200 (events 6005/6006/41/1074)
+               * ResourceWarnings  : 200 (RAM/CPU/disk full)
+           - Tri intelligent : on garde les plus recents (BootDurations,
+             Events, ResourceWarnings) ou le top par count (TopCrashers,
+             BSODs deja par date desc).
+           - Nouveau bloc Meta.TruncatedArrays a la racine du payload :
+             dictionnaire de booleens indiquant quels arrays ont ete capes.
+             Le Dashboard peut ainsi afficher un badge "donnees tronquees".
+           - NB : ce cap est une mesure de QUALITE de la donnee, pas une
+             mesure de securite. Un PC compromis (Collector execute en
+             SYSTEM) bypass facilement en generant son propre JSON. Le
+             vrai garde-fou anti-DoS est la limite de taille JSON cote
+             Dashboard (a faire en v2.2).
     v2.0 : Bump SchemaVersion 1.8 -> 2.0 (release security hardening).
            Pas de changement fonctionnel cote collecte. Le Dashboard v2.0
            rejette desormais les JSON sans SchemaVersion = "2.0" pour
@@ -105,8 +223,26 @@ param(
 # ============================================================
 # CONSTANTES (non modifiables - structurelles)
 # ============================================================
-$SchemaVersion = '2.0'
+$SchemaVersion = '2.2'
 $ConfigFile    = Join-Path $SharePath 'config.psd1'
+
+# ------------------------------------------------------------
+# Caps de protection arrays (defense en profondeur Collector)
+# ------------------------------------------------------------
+# Garde-fou QUALITE : empeche un PC en boucle d'erreur (reboot
+# loop, spam Event 41, RAM exhaustion permanente, etc.) de
+# produire un JSON disproportionne. Les valeurs sont larges :
+# un PC sain est tres en dessous.
+#
+# IMPORTANT : ce cap n'est PAS une mesure de securite. Un PC
+# compromis bypass trivialement en generant son propre JSON.
+# La vraie defense anti-DoS est cote Dashboard (limite taille
+# fichier avant lecture, prevue en v2.2).
+$MaxTopCrashers      = 10    # formalise (etait deja en hardcode v2.0)
+$MaxBSODs            = 10    # formalise (idem)
+$MaxBootDurations    = 100   # ~30j x 3 boots/jour max
+$MaxEvents           = 200   # 6005/6006/41/1074 sur la periode
+$MaxResourceWarnings = 200   # RAM exhaustion / CPU throttle / disk full
 
 # Valeurs par defaut utilisees si config.psd1 est absent/invalide
 $DefaultConfig = @{
@@ -114,6 +250,12 @@ $DefaultConfig = @{
     SeuilBootLong   = 2
     SeuilBootMax    = 30
     SeuilDiskAlert  = 10
+
+    # v2.2.0 : services critiques a surveiller (de-vendorise, pilote par config).
+    # Vide par defaut : aucun service en dur, chaque site declare le sien dans
+    # config.psd1. Entree = Id / ServiceName / DisplayName / Role / AlertIfNotInstalled.
+    # NB : Import-MonitorConfig ne merge cette cle QUE si config.psd1 la fournit.
+    MonitoredServices = @()
 }
 # ============================================================
 
@@ -173,12 +315,106 @@ function Invoke-SafeGetWinEvent {
     return ,$events   # virgule = force retour array meme si 1 seul element
 }
 
+# Cap d'un array a une taille max, avec tracking dans une hashtable
+# de flags Truncated pour exposition dans le payload (Meta).
+# v2.1 : factorise la logique cap + log + flag pour les 5 arrays.
+#
+# Parametres :
+#   - $Array        : array a caper
+#   - $Max          : taille max
+#   - $Name         : nom logique (cle dans le tracker)
+#   - $KeepLast     : si $true, garde les N derniers (sinon, les N premiers)
+#   - $TruncatedRef : hashtable de tracking (passee par reference)
+#
+# Retour : array eventuellement tronque (toujours un array via @())
+function Invoke-ArrayCap {
+    param(
+        $Array,
+        [int]$Max,
+        [string]$Name,
+        [switch]$KeepLast,
+        [hashtable]$TruncatedRef
+    )
+    $arr   = @($Array)
+    $count = $arr.Count
+    if ($count -le $Max) { return ,$arr }
+
+    if ($KeepLast) {
+        $kept     = @($arr | Select-Object -Last $Max)
+        $position = 'plus recents'
+    } else {
+        $kept     = @($arr | Select-Object -First $Max)
+        $position = 'top'
+    }
+
+    if ($TruncatedRef) { $TruncatedRef[$Name] = $true }
+    Write-Log ("WARN | {0} tronque ({1} -> {2}, garde les {3})" -f $Name, $count, $Max, $position)
+    return ,$kept
+}
+
 # Tronque un message d'event de maniere securisee (guard contre $null)
 function Get-TruncatedMessage {
     param([string]$Text, [int]$MaxLength = 150)
     if (-not $Text) { return '' }
     $clean = $Text -replace '\s+', ' '
     return $clean.Substring(0, [math]::Min($MaxLength, $clean.Length))
+}
+
+# Normalise Properties[0] d'un event Application 1000/1002 en une cle
+# d'agregation STABLE pour Top Crashers.
+# Probleme resolu : certaines sources tierces (ex Bing Wallpaper) ecrivent
+# leurs propres events sous l'ID 1000 avec un Properties[0] multi-lignes qui
+# contient un GUID / chemin / fichier .tmp DIFFERENT a chaque occurrence.
+# Sans normalisation, chaque occurrence devient une "app" distincte -> la
+# liste gonfle, se fait tronquer, et noie les vrais crashers.
+# Regle : pour un message multi-lignes on agrege sur la 1ere ligne (ou la
+# valeur de "category:"), et on ecrase les tokens variables (GUID, chemins,
+# hex longs). Un exe classique ("msiexec.exe") ressort inchange.
+function Get-CrasherKey {
+    param([string]$Raw)
+
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return $null }
+    $s = $Raw
+
+    # 1. Message multi-lignes -> 1ere ligne signifiante ; si "category: X" -> X
+    if ($s -match "[\r\n]") {
+        $s = ($s -split "[\r\n]+" | Where-Object { $_.Trim() } | Select-Object -First 1)
+        if ($s -match '^\s*category\s*:\s*(.+)$') { $s = $Matches[1] }
+    }
+
+    # 2. Ecrasement des tokens variables (sinon 1 cle par occurrence)
+    $s = $s -replace '[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}', ''  # GUID
+    $s = $s -replace '([a-zA-Z]:\\|\\\\)[^\s"'']+', ''                         # chemins de fichiers
+    $s = $s -replace '\b[0-9a-fA-F]{6,}\b', ''                                # hex / nombres longs
+
+    # 3. basename si exe complet, puis nettoyage + borne de longueur
+    if ($s -match '\\') { $s = Split-Path $s -Leaf }
+    $s = ($s -replace '\s+', ' ').Trim().ToLower()
+    if ($s.Length -gt 100) { $s = $s.Substring(0, 100).Trim() }
+    return $(if ($s) { $s } else { $null })
+}
+
+# v2.1.5 : normalise un code exception (Properties[6] d'un Application Error) en
+# forme canonique '0x' + 8 hex minuscules. L'event peut le remonter en hex nu
+# ('c0000005'), prefixe ('0xc0000005') ou en entier (signe ou non). Retourne $null
+# si vide ou non interpretable. La traduction en clair (acces memoire, .NET, etc.)
+# se fait cote Dashboard - ici on ne fait que normaliser le brut.
+function ConvertTo-ExceptionCodeHex {
+    param($Raw)
+    if ($null -eq $Raw) { return $null }
+    $s = ([string]$Raw).Trim()
+    if (-not $s) { return $null }
+    if ($s -match '^0x') { $s = $s.Substring(2) }
+    # Hex (avec ou sans lettres) tenant sur 32 bits
+    if ($s -match '^[0-9a-fA-F]{1,8}$') {
+        try { return ('0x{0:x8}' -f [Convert]::ToUInt32($s, 16)) } catch {}
+    }
+    # Fallback : entier decimal (signe possible) -> uint32
+    $intVal = 0L
+    if ([long]::TryParse($s, [ref]$intVal)) {
+        return ('0x{0:x8}' -f [uint32]($intVal -band 0xFFFFFFFF))
+    }
+    return $null
 }
 
 # Charge config.psd1 et fusionne avec les defaults.
@@ -383,26 +619,41 @@ function Get-CpuProfile {
             $result.Year = $intelMap[$gen]
         }
     }
-    # --- AMD Ryzen AI PRO (gamme 2024, ex: "Ryzen AI 9 PRO 365") ---
-    # Doit etre teste AVANT Ryzen standard car contient "AI ... PRO"
-    elseif ($clean -match 'AMD.*Ryzen\s+AI\s+\d\s+PRO') {
+    # --- AMD Ryzen AI (gamme 2024+, avec ou sans PRO) ---
+    # ex "Ryzen AI 9 PRO 365", "Ryzen AI 9 365", "Ryzen AI 5 340", "Ryzen AI Max+ 395".
+    # Doit etre teste AVANT Ryzen standard (de toute facon "Ryzen AI ..." ne matche
+    # pas la branche standard, qui exige "Ryzen [3579]" directement).
+    # v2.1.4 : on n'exige plus "PRO". Avant, un Ryzen AI non-PRO (ex "Ryzen AI 9 365")
+    # ne matchait aucune branche et tombait en "Inconnu".
+    elseif ($clean -match 'AMD.*Ryzen\s+AI\b') {
         $result.Vendor = 'AMD'
         $result.Gen    = 'RyzenAI'
         $result.Year   = 2024
     }
     # --- AMD Ryzen standard ou PRO non-AI ---
-    # Format : "Ryzen [3|5|7|9] [PRO ] N..." ou N est le 1er chiffre de la serie.
-    # Le "PRO " est optionnel (fix v5.0 : v4.1 ratait les Ryzen X PRO NNNN).
-    elseif ($clean -match 'AMD.*Ryzen\s+[3579]\s+(?:PRO\s+)?(\d)') {
+    # v2.1.4 : distinction par LONGUEUR du numero (meme principe que le fix Intel gen 10+).
+    #   - 4 chiffres : nomenclature classique, 1er chiffre = generation
+    #     (ex "Ryzen 5 2500U" -> gen 2, "Ryzen 7 5800H" -> gen 5).
+    #   - 3 chiffres : nouvelle serie 200 mobile (2025), ex "Ryzen 5 220", "Ryzen 3 210".
+    #     AVANT, le 1er chiffre "2" etait confondu avec Ryzen 2000 (2018) -> faux "Ancien".
+    #     Aucun Ryzen historique n'a 3 chiffres, donc pas d'ambiguite.
+    # Le "PRO " reste optionnel (fix v5.0 : v4.1 ratait les Ryzen X PRO NNNN).
+    elseif ($clean -match 'AMD.*Ryzen\s+[3579]\s+(?:PRO\s+)?(\d{3,4})') {
         $result.Vendor = 'AMD'
-        $ryzenGen = [int]$matches[1]
-        $ryzenMap = @{
-            1=2017; 2=2018; 3=2019; 4=2020; 5=2020
-            6=2022; 7=2022; 8=2024; 9=2024
-        }
-        if ($ryzenMap.ContainsKey($ryzenGen)) {
-            $result.Gen  = "Ryzen$ryzenGen"
-            $result.Year = $ryzenMap[$ryzenGen]
+        $numStr = $matches[1]
+        if ($numStr.Length -eq 3) {
+            $result.Gen  = 'Ryzen200'
+            $result.Year = 2025
+        } else {
+            $ryzenGen = [int]$numStr[0].ToString()
+            $ryzenMap = @{
+                1=2017; 2=2018; 3=2019; 4=2020; 5=2020
+                6=2022; 7=2022; 8=2024; 9=2024
+            }
+            if ($ryzenMap.ContainsKey($ryzenGen)) {
+                $result.Gen  = "Ryzen$ryzenGen"
+                $result.Year = $ryzenMap[$ryzenGen]
+            }
         }
     }
     # --- v1.7 : Intel Celeron N-series (tablettes accueil, mini-PC budget) ---
@@ -770,18 +1021,18 @@ $dateDebut = (Get-Date).AddDays(-$HistoriqueJours)
 # --- Appel 1 : gros lot System (boot/crash/shutdown/resource/thermal) ---
 # On ramasse tous les IDs d'un coup puis on dispatche en memoire.
 # Le filtrage par ID est fait par l'ETL Windows (rapide).
+# v2.1.1 : IDs thermal corriges apres verification de la semantique reelle.
+#   37  = Kernel-Processor-Power, Warning : perf limitee par firmware
+#         (throttling - souvent power policy / PL, pas forcement thermique).
+#   86  = Kernel-Power, Error : arret systeme pour event thermique critique.
+#   88  = Kernel-Power, Error : hibernation pour event thermique critique.
+#   Retire : 125 (= enumeration zone thermique au boot, purement informatif).
+#   Les ex-Events KPP 26/35/55 (capabilities / config BIOS) ne sont plus
+#   collectes du tout (Appel 4 supprime).
 $systemIdsBulk = @(
     6005, 6006, 41, 1074, 6008,   # boot / crash / shutdown
-    2004, 2019, 51,               # resource warnings (RAM / disk full / disk slow)
-    37,   88,   125               # thermal (throttling / arret / surchauffe)
-)
-# --- Appel 1 : gros lot System (boot/crash/shutdown/resource/thermal) ---
-# On ramasse tous les IDs d'un coup puis on dispatche en memoire.
-# Le filtrage par ID est fait par l'ETL Windows (rapide).
-$systemIdsBulk = @(
-    6005, 6006, 41, 1074, 6008,   # boot / crash / shutdown
-    2004, 2019, 51,               # resource warnings (RAM / disk full / disk slow)
-    37,   88,   125               # thermal (throttling / arret / surchauffe)
+    2004, 2019, 51,               # resource warnings (RAM virtuelle / pool nonpage / disk slow)
+    37,   86,   88                # throttling firmware (37) + thermal critique (86/88)
 )
 $systemBulk = Invoke-SafeGetWinEvent -Label 'System bulk' -Filter @{
     LogName   = 'System'
@@ -794,9 +1045,9 @@ $systemBulk = Invoke-SafeGetWinEvent -Label 'System bulk' -Filter @{
 $rawEventsList           = [System.Collections.Generic.List[object]]::new()
 $dirtyShutdownEventsList = [System.Collections.Generic.List[object]]::new()
 $ramEventsList           = [System.Collections.Generic.List[object]]::new()
-$diskFullEventsList      = [System.Collections.Generic.List[object]]::new()
 $diskSlowEventsList      = [System.Collections.Generic.List[object]]::new()
-$thermalEventsList       = [System.Collections.Generic.List[object]]::new()
+$thermalEventsList       = [System.Collections.Generic.List[object]]::new()   # 86/88 = thermal critique (Kernel-Power)
+$throttleEventsList      = [System.Collections.Generic.List[object]]::new()   # 37 = perf limitee firmware (Kernel-Processor-Power)
 foreach ($ev in $systemBulk) {
     switch ($ev.Id) {
         6005 { $rawEventsList.Add($ev) }
@@ -804,20 +1055,25 @@ foreach ($ev in $systemBulk) {
         41   { $rawEventsList.Add($ev) }
         1074 { $rawEventsList.Add($ev) }
         6008 { $dirtyShutdownEventsList.Add($ev) }
-        2004 { $ramEventsList.Add($ev) }
-        2019 { $diskFullEventsList.Add($ev) }
+        2004 { $ramEventsList.Add($ev) }   # memoire virtuelle basse
+        2019 { $ramEventsList.Add($ev) }   # pool nonpage epuise (mem kernel) - PAS disk full
         51   { $diskSlowEventsList.Add($ev) }
-        37   { if ($ev.Level -le 3) { $thermalEventsList.Add($ev) } }
-        88   { if ($ev.Level -le 3) { $thermalEventsList.Add($ev) } }
-        125  { if ($ev.Level -le 3) { $thermalEventsList.Add($ev) } }
+        # Throttling : seul l'Event 37 du provider Kernel-Processor-Power est un
+        # vrai signal de limitation de perf. Le filtre provider evite les faux
+        # amis (ex: Time-Service emet aussi un Event 37 en Info pour la synchro NTP).
+        37   { if ($ev.ProviderName -eq 'Microsoft-Windows-Kernel-Processor-Power' -and $ev.Level -le 3) { $throttleEventsList.Add($ev) } }
+        # Thermal critique : Events 86 (arret) et 88 (hibernation) du provider
+        # Kernel-Power, Level Error. Rares = tres significatifs.
+        86   { if ($ev.ProviderName -eq 'Microsoft-Windows-Kernel-Power' -and $ev.Level -le 3) { $thermalEventsList.Add($ev) } }
+        88   { if ($ev.ProviderName -eq 'Microsoft-Windows-Kernel-Power' -and $ev.Level -le 3) { $thermalEventsList.Add($ev) } }
     }
 }
 $rawEvents           = @($rawEventsList           | Sort-Object TimeCreated)
 $dirtyShutdownEvents = @($dirtyShutdownEventsList | Sort-Object TimeCreated)
 $ramEvents           = @($ramEventsList)
-$diskFullEvents      = @($diskFullEventsList)
 $diskSlowEvents      = @($diskSlowEventsList)
 $thermalEvents       = @($thermalEventsList)
+$throttleEvents      = @($throttleEventsList)
 
 # --- Appel 2 : Application (crashs / hangs) ---
 $appEvents = Invoke-SafeGetWinEvent -Label 'Application 1000/1002' -Sort -Filter @{
@@ -844,19 +1100,15 @@ $kernelBootEvents = Invoke-SafeGetWinEvent -Label 'Kernel-Boot Event 27' -Sort -
     ProviderName = 'Microsoft-Windows-Kernel-Boot'
 }
 
-# --- Appel 4 : Kernel-Processor-Power ---
-# v1.8 : on recupere aussi les Events 35 et 55 (throttling firmware
-# / thermique) en plus de l'Event 26 (info capabilities). Ces events
-# sont RARES par nature, donc tres significatifs quand ils apparaissent.
-#   26 = Capabilities (log normal au boot, informatif)
-#   35 = Throttle limited par firmware (ventilo HS / pate thermique)
-#   55 = Puissance reduite pour cause thermique (surchauffe active)
-$cpuEvents = Invoke-SafeGetWinEvent -Label 'Kernel-Processor-Power Event 26/35/55' -Filter @{
-    LogName      = 'System'
-    StartTime    = $dateDebut
-    Id           = @(26, 35, 55)
-    ProviderName = 'Microsoft-Windows-Kernel-Processor-Power'
-}
+# --- Appel 4 : SUPPRIME (v2.1.1) ---
+# Avant : Kernel-Processor-Power Events 26/35/55, etiquetes "throttling".
+# Verification faite : ces 3 events sont INFORMATIFS, pas du throttling.
+#   26 = capabilities power management (1 par coeur au boot)
+#   35 = fonctions de power management / config exposees par le BIOS
+#   55 = capabilities power management (idem 26, Level Information)
+# Sur un parc sain ils generent des centaines de fausses lignes "Performance
+# reduite". Le seul vrai signal de throttling est l'Event 37 (Kernel-Processor-
+# Power, Warning), deja capture par le bulk (Appel 1) et agrege plus bas.
 
 # --- Appel 5 : WHEA (CPU / RAM / PCIe) ---
 $wheaEvents = Invoke-SafeGetWinEvent -Label 'WHEA-Logger' -Filter @{
@@ -1185,15 +1437,18 @@ if ($userLastBoot) {
 }
 
 # ============================================================
-# 5. BSOD via Minidump (top 10 recents)
+# 5. BSOD via Minidump
 # ============================================================
+# v2.1 : on ne cape plus ici. Le cap est applique en fin de script
+# via Invoke-ArrayCap avec tracking dans Meta.TruncatedArrays.
+# Tri descendant par date conserve : si on cape, on garde les plus
+# recents (les premiers du tri desc = les plus recents).
 $bsods = @()
 $minidumpPath = 'C:\Windows\Minidump'
 if (Test-Path $minidumpPath) {
     $bsods = Get-ChildItem -Path $minidumpPath -Filter '*.dmp' -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -ge $dateDebut } |
         Sort-Object LastWriteTime -Descending |
-        Select-Object -First 10 |
         ForEach-Object {
             [PSCustomObject]@{
                 Date   = $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
@@ -1209,35 +1464,27 @@ if (Test-Path $minidumpPath) {
 # ============================================================
 $resourceWarnings = [System.Collections.Generic.List[PSCustomObject]]::new()
 
+# v2.1.1 : Events 2004 (memoire virtuelle basse) et 2019 (pool nonpage epuise)
+# sont tous deux des signaux memoire, distingues par leur Type. Le 2019 etait
+# auparavant etiquete a tort "Disk full" (c'est en realite une exhaustion de
+# pool nonpage kernel, source srv, souvent fuite de driver).
 foreach ($ev in $ramEvents) {
     $detail = ''
     try {
         if ($ev.Message -match '(\w+\.exe)') { $detail = $matches[1] }
     } catch {}
+    $type = if ($ev.Id -eq 2019) { 'Nonpaged pool exhaustion' } else { 'RAM exhaustion' }
     $resourceWarnings.Add([PSCustomObject]@{
         Timestamp = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
-        Type      = 'RAM exhaustion'
+        Type      = $type
         Detail    = $detail
     })
 }
-foreach ($ev in $cpuEvents) {
-    $resourceWarnings.Add([PSCustomObject]@{
-        Timestamp = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
-        Type      = 'CPU throttling'
-        Detail    = 'Performance reduite'
-    })
-}
-foreach ($ev in $diskFullEvents) {
-    $detail = ''
-    try {
-        if ($ev.Message -match '([A-Z]:)') { $detail = $matches[1] }
-    } catch {}
-    $resourceWarnings.Add([PSCustomObject]@{
-        Timestamp = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
-        Type      = 'Disk full'
-        Detail    = $detail
-    })
-}
+# v2.1.1 : l'injection "CPU throttling / Performance reduite" basee sur les
+# Events KPP 26/35/55 a ete supprimee (events informatifs, pas du throttling).
+# Le vrai throttling (Event 37) est dans HardwareHealth.CPUThrottling, agrege.
+# La branche "Disk full" (ex-Event 2019) est supprimee : faux mapping, et le
+# remplissage disque est deja couvert par la mesure WMI (voir DiskHealth).
 # v1.5 : Clustering des Event 51 (Disk slow / I/O timeout)
 # Windows emet souvent des dizaines voire centaines d'Event 51 en
 # meme temps (un par secteur/IRP en timeout) pour UN seul incident.
@@ -1535,51 +1782,87 @@ try {
 }
 
 # ============================================================
-# 10. SERVICES CRITIQUES (EDR)
-#    - v5.3 : surveillance du service Sentinel Agent uniquement
-#    - Structure extensible : on pourra ajouter FortiClient, Intune,
-#      Dell Command Update dans les versions futures sans casser
-#      le schema cote Dashboard
-#    - Match sur nom interne (SentinelAgent) ET display name
-#      (Sentinel Agent) pour robustesse multi-versions
+# 10. SERVICES CRITIQUES (pilote par config - de-vendorise v2.2.0)
+#    - La liste des services a surveiller vient de config.psd1
+#      (cle MonitoredServices). Vide par defaut : aucun service
+#      code en dur, chaque site declare le sien.
+#    - Chaque entree config :
+#        ServiceName          : nom interne du service (obligatoire)
+#        DisplayName          : libelle (defaut = ServiceName)
+#        Id                   : cle logique (defaut = ServiceName)
+#        Role                 : ex EDR ; sert au Dashboard a reperer le
+#                               service structurant pour le score
+#        AlertIfNotInstalled  : defaut vrai ; service declare mais
+#                               absent = alerte
+#    - Match sur ServiceName (robuste) puis fallback DisplayName
+#      (robustesse multi-versions / service renomme).
+#    - Extensible : ajouter une entree dans le .psd1 (2e EDR,
+#      client VPN, service maison...) sans toucher au code. Toute
+#      interpretation (ex quel service est l EDR) reste cote Dashboard.
 # ============================================================
-$servicesHealth = [PSCustomObject]@{
-    SentinelAgent = [PSCustomObject]@{
-        DisplayName = 'Sentinel Agent'
-        ServiceName = 'SentinelAgent'
+$monitoredList = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+foreach ($svcDef in @($cfg.MonitoredServices)) {
+    # Garde-fou : une entree sans ServiceName exploitable est ignoree
+    if (-not $svcDef -or [string]::IsNullOrWhiteSpace([string]$svcDef.ServiceName)) {
+        Write-Log 'MonitoredServices : entree sans ServiceName, ignoree'
+        continue
+    }
+
+    $svcName    = [string]$svcDef.ServiceName
+    $svcDisplay = if ($svcDef.DisplayName) { [string]$svcDef.DisplayName } else { $svcName }
+    $svcId      = if ($svcDef.Id)          { [string]$svcDef.Id }          else { $svcName }
+    $svcRole    = if ($svcDef.Role)        { [string]$svcDef.Role }        else { $null }
+    # AlertIfNotInstalled : defaut vrai (service declare mais absent = alerte)
+    $alertIfAbsent = $true
+    if (($svcDef -is [hashtable]) -and $svcDef.ContainsKey('AlertIfNotInstalled')) {
+        $alertIfAbsent = [bool]$svcDef.AlertIfNotInstalled
+    }
+
+    $entry = [PSCustomObject]@{
+        Id          = $svcId
+        DisplayName = $svcDisplay
+        ServiceName = $svcName
+        Role        = $svcRole
         Installed   = $false
         Status      = 'NotInstalled'
         StartType   = 'N/A'
         IsAlert     = $false
     }
+
+    try {
+        # Tentative 1 : nom interne (le plus robuste)
+        $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+        # Tentative 2 : display name (au cas ou une version renommerait)
+        if (-not $svc) {
+            $svc = Get-Service -DisplayName $svcDisplay -ErrorAction SilentlyContinue
+        }
+
+        if ($svc) {
+            $entry.Installed = $true
+            $entry.Status    = $svc.Status.ToString()
+            $entry.StartType = $svc.StartType.ToString()
+            # Alerte si service present mais pas en etat Running
+            $entry.IsAlert   = ($svc.Status -ne 'Running')
+            Write-Log ("Service '{0}' ({1}) : Status={2} StartType={3} Alert={4}" -f `
+                $svcId, $svcName, $svc.Status, $svc.StartType, $entry.IsAlert)
+        } else {
+            # Service absent : alerte selon la politique config
+            $entry.IsAlert = $alertIfAbsent
+            Write-Log ("Service '{0}' ({1}) : NON INSTALLE (alerte={2})" -f `
+                $svcId, $svcName, $alertIfAbsent)
+        }
+    } catch {
+        Write-Log ("Erreur verification service '{0}' ({1}) : {2}" -f $svcId, $svcName, $_)
+    }
+
+    $monitoredList.Add($entry)
 }
 
-try {
-    # Tentative 1 : nom interne (le plus robuste)
-    $sentinelSvc = Get-Service -Name 'SentinelAgent' -ErrorAction SilentlyContinue
-    # Tentative 2 : display name (au cas ou une version future renommerait)
-    if (-not $sentinelSvc) {
-        $sentinelSvc = Get-Service -DisplayName 'Sentinel Agent' -ErrorAction SilentlyContinue
-    }
-
-    if ($sentinelSvc) {
-        $servicesHealth.SentinelAgent.Installed = $true
-        $servicesHealth.SentinelAgent.Status    = $sentinelSvc.Status.ToString()
-        $servicesHealth.SentinelAgent.StartType = $sentinelSvc.StartType.ToString()
-        # Alerte si service present mais pas en etat Running
-        $servicesHealth.SentinelAgent.IsAlert   = ($sentinelSvc.Status -ne 'Running')
-
-        Write-Log ("SentinelAgent : Status={0} StartType={1} Alert={2}" -f `
-            $sentinelSvc.Status, $sentinelSvc.StartType,
-            $servicesHealth.SentinelAgent.IsAlert)
-    } else {
-        # Service totalement absent : c'est une alerte serieuse
-        # (SentinelOne doit etre deploye via Intune sur tout le parc)
-        $servicesHealth.SentinelAgent.IsAlert = $true
-        Write-Log 'SentinelAgent : service NON INSTALLE (alerte)'
-    }
-} catch {
-    Write-Log "Erreur verification SentinelAgent : $_"
+# Schema JSON v2.2 : ServicesHealth.Monitored (liste). Remplace l'ancien
+# objet unique code en dur (un seul service).
+$servicesHealth = [PSCustomObject]@{
+    Monitored = @($monitoredList)
 }
 
 # ============================================================
@@ -2060,26 +2343,81 @@ try {
 # ============================================================
 # 13. TOP CRASHERS (apps qui crashent le plus, agregees)
 # ============================================================
+# v2.1 : on ne cape plus ici. Le cap est applique en fin de script
+# via Invoke-ArrayCap avec tracking dans Meta.TruncatedArrays.
+# Tri descendant conserve : si on cape, on garde le top.
 $topCrashers = @()
 try {
     if ($appEvents.Count -gt 0) {
-        $crasherCounts = @{}
+        # v2.1.3 : on garde count ET type par cle. Le type vient du ProviderName :
+        #   'Application Error' (1000) / 'Application Hang' (1002) = vrai crash/hang applicatif.
+        #   Tout autre provider ecrivant sous 1000/1002 (ex Bing Wallpaper) = simple
+        #   echec applicatif recurrent (log), a NE PAS presenter comme un crash.
+        # v2.1.5 : on distingue en plus fige (Hang, 1002) vs plante (Error, 1000), et pour
+        #   les plantes on capte le module fautif (Properties[3]) et le code exception
+        #   (Properties[6]). ATTENTION : la structure Properties[] differe selon le provider,
+        #   donc [3]/[6] ne sont lus QUE pour 'Application Error'. Un Hang n'a ni module ni
+        #   code (c'est une attente, pas une exception). Le brut est stocke tel quel ; la
+        #   traduction en clair (origine, nature) est faite cote Dashboard.
+        $crasherData = @{}
         foreach ($ev in $appEvents) {
             $appName = $null
             try { $appName = $ev.Properties[0].Value } catch {}
-            if ($appName) {
-                $key = $appName.ToLower()
-                if ($crasherCounts.ContainsKey($key)) { $crasherCounts[$key]++ }
-                else { $crasherCounts[$key] = 1 }
+            # v2.1.2 : cle normalisee (voir Get-CrasherKey) au lieu du brut .ToLower(),
+            # sinon un meme probleme applicatif a GUID/chemin variable = N cles distinctes.
+            $key = Get-CrasherKey -Raw $appName
+            if (-not $key) { continue }
+
+            $prov = ''
+            try { $prov = [string]$ev.ProviderName } catch {}
+            $isHang  = ($prov -eq 'Application Hang')    # fige (1002)
+            $isError = ($prov -eq 'Application Error')   # plante (1000)
+            $isCrash = ($isHang -or $isError)
+
+            # Module + code : UNIQUEMENT pour un vrai plante (Application Error).
+            # Les autres sources sous 1000 ont un Properties[] different -> ne pas lire [3]/[6].
+            $module = $null
+            $code   = $null
+            if ($isError) {
+                try { $m = [string]$ev.Properties[3].Value; if ($m -and $m.Trim()) { $module = $m.Trim().ToLower() } } catch {}
+                try { $code = ConvertTo-ExceptionCodeHex $ev.Properties[6].Value } catch {}
+            }
+
+            if (-not $crasherData.ContainsKey($key)) {
+                $crasherData[$key] = @{ Count = 0; IsCrash = $false; HangCount = 0; ErrorCount = 0; Modules = @{}; Codes = @{} }
+            }
+            $slot = $crasherData[$key]
+            $slot.Count++
+            if ($isCrash) { $slot.IsCrash = $true }   # un vrai crash prime sur l'agregat
+            if ($isHang)  { $slot.HangCount++ }
+            if ($isError) {
+                $slot.ErrorCount++
+                if ($module) { if ($slot.Modules.ContainsKey($module)) { $slot.Modules[$module]++ } else { $slot.Modules[$module] = 1 } }
+                if ($code)   { if ($slot.Codes.ContainsKey($code))     { $slot.Codes[$code]++ }     else { $slot.Codes[$code] = 1 } }
             }
         }
-        $topCrashers = $crasherCounts.GetEnumerator() |
-            Sort-Object Value -Descending |
-            Select-Object -First 10 |
+        $topCrashers = $crasherData.GetEnumerator() |
+            Sort-Object { $_.Value.Count } -Descending |
             ForEach-Object {
+                $v = $_.Value
+                # v2.1.5 : module / code DOMINANT des plantes (le plus frequent).
+                # Reste $null si l'appli n'a que des figes (un gel n'a ni module ni code).
+                $domModule = $null
+                if ($v.Modules.Count -gt 0) {
+                    $domModule = ($v.Modules.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 1).Key
+                }
+                $domCode = $null
+                if ($v.Codes.Count -gt 0) {
+                    $domCode = ($v.Codes.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 1).Key
+                }
                 [PSCustomObject]@{
-                    AppName    = $_.Key
-                    CrashCount = $_.Value
+                    AppName       = $_.Key
+                    CrashCount    = $v.Count
+                    Type          = if ($v.IsCrash) { 'crash' } else { 'app_failure' }
+                    HangCount     = $v.HangCount
+                    ErrorCount    = $v.ErrorCount
+                    FaultModule   = $domModule
+                    ExceptionCode = $domCode
                 }
             }
     }
@@ -2109,11 +2447,11 @@ $hardwareHealth = [PSCustomObject]@{
     GPU_TDR        = [System.Collections.Generic.List[PSCustomObject]]::new()
     Thermal        = [System.Collections.Generic.List[PSCustomObject]]::new()
 
-    # v1.8 : CPU throttling detaille (Events 35/55 Kernel-Processor-Power).
-    # Separe des Events 37/88/125 thermal (Kernel-Power) qui sont des
-    # signaux materiels critiques plus larges. Ici on veut capter le
-    # moment ou le CPU reduit sa frequence pour cause thermique, sans
-    # forcement atteindre un arret securite. Signal avant-coureur utile.
+    # v2.1.1 : CPU throttling = Event 37 (Kernel-Processor-Power, Warning),
+    # agrege par jour avec duree cumulee. Limitation de perf par le firmware,
+    # le plus souvent pour raison de power policy (PL1/PL2, plan d'alim,
+    # dock/PSU sous-dimensionne), pas forcement thermique. Le thermal critique
+    # reel (arret/hibernation) est dans Thermal via les Events 86/88.
     CPUThrottling  = [System.Collections.Generic.List[PSCustomObject]]::new()
 }
 
@@ -2186,61 +2524,82 @@ foreach ($ev in $gpuEvents) {
     })
 }
 
-# --- Thermal (37 = throttling, 88 = arret securite, 125 = surchauffe) ---
+# --- Thermal critique (86 = arret, 88 = hibernation) ---
+# v2.1.1 : ces deux Events Kernel-Power portent dans leur message la
+# temperature critique ACPI (_CRT, en Kelvin) et la zone thermique
+# concernee. On extrait les deux. Ce sont de vrais signaux graves : le
+# systeme s'est arrete / mis en hibernation pour se proteger.
 foreach ($ev in $thermalEvents) {
+    $msg = [string]$ev.Message
+
+    # Temperature critique : "_CRT = 378K" -> conversion Kelvin -> Celsius.
     $temperature = 'N/A'
     try {
-        if     ($ev.Message -match '(\d+)\s*[^0-9]?C')  { $temperature = "$($matches[1])C" }
-        elseif ($ev.Message -match '(\d+)\s*degr')      { $temperature = "$($matches[1])C" }
+        if ($msg -match '_CRT\s*=\s*(\d+)\s*K') {
+            $kelvin = [int]$matches[1]
+            if ($kelvin -gt 0) { $temperature = "$($kelvin - 273)C (_CRT)" }
+        } elseif ($msg -match '_HOT\s*=\s*(\d+)\s*K') {
+            $kelvin = [int]$matches[1]
+            if ($kelvin -gt 0) { $temperature = "$($kelvin - 273)C (_HOT)" }
+        }
+    } catch {}
+
+    # Zone thermique ACPI concernee (ex: "Intel(R) Dynamic Platform Thermal Framework").
+    $zone = ''
+    try {
+        if ($msg -match '(?:ACPI Thermal Zone|Zone thermique ACPI)\s*=\s*([^\r\n]+)') {
+            $zone = $matches[1].Trim()
+        }
     } catch {}
 
     $alertType = switch ($ev.Id) {
-        37      { 'Throttling' }
-        88      { 'Arret Securite' }
-        125     { 'Surchauffe Critique' }
-        default { 'Alerte Thermique' }
+        86      { 'Arret thermique critique' }
+        88      { 'Hibernation thermique critique' }
+        default { 'Alerte thermique' }
     }
     $hardwareHealth.Thermal.Add([PSCustomObject]@{
         Timestamp   = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
         AlertType   = $alertType
         Temperature = $temperature
-        Detail      = Get-TruncatedMessage -Text $ev.Message
+        Zone        = $zone
+        Detail      = Get-TruncatedMessage -Text $msg
     })
 }
 
-# --- v1.8 : CPU Throttling (Events 35/55 Kernel-Processor-Power) ---
-# L'Event 26 est juste informatif (capabilities au boot), on l'ignore.
-# Events 35 et 55 sont les VRAIS signaux de throttling actif.
-# On agrege par jour pour limiter la volumetrie (un PC qui throttle
-# peut generer des centaines d'events par heure).
+# --- v2.1.1 : CPU Throttling (Event 37 Kernel-Processor-Power) ---
+# Le message du 37 indique une duree : "...reduced performance state for Z
+# seconds since the last report." (FR : "...pendant Z secondes depuis le
+# dernier rapport."). On somme ces durees par jour : c'est le vrai indicateur
+# de pertinence, bien plus que le nombre d'events (le 37 sort par coeur, donc
+# le compte est gonfle). On agrege par jour.
 $throttleAgg = @{}
-foreach ($ev in $cpuEvents) {
-    if ($ev.Id -eq 26) { continue }  # Event 26 = info capabilities, skip
-
+foreach ($ev in $throttleEvents) {
     $dayKey = $ev.TimeCreated.ToString('yyyy-MM-dd')
-    $sig    = "$($ev.Id)|$dayKey"
 
-    if ($throttleAgg.ContainsKey($sig)) {
-        $throttleAgg[$sig].Count++
-        if ($ev.TimeCreated -lt $throttleAgg[$sig].FirstSeenRaw) {
-            $throttleAgg[$sig].FirstSeen    = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
-            $throttleAgg[$sig].FirstSeenRaw = $ev.TimeCreated
+    # Duree de l'etat de perf reduite rapportee par cet event (secondes).
+    $durSec = 0
+    try {
+        if ($ev.Message -match '(\d+)\s*(?:seconds?|secondes?)') { $durSec = [int]$matches[1] }
+    } catch {}
+
+    if ($throttleAgg.ContainsKey($dayKey)) {
+        $throttleAgg[$dayKey].Count++
+        $throttleAgg[$dayKey].TotalSeconds += $durSec
+        if ($ev.TimeCreated -lt $throttleAgg[$dayKey].FirstSeenRaw) {
+            $throttleAgg[$dayKey].FirstSeen    = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
+            $throttleAgg[$dayKey].FirstSeenRaw = $ev.TimeCreated
         }
-        if ($ev.TimeCreated -gt $throttleAgg[$sig].LastSeenRaw) {
-            $throttleAgg[$sig].LastSeen    = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
-            $throttleAgg[$sig].LastSeenRaw = $ev.TimeCreated
+        if ($ev.TimeCreated -gt $throttleAgg[$dayKey].LastSeenRaw) {
+            $throttleAgg[$dayKey].LastSeen    = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
+            $throttleAgg[$dayKey].LastSeenRaw = $ev.TimeCreated
         }
     } else {
-        $throttleType = switch ($ev.Id) {
-            35      { 'Firmware throttle limited' }
-            55      { 'Thermal power reduction' }
-            default { "Event $($ev.Id)" }
-        }
-        $throttleAgg[$sig] = @{
+        $throttleAgg[$dayKey] = @{
             Day          = $dayKey
-            EventId      = $ev.Id
-            Type         = $throttleType
+            EventId      = 37
+            Type         = 'Performance limitee par firmware'
             Count        = 1
+            TotalSeconds = $durSec
             FirstSeen    = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
             FirstSeenRaw = $ev.TimeCreated
             LastSeen     = $ev.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')
@@ -2254,13 +2613,14 @@ $throttleAgg.Values |
     Sort-Object LastSeenRaw -Descending |
     ForEach-Object {
         $hardwareHealth.CPUThrottling.Add([PSCustomObject]@{
-            Day       = $_.Day
-            EventId   = $_.EventId
-            Type      = $_.Type
-            Count     = $_.Count
-            FirstSeen = $_.FirstSeen
-            LastSeen  = $_.LastSeen
-            Detail    = $_.Detail
+            Day          = $_.Day
+            EventId      = $_.EventId
+            Type         = $_.Type
+            Count        = $_.Count
+            TotalSeconds = $_.TotalSeconds
+            FirstSeen    = $_.FirstSeen
+            LastSeen     = $_.LastSeen
+            Detail       = $_.Detail
         })
     }
 
@@ -2273,6 +2633,58 @@ Write-Log ("Hardware : WHEA_Fatal={0} WHEA_Corrected_sigs={1} (total={2}) GPU={3
     $hardwareHealth.GPU_TDR.Count, $hardwareHealth.Thermal.Count)
 
 # ============================================================
+# 14b. CAPTURE DES STATS BRUTES (v2.1 - avant cap des arrays)
+# ============================================================
+# Les Stats refletent la realite du parc (totaux non tronques).
+# Si Events ou BSODs sont capes apres, Stats.Total* reste fidele
+# au compte reel sur la periode. Utile pour debug : Stats peut
+# reveler une troncature (ex : Stats.TotalCrashFreeze = 8421 alors
+# que payload.Events ne contient que 200 entrees -> Meta.TruncatedArrays.Events).
+$rawTotalBoots       = @($events | Where-Object { $_.EventId -eq 6005 }).Count
+$rawTotalCrashFreeze = @($events | Where-Object { $_.EventId -eq 41 }).Count
+$rawTotalHardCrash   = @($events | Where-Object {
+    $_.EventId -eq 41 -and $_.CrashCause -in @('BSODSilent','SleepResumeFailed','PowerLoss')
+}).Count
+$rawTotalBSOD        = @($bsods).Count
+
+# ============================================================
+# 14c. CAP DES ARRAYS (v2.1 - defense en profondeur QUALITE)
+# ============================================================
+# Garde-fou contre PCs en boucle d'erreur (reboot loop, spam
+# Event 41, RAM exhaustion permanente). Pas une mesure de
+# securite : un PC compromis bypass trivialement.
+$truncatedArrays = @{
+    TopCrashers      = $false
+    BSODs            = $false
+    BootDurations    = $false
+    Events           = $false
+    ResourceWarnings = $false
+}
+
+# TopCrashers : deja trie desc par count -> garde le top
+$topCrashers = Invoke-ArrayCap -Array $topCrashers -Max $MaxTopCrashers `
+    -Name 'TopCrashers' -TruncatedRef $truncatedArrays
+
+# BSODs : deja trie desc par date -> garde les premiers (= les plus recents)
+$bsods = Invoke-ArrayCap -Array $bsods -Max $MaxBSODs `
+    -Name 'BSODs' -TruncatedRef $truncatedArrays
+
+# BootDurations : trie asc (kernelBootEvents Sort-Object TimeCreated)
+#   -> garde les derniers = les plus recents
+$bootDurations = Invoke-ArrayCap -Array $bootDurations -Max $MaxBootDurations `
+    -Name 'BootDurations' -KeepLast -TruncatedRef $truncatedArrays
+
+# Events : trie asc (rawEvents Sort-Object TimeCreated)
+#   -> garde les derniers = les plus recents
+$events = Invoke-ArrayCap -Array $events -Max $MaxEvents `
+    -Name 'Events' -KeepLast -TruncatedRef $truncatedArrays
+
+# ResourceWarnings : non trie -> on trie desc par Timestamp puis on cape
+$resourceWarnings = @($resourceWarnings | Sort-Object Timestamp -Descending)
+$resourceWarnings = Invoke-ArrayCap -Array $resourceWarnings -Max $MaxResourceWarnings `
+    -Name 'ResourceWarnings' -TruncatedRef $truncatedArrays
+
+# ============================================================
 # 15. ASSEMBLAGE ET EXPORT JSON
 # ============================================================
 # IMPORTANT : on force tous les arrays avec @() pour contourner le
@@ -2281,6 +2693,10 @@ Write-Log ("Hardware : WHEA_Fatal={0} WHEA_Corrected_sigs={1} (total={2}) GPU={3
 $payload = [PSCustomObject]@{
     SchemaVersion    = $SchemaVersion
     Machine          = $machineInfo
+    # v2.1 : metadonnees sur la collecte (separe des donnees metier)
+    Meta             = [PSCustomObject]@{
+        TruncatedArrays = [PSCustomObject]$truncatedArrays
+    }
     Events           = @($events)
     BootDurations    = @($bootDurations)
     BSODs            = @($bsods)
@@ -2305,17 +2721,18 @@ $payload = [PSCustomObject]@{
         CPUThrottling  = @($hardwareHealth.CPUThrottling)
     }
     Stats            = [PSCustomObject]@{
-        # Compteurs events (events 6005 historiques, conserves pour compat)
-        TotalBoots       = @($events | Where-Object { $_.EventId -eq 6005 }).Count
-        TotalCrashFreeze = @($events | Where-Object { $_.EventId -eq 41 }).Count
-        TotalBSOD        = @($bsods).Count
+        # v2.1 : on utilise les comptages CAPTURES AVANT cap pour
+        # refleter la vraie volumetrie du parc (les arrays peuvent
+        # etre tronques mais les Stats restent fideles).
+        TotalBoots       = $rawTotalBoots
+        TotalCrashFreeze = $rawTotalCrashFreeze
+        TotalBSOD        = $rawTotalBSOD
 
         # v1.6 : total des "vrais" plantages durs.
         # Exclut UserForcedReset (action volontaire de l'user) et
         # FreezeApp/FreezeUnknown (pas forcement un plantage materiel).
-        TotalHardCrash   = @($events | Where-Object {
-            $_.EventId -eq 41 -and $_.CrashCause -in @('BSODSilent','SleepResumeFailed','PowerLoss')
-        }).Count
+        # v2.1 : utilise le compte brut capture avant cap.
+        TotalHardCrash   = $rawTotalHardCrash
 
         # NOUVEAU v5.2 : comptage reel des demarrages par type
         BootsByType      = [PSCustomObject]@{
@@ -2331,8 +2748,13 @@ $payload = [PSCustomObject]@{
         BootsLongs       = @($bootDurations | Where-Object { $_.EstBootLong }).Count
         ResourceWarnings = @($resourceWarnings).Count
         DiskAlerts       = @($diskInfo | Where-Object { $_.IsAlert }).Count
-        TopCrasherApp    = if (@($topCrashers).Count -gt 0) { @($topCrashers)[0].AppName } else { '' }
-        TopCrasherCount  = if (@($topCrashers).Count -gt 0) { @($topCrashers)[0].CrashCount } else { 0 }
+        # v2.1.3 : le "top crasher" expose = le premier VRAI crash (Type 'crash'),
+        # pas un echec applicatif recurrent (qui peut avoir un count plus eleve).
+        TopCrasherApp      = if (@($topCrashers | Where-Object { $_.Type -eq 'crash' }).Count -gt 0)       { @($topCrashers | Where-Object { $_.Type -eq 'crash' })[0].AppName }       else { '' }
+        TopCrasherCount    = if (@($topCrashers | Where-Object { $_.Type -eq 'crash' }).Count -gt 0)       { @($topCrashers | Where-Object { $_.Type -eq 'crash' })[0].CrashCount }     else { 0 }
+        # v2.1.3 : top echec applicatif recurrent (Type 'app_failure'), expose separement.
+        TopAppFailureApp   = if (@($topCrashers | Where-Object { $_.Type -eq 'app_failure' }).Count -gt 0) { @($topCrashers | Where-Object { $_.Type -eq 'app_failure' })[0].AppName }   else { '' }
+        TopAppFailureCount = if (@($topCrashers | Where-Object { $_.Type -eq 'app_failure' }).Count -gt 0) { @($topCrashers | Where-Object { $_.Type -eq 'app_failure' })[0].CrashCount } else { 0 }
 
         # NOUVEAU v5.2 : distinction Fatal vs Corrected
         TotalWHEAFatal      = @($hardwareHealth.WHEA_Fatal).Count
@@ -2352,11 +2774,12 @@ $payload = [PSCustomObject]@{
         Event12Trouve    = $bootStartEvents.Count
         Event27Trouve    = $kernelBootEvents.Count
 
-        # NOUVEAU v5.3 : raccourcis batterie et EDR pour le dashboard
+        # NOUVEAU v5.3 : raccourci batterie pour le dashboard.
+        # v2.2.0 : raccourcis EDR retires de Stats - non lus par le Dashboard
+        # et ils nommaient le vendor. Le Dashboard lit desormais
+        # ServicesHealth.Monitored (voir bloc 10).
         BatteryHealthPct = $batteryInfo.HealthPercent
         BatteryAlert     = $batteryInfo.IsAlert
-        SentinelRunning  = ($servicesHealth.SentinelAgent.Status -eq 'Running')
-        SentinelAlert    = $servicesHealth.SentinelAgent.IsAlert
 
         # NOUVEAU v5.4 : raccourcis boot perf et disk health
         LastBootTimeMs     = if ($lastBoot) { $lastBoot.BootTimeMs }         else { 0 }
@@ -2426,7 +2849,7 @@ if (-not $shareWritten) {
 
 # --- Bilan final ---
 if ($shareWritten) {
-    Write-Log ("Export OK - RealBoots:{0} (CB:{1}/FS:{2}/R:{3}) Crash:{4} BSOD:{5} Uptime:{6}j WHEA_Fatal:{7} WHEA_Corr:{8} Batt:{9}% Sentinel:{10} BootPerf:{11}ms Disk:{12} Monitors:{13}" -f `
+    Write-Log ("Export OK - RealBoots:{0} (CB:{1}/FS:{2}/R:{3}) Crash:{4} BSOD:{5} Uptime:{6}j WHEA_Fatal:{7} WHEA_Corr:{8} Batt:{9}% SvcAlertes:{10} BootPerf:{11}ms Disk:{12} Monitors:{13}" -f `
         $payload.Stats.TotalRealBoots,
         $payload.Stats.BootsByType.ColdBoot,
         $payload.Stats.BootsByType.FastStartup,
@@ -2437,10 +2860,16 @@ if ($shareWritten) {
         $payload.Stats.TotalWHEAFatal,
         $payload.Stats.TotalWHEACorrected,
         $(if ($batteryInfo.HasBattery) { $batteryInfo.HealthPercent } else { 'N/A' }),
-        $(if ($servicesHealth.SentinelAgent.Installed) { $servicesHealth.SentinelAgent.Status } else { 'NotInstalled' }),
+        @($servicesHealth.Monitored | Where-Object { $_.IsAlert }).Count,
         $(if ($lastBoot) { $lastBoot.BootTimeMs } else { 'N/A' }),
         $(if ($diskHealthAlert) { "ALERT-WorstWear$($diskWorstWear)%" } else { "OK-WorstWear$($diskWorstWear)%" }),
         $monitors.Count)
+
+    # v2.1 : recap des arrays tronques (ligne dediee si applicable)
+    $truncatedNames = @($truncatedArrays.GetEnumerator() | Where-Object { $_.Value } | ForEach-Object { $_.Key })
+    if ($truncatedNames.Count -gt 0) {
+        Write-Log ("WARN | Arrays tronques dans ce JSON : {0}" -f ($truncatedNames -join ', '))
+    }
 } else {
     Write-Log "=== EXPORT ECHEC : ni buffer local ni share n'ont pu etre ecrits ==="
 }

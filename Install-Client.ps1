@@ -57,16 +57,22 @@
     .\Install-Client.ps1 -ServerPath "\\SRV-PCPULSE\PCPulse$" -SourceDir "C:\Temp\pcpulse"
 
 .NOTES
-    Version  : 2.0 (support gMSA optionnel, voir SECURITY.md)
+    Version  : 2.1 (support gMSA optionnel, voir SECURITY.md)
     Auteur   : Damien Gouhier
     Licence  : MIT
 
     Fichiers attendus dans SourceDir :
       - 01_Collector.ps1     (obligatoire)
       - PCPulse-Updater.ps1  (obligatoire)
-      - version.txt          (optionnel, "2.0" par defaut)
+      - version.txt          (optionnel, "2.1" par defaut)
 
     CHANGELOG :
+    v2.1 : Resolution robuste de SourceDir (cascade PSScriptRoot /
+           PSCommandPath / MyInvocation au lieu d'un defaut de parametre
+           fragile qui pouvait etre vide selon le contexte d'appel).
+           Correction parsing du message d'aide gMSA (-replace sorti de
+           la string interpolee).
+           Bump version par defaut 2.0 -> 2.1 (aligne sur la release v2.1).
     v2.0 : Support gMSA optionnel via -gMSAName (au lieu de SYSTEM hardcode).
            Bump version par defaut 1.0 -> 2.0 pour aligner sur la release v2.0.
            Pointe vers SECURITY.md pour le trust model.
@@ -80,9 +86,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ServerPath,
 
-    [string]$SourceDir = $PSScriptRoot,
+    [string]$SourceDir,
 
-    [string]$InitialVersion = '2.0',
+    [string]$InitialVersion = '2.1',
 
     # v2.0 : support gMSA optionnel pour la tache planifiee
     # Si vide, on garde l'ancien comportement (SYSTEM via ServiceAccount)
@@ -90,6 +96,29 @@ param(
 
     [switch]$SkipFirstRun
 )
+
+# ============================================================
+# RESOLUTION ROBUSTE DU DOSSIER SOURCE
+# ============================================================
+# $PSScriptRoot utilise comme valeur par defaut de parametre est fragile :
+# selon le contexte d'invocation (-File, dot-source, hote tiers) il peut etre
+# vide au moment du binding des parametres. On resout donc $SourceDir ici,
+# dans le corps du script, via une cascade de methodes fiables. Si -SourceDir
+# est fourni explicitement a l'appel, il est respecte tel quel.
+if ([string]::IsNullOrWhiteSpace($SourceDir)) {
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        $SourceDir = $PSScriptRoot
+    } elseif (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
+        $SourceDir = Split-Path -Parent $PSCommandPath
+    } elseif ($MyInvocation.MyCommand.Path) {
+        $SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    } else {
+        Write-Host " [KO] Impossible de determiner le dossier source automatiquement." -ForegroundColor Red
+        Write-Host " [KO] Relancer en passant -SourceDir avec le chemin du dossier contenant" -ForegroundColor Red
+        Write-Host " [KO] 01_Collector.ps1, PCPulse-Updater.ps1 et version.txt." -ForegroundColor Red
+        exit 1
+    }
+}
 
 # ============================================================
 # CONFIGURATION
@@ -309,7 +338,8 @@ try {
         Write-Err "  1. Le PC est dans le groupe AD pour ce gMSA"
         Write-Err "  2. Un reboot a eu lieu apres l'ajout au groupe"
         Write-Err "  3. Le gMSA a 'Log on as a batch job' (via GPO)"
-        Write-Err "Tester avec : Test-ADServiceAccount -Identity '$($gMSAName -replace ''\$$'','')'"
+        $gMSAShort = $gMSAName -replace '\$$', ''
+        Write-Err "Tester avec : Test-ADServiceAccount -Identity '$gMSAShort'"
     }
     exit 1
 }
