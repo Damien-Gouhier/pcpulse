@@ -1,13 +1,13 @@
 {
-  "SchemaVersion": "2.0",
+  "SchemaVersion": "2.2",
   "Machine": {
     "PC": "AIO-004",
-    "CollectedAt": "2026-04-21 10:57:00",
+    "CollectedAt": "2026-07-03 09:00:00",
     "OS": "Microsoft Windows 11 Pro",
-    "LastBoot": "2026-04-19 11:00:00",
+    "LastBoot": "2026-07-01 09:03:00",
     "UptimeDays": 2.0,
     "CurrentUser": "sophie.moreau",
-    "IP": "10.30.9.150",
+    "IP": "10.20.1.150",
     "CPUName": "Intel(R) Core(TM) i7-11700",
     "CPUVendor": "Intel",
     "CPUGen": "11",
@@ -22,13 +22,13 @@
       "IsDesktop": false,
       "IsAIO": true
     },
-    "LastRealColdBoot": "2026-04-19 11:00:00",
+    "LastRealColdBoot": "2026-07-01 09:03:00",
     "FastStartupEnabled": true
   },
   "Events": [],
   "BootDurations": [
     {
-      "DateBoot": "2026-04-19 11:00:00",
+      "DateBoot": "2026-07-01 09:03:00",
       "DurationMin": 2,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -36,7 +36,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-16 11:00:00",
+      "DateBoot": "2026-06-28 09:03:00",
       "DurationMin": 1,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -44,7 +44,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-11 11:00:00",
+      "DateBoot": "2026-06-23 09:03:00",
       "DurationMin": 2,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -83,20 +83,24 @@
     "IsAlert": false
   },
   "ServicesHealth": {
-    "SentinelAgent": {
-      "DisplayName": "Sentinel Agent",
-      "ServiceName": "SentinelAgent",
-      "Installed": true,
-      "Status": "Running",
-      "StartType": "Automatic",
-      "IsAlert": false
-    }
+    "Monitored": [
+      {
+        "Id": "edr",
+        "DisplayName": "EDR Agent",
+        "ServiceName": "EDRAgent",
+        "Role": "EDR",
+        "Installed": true,
+        "Status": "Running",
+        "StartType": "Automatic",
+        "IsAlert": false
+      }
+    ]
   },
   "BootPerformance": {
     "LastBoot": {
-      "Timestamp": "2026-04-19 11:00:00",
+      "Timestamp": "2026-07-01 09:03:00",
       "Level": "Info",
-      "BootStartTime": "2026-04-19T10:57:52.0000000Z",
+      "BootStartTime": "2026-07-01T09:00:52.0000000Z",
       "BootTimeMs": 128000,
       "MainPathBootTimeMs": 58000,
       "BootPostBootTimeMs": 70000,
@@ -108,9 +112,9 @@
     },
     "History": [
       {
-        "Timestamp": "2026-04-19 11:00:00",
+        "Timestamp": "2026-07-01 09:03:00",
         "Level": "Info",
-        "BootStartTime": "2026-04-19T10:57:52.0000000Z",
+        "BootStartTime": "2026-07-01T09:00:52.0000000Z",
         "BootTimeMs": 128000,
         "MainPathBootTimeMs": 58000,
         "BootPostBootTimeMs": 70000,
@@ -121,9 +125,9 @@
         "IsSlow": false
       },
       {
-        "Timestamp": "2026-04-16 11:00:00",
+        "Timestamp": "2026-06-28 09:03:00",
         "Level": "Info",
-        "BootStartTime": "2026-04-16T10:57:55.0000000Z",
+        "BootStartTime": "2026-06-28T09:00:55.0000000Z",
         "BootTimeMs": 125000,
         "MainPathBootTimeMs": 57000,
         "BootPostBootTimeMs": 68000,
@@ -208,13 +212,11 @@
     "TotalGPU": 0,
     "TotalThermal": 0,
     "TotalHardware": 0,
-    "DerniereActivite": "2026-04-21 10:57:00",
+    "DerniereActivite": "2026-07-03 09:00:00",
     "Event12Trouve": 3,
     "Event27Trouve": 3,
     "BatteryHealthPct": 0,
     "BatteryAlert": false,
-    "SentinelRunning": true,
-    "SentinelAlert": false,
     "LastBootTimeMs": 128000,
     "LastPostBootTimeMs": 70000,
     "BootPerfAlert": false,

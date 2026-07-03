@@ -1,13 +1,13 @@
 {
-  "SchemaVersion": "2.0",
+  "SchemaVersion": "2.2",
   "Machine": {
     "PC": "LAPTOP-001",
-    "CollectedAt": "2026-04-21 10:55:00",
+    "CollectedAt": "2026-07-03 09:00:00",
     "OS": "Microsoft Windows 11 Entreprise",
-    "LastBoot": "2026-04-21 08:15:42",
+    "LastBoot": "2026-07-03 06:20:42",
     "UptimeDays": 0.1,
     "CurrentUser": "martin.dupont",
-    "IP": "10.10.10.42",
+    "IP": "10.10.0.42",
     "CPUName": "Intel(R) Core(TM) Ultra 7 155U",
     "CPUVendor": "Intel",
     "CPUGen": "Ultra7",
@@ -22,74 +22,74 @@
       "IsDesktop": false,
       "IsAIO": false
     },
-    "LastRealColdBoot": "2026-04-15 08:34:00",
+    "LastRealColdBoot": "2026-06-27 06:39:00",
     "FastStartupEnabled": true
   },
   "Events": [
     {
       "EventId": 6005,
-      "Timestamp": "2026-04-16 08:35:00",
+      "Timestamp": "2026-06-28 06:40:00",
       "Type": "Boot",
       "Detail": "L'Enregistreur d'événements a démarré"
     },
     {
       "EventId": 6006,
-      "Timestamp": "2026-04-16 08:20:00",
+      "Timestamp": "2026-06-28 06:25:00",
       "Type": "Shutdown propre",
       "Detail": "Le service Enregistreur d'événements s'est arrêté"
     },
     {
       "EventId": 6005,
-      "Timestamp": "2026-04-17 08:36:00",
+      "Timestamp": "2026-06-29 06:41:00",
       "Type": "Boot",
       "Detail": "L'Enregistreur d'événements a démarré"
     },
     {
       "EventId": 6006,
-      "Timestamp": "2026-04-17 08:21:00",
+      "Timestamp": "2026-06-29 06:26:00",
       "Type": "Shutdown propre",
       "Detail": "Le service Enregistreur d'événements s'est arrêté"
     },
     {
       "EventId": 6005,
-      "Timestamp": "2026-04-18 08:37:00",
+      "Timestamp": "2026-06-30 06:42:00",
       "Type": "Boot",
       "Detail": "L'Enregistreur d'événements a démarré"
     },
     {
       "EventId": 6006,
-      "Timestamp": "2026-04-18 08:22:00",
+      "Timestamp": "2026-06-30 06:27:00",
       "Type": "Shutdown propre",
       "Detail": "Le service Enregistreur d'événements s'est arrêté"
     },
     {
       "EventId": 6005,
-      "Timestamp": "2026-04-19 08:38:00",
+      "Timestamp": "2026-07-01 06:43:00",
       "Type": "Boot",
       "Detail": "L'Enregistreur d'événements a démarré"
     },
     {
       "EventId": 6006,
-      "Timestamp": "2026-04-19 08:23:00",
+      "Timestamp": "2026-07-01 06:28:00",
       "Type": "Shutdown propre",
       "Detail": "Le service Enregistreur d'événements s'est arrêté"
     },
     {
       "EventId": 6005,
-      "Timestamp": "2026-04-21 08:15:42",
+      "Timestamp": "2026-07-03 06:20:42",
       "Type": "Boot",
       "Detail": "L'Enregistreur d'événements a démarré"
     },
     {
       "EventId": 6006,
-      "Timestamp": "2026-04-21 08:00:42",
+      "Timestamp": "2026-07-03 06:05:42",
       "Type": "Shutdown propre",
       "Detail": "Le service Enregistreur d'événements s'est arrêté"
     }
   ],
   "BootDurations": [
     {
-      "DateBoot": "2026-03-27 08:15:00",
+      "DateBoot": "2026-06-08 06:20:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -97,7 +97,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-03-28 08:16:00",
+      "DateBoot": "2026-06-09 06:21:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -105,7 +105,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-03-29 08:17:00",
+      "DateBoot": "2026-06-10 06:22:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -113,7 +113,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-03-30 08:18:00",
+      "DateBoot": "2026-06-11 06:23:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -121,7 +121,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-03-31 08:19:00",
+      "DateBoot": "2026-06-12 06:24:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -129,7 +129,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-01 08:20:00",
+      "DateBoot": "2026-06-13 06:25:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -137,7 +137,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-02 08:21:00",
+      "DateBoot": "2026-06-14 06:26:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -145,7 +145,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-03 08:22:00",
+      "DateBoot": "2026-06-15 06:27:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -153,7 +153,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-04 08:23:00",
+      "DateBoot": "2026-06-16 06:28:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -161,7 +161,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-05 08:24:00",
+      "DateBoot": "2026-06-17 06:29:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -169,7 +169,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-06 08:25:00",
+      "DateBoot": "2026-06-18 06:30:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -177,7 +177,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-07 08:26:00",
+      "DateBoot": "2026-06-19 06:31:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -185,7 +185,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-08 08:27:00",
+      "DateBoot": "2026-06-20 06:32:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -193,7 +193,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-09 08:28:00",
+      "DateBoot": "2026-06-21 06:33:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -201,7 +201,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-10 08:29:00",
+      "DateBoot": "2026-06-22 06:34:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -209,7 +209,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-11 08:30:00",
+      "DateBoot": "2026-06-23 06:35:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -217,7 +217,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-12 08:31:00",
+      "DateBoot": "2026-06-24 06:36:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -225,7 +225,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-13 08:32:00",
+      "DateBoot": "2026-06-25 06:37:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -233,7 +233,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-14 08:33:00",
+      "DateBoot": "2026-06-26 06:38:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -241,7 +241,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-15 08:34:00",
+      "DateBoot": "2026-06-27 06:39:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -249,7 +249,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-16 08:35:00",
+      "DateBoot": "2026-06-28 06:40:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -257,7 +257,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-17 08:36:00",
+      "DateBoot": "2026-06-29 06:41:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -265,7 +265,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-18 08:37:00",
+      "DateBoot": "2026-06-30 06:42:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -273,7 +273,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-19 08:38:00",
+      "DateBoot": "2026-07-01 06:43:00",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -281,7 +281,7 @@
       "BootType": "ColdBoot"
     },
     {
-      "DateBoot": "2026-04-21 08:15:42",
+      "DateBoot": "2026-07-03 06:20:42",
       "DurationMin": 0,
       "EstBootLong": false,
       "PrecedentType": "Shutdown propre",
@@ -328,20 +328,24 @@
     "IsAlert": false
   },
   "ServicesHealth": {
-    "SentinelAgent": {
-      "DisplayName": "Sentinel Agent",
-      "ServiceName": "SentinelAgent",
-      "Installed": true,
-      "Status": "Running",
-      "StartType": "Automatic",
-      "IsAlert": false
-    }
+    "Monitored": [
+      {
+        "Id": "edr",
+        "DisplayName": "EDR Agent",
+        "ServiceName": "EDRAgent",
+        "Role": "EDR",
+        "Installed": true,
+        "Status": "Running",
+        "StartType": "Automatic",
+        "IsAlert": false
+      }
+    ]
   },
   "BootPerformance": {
     "LastBoot": {
-      "Timestamp": "2026-04-21 08:15:42",
+      "Timestamp": "2026-07-03 06:20:42",
       "Level": "Info",
-      "BootStartTime": "2026-04-21T08:13:17.0000000Z",
+      "BootStartTime": "2026-07-03T06:18:17.0000000Z",
       "BootTimeMs": 145000,
       "MainPathBootTimeMs": 68000,
       "BootPostBootTimeMs": 77000,
@@ -353,9 +357,9 @@
     },
     "History": [
       {
-        "Timestamp": "2026-04-21 08:15:42",
+        "Timestamp": "2026-07-03 06:20:42",
         "Level": "Info",
-        "BootStartTime": "2026-04-21T08:13:17.0000000Z",
+        "BootStartTime": "2026-07-03T06:18:17.0000000Z",
         "BootTimeMs": 145000,
         "MainPathBootTimeMs": 68000,
         "BootPostBootTimeMs": 77000,
@@ -366,9 +370,9 @@
         "IsSlow": false
       },
       {
-        "Timestamp": "2026-04-20 09:00:00",
+        "Timestamp": "2026-07-02 07:05:00",
         "Level": "Info",
-        "BootStartTime": "2026-04-20T08:57:48.0000000Z",
+        "BootStartTime": "2026-07-02T07:02:48.0000000Z",
         "BootTimeMs": 132000,
         "MainPathBootTimeMs": 61000,
         "BootPostBootTimeMs": 71000,
@@ -379,9 +383,9 @@
         "IsSlow": false
       },
       {
-        "Timestamp": "2026-04-18 10:00:00",
+        "Timestamp": "2026-06-30 08:05:00",
         "Level": "Info",
-        "BootStartTime": "2026-04-18T09:57:40.0000000Z",
+        "BootStartTime": "2026-06-30T08:02:40.0000000Z",
         "BootTimeMs": 140000,
         "MainPathBootTimeMs": 65000,
         "BootPostBootTimeMs": 75000,
@@ -392,9 +396,9 @@
         "IsSlow": false
       },
       {
-        "Timestamp": "2026-04-16 08:00:00",
+        "Timestamp": "2026-06-28 06:05:00",
         "Level": "Info",
-        "BootStartTime": "2026-04-16T07:57:25.0000000Z",
+        "BootStartTime": "2026-06-28T06:02:25.0000000Z",
         "BootTimeMs": 155000,
         "MainPathBootTimeMs": 72000,
         "BootPostBootTimeMs": 83000,
@@ -405,9 +409,9 @@
         "IsSlow": false
       },
       {
-        "Timestamp": "2026-04-13 10:00:00",
+        "Timestamp": "2026-06-25 08:05:00",
         "Level": "Info",
-        "BootStartTime": "2026-04-13T09:57:32.0000000Z",
+        "BootStartTime": "2026-06-25T08:02:32.0000000Z",
         "BootTimeMs": 148000,
         "MainPathBootTimeMs": 69000,
         "BootPostBootTimeMs": 79000,
@@ -504,13 +508,11 @@
     "TotalGPU": 0,
     "TotalThermal": 0,
     "TotalHardware": 0,
-    "DerniereActivite": "2026-04-21 10:55:00",
+    "DerniereActivite": "2026-07-03 09:00:00",
     "Event12Trouve": 25,
     "Event27Trouve": 25,
     "BatteryHealthPct": 97.5,
     "BatteryAlert": false,
-    "SentinelRunning": true,
-    "SentinelAlert": false,
     "LastBootTimeMs": 145000,
     "LastPostBootTimeMs": 77000,
     "BootPerfAlert": false,
