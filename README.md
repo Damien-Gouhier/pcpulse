@@ -96,7 +96,7 @@ Le HTML s'ouvre automatiquement dans ton navigateur. Tu peux explorer les 5 scé
 - `LAPTOP-002` → Plein d'alertes (batterie HS + BSOD + crashs + erreurs PCIe)
 - `DESKTOP-003` → Desktop ancien, disque saturé
 - `AIO-004` → All-In-One avec écran secondaire vieux de 8 ans
-- `OFFLINE-005` → Laptop pas vu depuis 12 jours
+- `OFFLINE-005` → Laptop pas vu depuis 13 jours
 
 ## 🏗️ Architecture
 
@@ -119,6 +119,7 @@ Le HTML s'ouvre automatiquement dans ton navigateur. Tu peux explorer les 5 scé
             │   \\SERVER\share\    │
             │   ├─ release\        │ ◄── lecture seule pour les PC
             │   │   ├─ 01_Collector.ps1
+            │   │   ├─ PCPulse-Updater.ps1
             │   │   ├─ version.txt
             │   │   └─ KILLSWITCH.txt (optionnel)
             │   ├─ killed\         │

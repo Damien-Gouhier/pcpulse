@@ -49,7 +49,7 @@ If any of these resonate with you, feel free to open an [Issue](https://github.c
 | 📊 **Inventory** | CPU (model, year, age category), RAM, disks, chassis (Laptop/Desktop/AIO), external monitors (EDID) |
 
 ## 📸 Preview
-
+> ⚠️ **Screenshots are being updated** to reflect 2.2 (configurable monitored services, generic EDR labels). The images below are from an earlier version.
 ### Fleet overview
 
 One row per PC. Row color = alert level. Sort, filters (period, site, CPU), search.
@@ -98,7 +98,7 @@ The HTML opens automatically in your browser. Explore the 5 example scenarios:
 - `LAPTOP-002` → Multiple alerts (dead battery + BSOD + crashes + PCIe errors)
 - `DESKTOP-003` → Aging desktop, disk almost full
 - `AIO-004` → All-In-One with an 8-year-old secondary monitor
-- `OFFLINE-005` → Laptop not seen for 12 days
+- `OFFLINE-005` → Laptop not seen for 13 days
 
 ## 🏗️ Architecture
 
@@ -121,6 +121,7 @@ The HTML opens automatically in your browser. Explore the 5 example scenarios:
             │   \\SERVER\share\    │
             │   ├─ release\        │ ◄── read-only for clients
             │   │   ├─ 01_Collector.ps1
+            │   │   ├─ PCPulse-Updater.ps1
             │   │   ├─ version.txt
             │   │   └─ KILLSWITCH.txt (optional)
             │   ├─ killed\         │
