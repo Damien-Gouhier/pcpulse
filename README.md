@@ -155,7 +155,7 @@ Deux fichiers optionnels, à placer dans `$SharePath` (par défaut `C:\PCPulse`)
 
 - **`config.psd1`** — seuils, pondération du score, titre du Dashboard, killswitch personnalisé, etc.
   Voir [`config.psd1.example`](config.psd1.example) comme modèle documenté.
-- **`ip-ranges.csv`** — mapping IP / hostname → Site (optionnel, active la colonne Site).
+- **`ip-ranges.csv`** — mapping IP → Site (optionnel, active la colonne Site).
   Voir [`ip-ranges.example.csv`](ip-ranges.example.csv) et [`ip-ranges.README.md`](ip-ranges.README.md).
 
 Les deux fichiers sont exclus du repo via `.gitignore` pour éviter les fuites accidentelles de données réelles.

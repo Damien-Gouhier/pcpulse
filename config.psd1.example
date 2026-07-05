@@ -1,7 +1,7 @@
 ﻿@{
     # ============================================================
     # PCPulse - config.psd1 (EXEMPLE)
-    # Copier en "config.psd1" (SANS prefixe GIT_) a la racine du share et adapter.
+    # Copier en "config.psd1" a la racine du share et adapter.
     # Fichier partage entre le Collector (PS 5.1) et le Dashboard (PS 7). Chaque
     # outil ne lit que les cles de son propre jeu par defaut (merge whitelist),
     # les cles "en trop" pour l'un sont simplement ignorees.
@@ -20,7 +20,7 @@
     DashboardTitle       = 'PCPulse'
     DashboardSubtitle    = 'Supervision du parc'
     MaskHealthyByDefault = $false  # masquer les PC sains au chargement
-    CsvRanges            = 'ip-ranges.csv'   # mapping IP -> site (cf. GIT_ip-ranges.csv)
+    CsvRanges            = 'ip-ranges.csv'   # mapping IP -> site (cf. ip-ranges.example.csv)
 
     # ---- Services critiques surveilles (lu par le Collector, schema 2.2) ----
     # Le Collector releve l'etat de chaque service et le remonte dans le JSON.

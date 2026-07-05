@@ -1,0 +1,14 @@
+# --- Donnees d'environnement reelles : NE JAMAIS committer ---
+# (copie ta version depuis les modeles .example)
+/config.psd1
+/ip-ranges.csv
+
+# --- Sorties generees par le Dashboard ---
+PCPulse-Dashboard-*.html
+
+# --- Backups d'ACL crees par Setup-Server.ps1 ---
+.acl-backup/
+
+# --- Cruft OS ---
+Thumbs.db
+.DS_Store
