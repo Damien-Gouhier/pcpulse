@@ -204,7 +204,7 @@ La [Quick Start](#-quick-start--tester-en-3-minutes) ne suffit pas à déployer 
 5. Configurer `config.psd1` et `ip-ranges.csv` pour adapter à ton environnement
 6. Exécuter `02_Dashboard.ps1` à la demande depuis un poste admin avec PowerShell 7
 
-👉 Documentation détaillée à venir dans `docs/` (INSTALL, DEPLOYMENT-INTUNE, DEPLOYMENT-SMARTDEPLOY, TROUBLESHOOTING).
+👉 Guide d'installation détaillé : [`docs/INSTALL.md`](docs/INSTALL.md). Autres docs à venir (DEPLOYMENT-INTUNE, DEPLOYMENT-SMARTDEPLOY, TROUBLESHOOTING).
 
 ## 🔐 Sécurité
 
