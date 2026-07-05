@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.0-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.0-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Zero-dependency Windows fleet monitoring.**
@@ -42,7 +42,7 @@ If any of these resonate with you, feel free to open an [Issue](https://github.c
 
 | Category | Metrics |
 |---|---|
-| 🔒 **Security** | EDR status (SentinelOne), offline PCs |
+| 🔒 **Security** | EDR status (defined in config.psd1), offline PCs |
 | ⚠️ **Stability** | Application crashes, freezes, BSODs, WHEA fatal/corrected, GPU TDR, thermal throttling |
 | ⚡ **Performance** | Boot duration, detailed Boot Performance (MainPath, PostBoot, UserProfile, Explorer init) |
 | 🔧 **Hardware wear** | Battery health (wear % + cycles), Disk SMART (wear, temp, errors), aging secondary monitors |
@@ -147,7 +147,7 @@ The HTML opens automatically in your browser. Explore the 5 example scenarios:
 - **Zero external dependencies**: only native PowerShell and inline HTML/CSS/JS. The generated HTML is self-contained (no CDN, works offline).
 - **PS 5.1 compatible** on the Collector side (= native Windows 10/11 fleet, no prerequisite install).
 - **Atomic writes**: if the SMB share is unavailable, the Collector buffers locally and catches up on the next run.
-- **Backward compatible**: the Dashboard supports older JSON schemas as the project evolves.
+- **Backward compatible**: the Dashboard accepts JSON schemas 2.1 and 2.2 (during the gradual per-machine rollout).
 - **Auto-update**: `PCPulse-Updater.ps1` automatically pulls the latest Collector from `\release\` with SHA256 verification.
 - **Killswitch**: remote uninstall via a sentinel file (see below).
 
@@ -206,7 +206,7 @@ The [Quick Start](#-quick-start--try-it-in-3-minutes) isn't enough for productio
 5. Configure `config.psd1` and `ip-ranges.csv` to match your environment
 6. Run `02_Dashboard.ps1` on demand from an admin host with PowerShell 7
 
-👉 Detailed docs coming in `docs/` (INSTALL, DEPLOYMENT-INTUNE, DEPLOYMENT-SMARTDEPLOY, TROUBLESHOOTING).
+👉 Detailed install guide: [`docs/INSTALL.md`](docs/INSTALL.md). More docs coming (DEPLOYMENT-INTUNE, DEPLOYMENT-SMARTDEPLOY, TROUBLESHOOTING).
 
 ## 🔐 Security
 
