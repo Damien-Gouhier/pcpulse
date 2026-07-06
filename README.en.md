@@ -49,8 +49,6 @@ If any of these resonate with you, feel free to open an [Issue](https://github.c
 | 📊 **Inventory** | CPU (model, year, age category), RAM, disks, chassis (Laptop/Desktop/AIO), external monitors (EDID) |
 
 ## 📸 Preview
-> ⚠️ **Screenshots are being updated** to reflect 2.2 (configurable monitored services, generic EDR labels). The images below are from an earlier version.
-### Fleet overview
 
 One row per PC. Row color = alert level. Sort, filters (period, site, CPU), search.
 
