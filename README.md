@@ -47,8 +47,6 @@ Si l'un de ces points résonne avec toi, n'hésite pas à ouvrir une [Issue](htt
 | 📊 **Inventaire** | CPU (modèle, année, ancienneté), RAM, disques, châssis (Laptop/Desktop/AIO), moniteurs externes (EDID) |
 
 ## 📸 Aperçu
-> ⚠️ **Captures en cours de mise à jour** pour refléter la 2.2 (services surveillés configurables, libellés EDR génériques). Les images ci-dessous datent d'une version antérieure.
-### Vue d'ensemble du parc
 
 Chaque ligne = un PC. Couleur de fond = niveau d'alerte. Tri, filtres (période, site, CPU), recherche.
 
