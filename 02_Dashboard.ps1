@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v2.2.0
+    PCPulse Dashboard v2.2.1
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,25 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.2.0
+    Version      : 2.2.1
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.2.1 : Inventaire OS (Windows 10 vs 11) - affichage, filtre, coverage-check.
+           - Re-mapping PS->embed : 4 champs Machine recopies (OSProduct / OSBuild /
+             OSDisplayVersion / OSEdition). Sans cette recopie ils seraient droppes en
+             silence (classe de bug recurrente : Type / BootType / crashers).
+           - Colonne "OS" dans le tableau d'inventaire (badge Windows 11 vert / Windows 10
+             ambre = EOL / Inconnu gris) + feature update en sous-ligne.
+           - Filtre "OS :" dedie (facon site/CPU), populate dynamique, masque s'il n'y a
+             qu'un seul OS present. Sert a sortir la liste des postes Windows 10.
+           - Bloc OS dans le drill-down (panel Materiel) + colonnes OS dans l'export CSV.
+           - COVERAGE-CHECK (anti-recidive #3) : a la generation, diffe les cles Machine
+             des JSON vs une liste de cles connues et Write-Host jaune tout champ Machine
+             non traite dans l'embed. Purement diagnostic console.
+           - Menage : sanitization Machine.OSCaption alignee sur le vrai champ Machine.OS
+             (l'ancienne branche visait un nom inexistant = no-op silencieux).
+           SchemaVersion INCHANGEE (@('2.1','2.2') toujours accepte ; le champ n'est present
+           que sur les JSON du Collector 2.2.1, absence toleree pendant le rollout).
     v2.2.0 : Generalisation pour publication GitHub (de-vendorise, pilote par config).
            Le code ne nomme plus aucun produit ; tout le specifique vit dans config.psd1.
            - Whitelist SchemaVersions : @('2.1') -> @('2.1', '2.2'). Le Dashboard lit les
@@ -84,7 +100,7 @@
            41 ?)" pour TOUTE troncature, ce qui etait faux dans la majorite des cas :
            un TopCrashers tronque signifie juste qu'un poste a plus de 10 applications
            distinctes en echec (bruit applicatif normal, ou un agent qui crashe pour de
-           vrai), sans aucun rapport avec un reboot loop - constate sur
+           vrai comme Nexthink), sans aucun rapport avec un reboot loop - constate sur
            des postes parfaitement sains (0 Event 41, 0 warning RAM, 1 boot/jour). Le
            message se contente desormais de constater la troncature ("rapport partiel
            pour ce PC") et de pointer, PAR ARRAY, ou regarder le vrai signal (liste des
@@ -636,7 +652,7 @@ function Test-PCPulseJson {
           4. Machine.PC matche le nom de fichier (anti-spoof) ?
 
         Apres validation, sanitization en place des champs string les plus
-        sensibles (CurrentUser, IPAddress, CPUName, OSCaption, Site).
+        sensibles (CurrentUser, IPAddress, CPUName, OS, Site).
 
         Voir SECURITY.md > "Sanity-checks Dashboard" pour le rationnel complet.
     .OUTPUTS
@@ -774,8 +790,8 @@ function Test-PCPulseJson {
     if ($data.Machine.PSObject.Properties['CPUName']) {
         $data.Machine.CPUName = Get-SafeString $data.Machine.CPUName
     }
-    if ($data.Machine.PSObject.Properties['OSCaption']) {
-        $data.Machine.OSCaption = Get-SafeString $data.Machine.OSCaption
+    if ($data.Machine.PSObject.Properties['OS']) {
+        $data.Machine.OS = Get-SafeString $data.Machine.OS
     }
     if ($data.Machine.PSObject.Properties['Manufacturer']) {
         $data.Machine.Manufacturer = Get-SafeString $data.Machine.Manufacturer
@@ -1152,6 +1168,40 @@ if ($allData.Count -eq 0) {
     exit 1
 }
 Write-Host "[+] $($allData.Count) PC(s) charge(s)" -ForegroundColor Green
+
+# ============================================================
+# COVERAGE-CHECK du re-mapping Machine -> embed (anti-recidive #3)
+#   Le Dashboard reconstruit un objet embed champ par champ (plus bas).
+#   Un champ ajoute au Collector mais oublie dans l'embed est droppe EN
+#   SILENCE (deja arrive : Type, BootType, les 4 champs crashers). Ce
+#   garde-fou diffe les cles Machine reellement presentes dans les JSON
+#   vs la liste des cles connues (recopiees OU volontairement ignorees),
+#   et gueule en jaune sur tout champ non traite. Diagnostic console
+#   uniquement (rien dans le HTML). A tenir a jour quand on ajoute une
+#   cle a machineInfo cote Collector.
+# ============================================================
+$KnownMachineKeys = @(
+    # --- recopiees dans l'embed ($embedData plus bas) ---
+    'PC','IP','CurrentUser','LastBoot','UptimeDays','CollectedAt',
+    'CPUName','CPUVendor','CPUGen','CPUYear','CPUAge','CPUAgeCategory',
+    'ConnectionType','ChassisInfo',
+    'OSProduct','OSBuild','OSDisplayVersion','OSEdition',
+    # --- presentes dans Machine mais volontairement NON embarquees ---
+    'OS','LastRealColdBoot','FastStartupEnabled'
+)
+$seenMachineKeys = [System.Collections.Generic.HashSet[string]]::new()
+foreach ($covPc in $allData) {
+    if ($covPc.Machine) {
+        foreach ($prop in $covPc.Machine.PSObject.Properties) { [void]$seenMachineKeys.Add($prop.Name) }
+    }
+}
+$unmappedKeys = @($seenMachineKeys | Where-Object { $_ -notin $KnownMachineKeys } | Sort-Object)
+if ($unmappedKeys.Count -gt 0) {
+    Write-Host "[!] COVERAGE-CHECK : champ(s) Machine present(s) dans les JSON mais NON traite(s) dans le re-mapping embed :" -ForegroundColor Yellow
+    foreach ($k in $unmappedKeys) {
+        Write-Host "      - $k  (a recopier dans l'objet embed, ou a declarer dans KnownMachineKeys si ignore volontairement)" -ForegroundColor Yellow
+    }
+}
 
 # ============================================================
 # CONSTRUCTION DU PAYLOAD JS
@@ -1588,6 +1638,12 @@ foreach ($pc in $allData) {
         CPUAge           = $pc.Machine.CPUAge
         CPUAgeCategory   = if ($pc.Machine.CPUAgeCategory) { ConvertTo-HtmlSafe $pc.Machine.CPUAgeCategory } else { 'Inconnu' }
         ConnectionType   = if ($pc.Machine.ConnectionType) { ConvertTo-HtmlSafe $pc.Machine.ConnectionType } else { 'Inconnu' }
+        # v2.2.1 : OS (Windows 10/11) - ADDITIF. Recopie EXPLICITE des 4 champs Machine :
+        #          sans ces lignes ils seraient droppes en silence (classe de bug #3).
+        OSProduct        = if ($pc.Machine.OSProduct) { ConvertTo-HtmlSafe ([string]$pc.Machine.OSProduct) } else { 'Inconnu' }
+        OSBuild          = $pc.Machine.OSBuild
+        OSDisplayVersion = if ($pc.Machine.OSDisplayVersion) { ConvertTo-HtmlSafe ([string]$pc.Machine.OSDisplayVersion) } else { '' }
+        OSEdition        = if ($pc.Machine.OSEdition) { ConvertTo-HtmlSafe ([string]$pc.Machine.OSEdition) } else { '' }
         # v5.6 : chassis info (peut etre null si Collector < v5.6)
         ChassisInfo      = if ($pc.Machine.ChassisInfo) {
             [PSCustomObject]@{
@@ -2576,7 +2632,7 @@ $metaRefresh
     .correlation-item.warn  .c-severity { color: var(--yellow); }
     .correlation-item .c-detail { color: var(--text-muted); font-size: 11px; }
 
-    .uptime-badge, .cpu-badge, .conn-badge, .chassis-badge {
+    .uptime-badge, .cpu-badge, .conn-badge, .chassis-badge, .os-badge {
         display: inline-block;
         padding: 2px 6px;
         border-radius: 4px;
@@ -2599,6 +2655,10 @@ $metaRefresh
     .chassis-desktop { background: #2a1a3d; color: var(--purple); }
     .chassis-aio     { background: #3d2a1a; color: var(--orange); }
     .chassis-autre   { background: #2a2a3a; color: var(--text-muted); }
+    /* v2.2.1 : OS badges (Windows 10/11) */
+    .os-win11   { background: #1a3d2a; color: var(--green); }
+    .os-win10   { background: #3d3d1a; color: var(--orange); }
+    .os-inconnu { background: #2a2a3a; color: var(--text-muted); }
 
     [data-theme="light"] .uptime-ok      { background: #d5f2e9; color: var(--green); }
     [data-theme="light"] .uptime-warning { background: #fdf3dc; color: var(--orange); }
@@ -2615,6 +2675,9 @@ $metaRefresh
     [data-theme="light"] .chassis-desktop { background: #f3e9fb; color: var(--purple); }
     [data-theme="light"] .chassis-aio     { background: #fdf0dc; color: var(--orange); }
     [data-theme="light"] .chassis-autre   { background: #e6e9f2; color: var(--text-muted); }
+    [data-theme="light"] .os-win11   { background: #d5f2e9; color: var(--green); }
+    [data-theme="light"] .os-win10   { background: #fdf3dc; color: var(--orange); }
+    [data-theme="light"] .os-inconnu { background: #e6e9f2; color: var(--text-muted); }
 
     /* ===== DISK BARS ===== */
     .disk-bar-wrap { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
@@ -3441,6 +3504,8 @@ $anomalyHtml
         <option value="Ancien">Ancien</option>
         <option value="Inconnu">Inconnu</option>
     </select>
+    <label style="color: var(--text-muted); font-size: 12px;">OS :</label>
+    <select id="osFilter" onchange="filterChanged()"><option value="">Tous</option></select>
 
     <div class="search-wrap">
         <span class="search-icon">&#128269;</span>
@@ -3532,6 +3597,7 @@ var state = {
     maskHealthy: $maskHealthyJs,
     siteFilter: '',
     cpuFilter: '',
+    osFilter: '',
     kpiFilter: null,     // 'offline', 'crash', 'bsod', 'hw', 'bootLong', 'diskAlert', 'oldCpu', 'crashRecent'
     appFilter: null,     // v2.1.12 : nom d'appli (clic sur un crasher) -> filtre les PC qui l'ont en crash
     sort: { col: 'score', dir: 'desc' },
@@ -3984,6 +4050,29 @@ function initSiteDropdown() {
     });
 }
 
+// ===== INIT OS DROPDOWN =====
+function initOsDropdown() {
+    var oses = {};
+    pcData.forEach(function(pc) { if (pc.OSProduct) oses[pc.OSProduct] = true; });
+    var sorted = Object.keys(oses).sort();
+    var sel = document.getElementById('osFilter');
+    // Masquer le filtre s'il n'y a pas de diversite (0 ou 1 OS present) : inutile.
+    if (sorted.length < 2) {
+        if (sel) sel.style.display = 'none';
+        var labels = document.querySelectorAll('.toolbar label');
+        for (var i = 0; i < labels.length; i++) {
+            if (labels[i].textContent.indexOf('OS') !== -1) labels[i].style.display = 'none';
+        }
+        return;
+    }
+    sorted.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        sel.appendChild(opt);
+    });
+}
+
 // ===== THEME =====
 function toggleTheme() {
     var html = document.documentElement;
@@ -4080,9 +4169,11 @@ function clearAllFilters() {
     state.maskHealthy = false;
     state.siteFilter  = '';
     state.cpuFilter   = '';
+    state.osFilter    = '';
     var mb = document.getElementById('maskHealthyBtn'); if (mb) mb.classList.remove('active');
     var sf = document.getElementById('siteFilter');     if (sf) sf.value = '';
     var cf = document.getElementById('cpuFilter');      if (cf) cf.value = '';
+    var of = document.getElementById('osFilter');        if (of) of.value = '';
     var si = document.getElementById('searchInput');    if (si) si.value = '';
     state.currentPage = 1;
     render();
@@ -4313,6 +4404,7 @@ function render() {
     var searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
     state.siteFilter = document.getElementById('siteFilter').value;
     state.cpuFilter  = document.getElementById('cpuFilter').value;
+    state.osFilter   = document.getElementById('osFilter').value;
 
     // Enrichir tous les PCs
     var allEnriched = pcData.map(function(pc) { return enrichPC(pc, cutoff); });
@@ -4322,6 +4414,7 @@ function render() {
     var baseFiltered = allEnriched.filter(function(p) {
         if (state.siteFilter && p.pc.Site !== state.siteFilter) return false;
         if (state.cpuFilter  && p.pc.CPUAgeCategory !== state.cpuFilter) return false;
+        if (state.osFilter   && p.pc.OSProduct !== state.osFilter) return false;
         if (searchTerm) {
             return p.pc.PC.toLowerCase().indexOf(searchTerm) !== -1 ||
                    (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) !== -1;
@@ -4516,7 +4609,7 @@ function renderActiveFilters() {
     // v2.1.14 : bouton "tout effacer" des qu'un filtre quelconque est actif - y compris les
     // menus site/CPU et la recherche, qui ne generent pas de chip a eux seuls.
     var searchActive = (document.getElementById('searchInput').value || '').trim().length > 0;
-    var anyFilter = !!(state.kpiFilter || state.appFilter || state.maskHealthy || state.siteFilter || state.cpuFilter || searchActive);
+    var anyFilter = !!(state.kpiFilter || state.appFilter || state.maskHealthy || state.siteFilter || state.cpuFilter || state.osFilter || searchActive);
     if (anyFilter) {
         chips.push('<button class="clear-all-filters" onclick="clearAllFilters()" title="Reinitialiser tous les filtres">&times; Tout effacer</button>');
     }
@@ -5051,7 +5144,7 @@ function renderTable(pcs) {
         '<th>Statut</th>' + siteHeader +
         '<th>IP</th>' +
         '<th class="' + sortClass('user')  + '" onclick="sortColumn(\'user\')">Utilisateur ' + sortArrow('user') + '</th>' +
-        '<th>Conn.</th><th>CPU</th>' +
+        '<th>Conn.</th><th>CPU</th><th>OS</th>' +
         '<th class="' + sortClass('uptime') + '" onclick="sortColumn(\'uptime\')">Uptime ' + sortArrow('uptime') + '</th>' +
         '<th class="' + sortClass('fresh')  + '" onclick="sortColumn(\'fresh\')">Vu '  + sortArrow('fresh')  + '</th>' +
         '<th class="' + sortClass('boot')   + '" onclick="sortColumn(\'boot\')">Boot ' + sortArrow('boot')   + '</th>' +
@@ -5064,7 +5157,7 @@ function renderTable(pcs) {
         '</tr>';
 
     var tbody = '';
-    var colspan = showSite ? 17 : 16;
+    var colspan = showSite ? 18 : 17;
     pcs.forEach(function(p, idx) {
         var pc = p.pc;
         var rowClass = 'row-ok';
@@ -5118,6 +5211,17 @@ function renderTable(pcs) {
             else if (pc.ChassisInfo.IsDesktop) { chCls = 'chassis-desktop'; chIcon = '&#128421;'; }
             cpuCell += '<div style="margin-top:3px"><span class="chassis-badge ' + chCls + '" title="Type de chassis">' +
                        chIcon + ' ' + pc.ChassisInfo.ChassisLabel + '</span></div>';
+        }
+
+        // v2.2.1 : OS (Windows 10/11) - inventaire migration / EOL.
+        var osProduct = pc.OSProduct || 'Inconnu';
+        var osCls = 'os-inconnu';
+        if (osProduct === 'Windows 11') osCls = 'os-win11';
+        else if (osProduct === 'Windows 10') osCls = 'os-win10';
+        var osTitle = 'Build ' + (pc.OSBuild || '?') + (pc.OSEdition ? ' - ' + pc.OSEdition : '');
+        var osCell = '<span class="os-badge ' + osCls + '" title="' + osTitle + '">' + osProduct + '</span>';
+        if (pc.OSDisplayVersion) {
+            osCell += '<div style="margin-top:3px;font-size:10px;color:var(--text-faint)">' + pc.OSDisplayVersion + '</div>';
         }
 
         var bootCell = 'N/A';
@@ -5208,6 +5312,7 @@ function renderTable(pcs) {
             '<td>' + (pc.CurrentUser || '') + '</td>' +
             '<td>' + connCell + '</td>' +
             '<td>' + cpuCell + '</td>' +
+            '<td>' + osCell + '</td>' +
             '<td>' + uptimeCell + '</td>' +
             '<td>' + freshCell + '</td>' +
             '<td>' + bootCell + '</td>' +
@@ -5339,6 +5444,22 @@ function renderDetailRow(p, idx, colspan) {
     } else {
         cpuHTML = '<div class="detail-empty">Nom CPU non disponible</div>';
     }
+
+    // v2.2.1 : bloc OS (Windows 10/11) pour le panel Materiel.
+    var osHTML = '';
+    var dOsProduct = p.pc.OSProduct || 'Inconnu';
+    var dOsCls = 'os-inconnu';
+    if (dOsProduct === 'Windows 11') dOsCls = 'os-win11';
+    else if (dOsProduct === 'Windows 10') dOsCls = 'os-win10';
+    var dOsMetaParts = [];
+    if (p.pc.OSDisplayVersion) dOsMetaParts.push(p.pc.OSDisplayVersion);
+    if (p.pc.OSEdition) dOsMetaParts.push(p.pc.OSEdition);
+    if (p.pc.OSBuild) dOsMetaParts.push('build ' + p.pc.OSBuild);
+    var dOsMetaStr = dOsMetaParts.join(' &middot; ');
+    osHTML = '<div class="cpu-info-block">' +
+               '<div style="margin-bottom:3px"><span class="os-badge ' + dOsCls + '">' + dOsProduct + '</span></div>' +
+               (dOsMetaStr ? '<div class="cpu-meta"><span>' + dOsMetaStr + '</span></div>' : '') +
+             '</div>';
 
     var diskHTML = '';
     if (p.diskInfo.length > 0) {
@@ -5995,6 +6116,7 @@ function renderDetailRow(p, idx, colspan) {
 
     var panelMaterial = '<div class="detail-box">' +
         '<div class="detail-section sec-cpu"><h4>CPU</h4>' + cpuHTML + '</div>' +
+        '<div class="detail-section sec-os"><h4>OS</h4>' + osHTML + '</div>' +
         '<div class="detail-section sec-ram"><h4>M&eacute;moire RAM</h4>' + ramHTML + '</div>' +
         '<div class="detail-section sec-gpu"><h4>GPU &amp; Drivers</h4>' + gpuHTML + '</div>' +
         '<div class="detail-section sec-throttle"><h4>CPU Throttling</h4>' + throttleHTML + '</div>' +
@@ -6035,6 +6157,7 @@ function exportCSV() {
     var visible = allEnriched.filter(function(p) {
         if (state.siteFilter && p.pc.Site !== state.siteFilter) return false;
         if (state.cpuFilter  && p.pc.CPUAgeCategory !== state.cpuFilter) return false;
+        if (state.osFilter   && p.pc.OSProduct !== state.osFilter) return false;
         if (searchTerm) {
             if (p.pc.PC.toLowerCase().indexOf(searchTerm) === -1 &&
                 (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) === -1) return false;
@@ -6048,7 +6171,8 @@ function exportCSV() {
     sortPCs(visible);
 
     var headers = ['PC', 'Site', 'IP', 'Utilisateur', 'Statut', 'Connexion', 'CPU', 'CategorieCPU',
-                   'AnneeCPU', 'UptimeJours', 'DerniereActivite', 'Score',
+                   'AnneeCPU', 'OS', 'OSBuild', 'OSVersion', 'OSEdition',
+                   'UptimeJours', 'DerniereActivite', 'Score',
                    'Crash', 'BSOD',
                    'WHEA_Fatal', 'WHEA_Corrected_Occurrences', 'WHEA_Corrected_Signatures',
                    'GPU_TDR', 'Thermal',
@@ -6109,6 +6233,7 @@ function exportCSV() {
             pc.IsOffline ? 'OFFLINE' : 'OK',
             pc.ConnectionType || '',
             pc.CPUName || '', pc.CPUAgeCategory || '', pc.CPUYear || '',
+            pc.OSProduct || '', (pc.OSBuild != null ? pc.OSBuild : ''), pc.OSDisplayVersion || '', pc.OSEdition || '',
             pc.UptimeDays != null ? pc.UptimeDays : '',
             pc.CollectedAt, p.score,
             p.crashCount, p.bsodCount,
@@ -6146,6 +6271,7 @@ function exportCSV() {
 
 // ===== INIT =====
 initSiteDropdown();
+initOsDropdown();
 var initBtn = document.querySelectorAll('.range-btn')[3];
 state.daysBtn = initBtn;
 initBtn.classList.add('active');

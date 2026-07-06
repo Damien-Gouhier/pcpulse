@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v2.2.0
+    PCPulse Collector v2.2.1
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,9 +10,24 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.2.0
+    Version      : 2.2.1
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v2.2.1 : Collecte de la version de Windows (10 vs 11) - inventaire parc / migration EOL.
+           Ajout de 4 champs ADDITIFS au bloc Machine (SchemaVersion 2.2 INCHANGEE ; un
+           Dashboard plus ancien ignore ce qu'il ne connait pas) :
+           - OSProduct        : "Windows 11" / "Windows 10" / "Inconnu", DERIVE DU BUILD
+                                (CurrentBuild >= 22000 => 11). On ne se fie PAS a ProductName
+                                ni a Caption (bug connu MS : Win11 se declare souvent "10").
+           - OSBuild          : numero de build (int) - registre CurrentBuildNumber,
+                                fallback Win32_OperatingSystem.BuildNumber.
+           - OSDisplayVersion : feature update ("23H2"/"24H2") - fallback ReleaseId ("1909").
+           - OSEdition        : EditionID brut ("Enterprise"/"Professional"...) ; traduction
+                                en clair cote Dashboard.
+           Le champ OS (= Caption) est conserve tel quel (label indicatif).
+           NB : le champ ne remonte que dans les JSON du NOUVEAU Collector -> pendant le
+           rollout poste-par-poste un poste pas encore migre n'a pas OSProduct (le Dashboard
+           affiche "Inconnu"), meme logique que l'enrichissement crashers.
     v2.2.0 : Generalisation pour publication GitHub (de-vendorise, pilote par config).
            BREAKING - SchemaVersion 2.1 -> 2.2. Le bloc "services critiques" ne
            surveille plus un service code en dur : il lit la cle MonitoredServices
@@ -972,6 +987,41 @@ $chassisInfo = [PSCustomObject]@{
 }
 Write-Log "ChassisType : $chassisLabel (code=$chassisType)"
 
+# ============================================================
+# OS PRODUCT (Windows 10 vs 11) - detection canonique par le BUILD
+#   Contexte : fin de support Windows 10 -> reperer les postes encore
+#   en 10 pour piloter la migration / le risque "non supporte".
+#   PIEGE : ProductName (registre) ET Caption declarent souvent
+#   "Windows 10" meme sur du Windows 11 (bug connu MS). La SEULE methode
+#   fiable = le numero de build : CurrentBuild >= 22000 => Windows 11.
+#   Source autoritaire : registre CurrentVersion (build + feature update
+#   + edition). Fallback build : Win32_OperatingSystem.BuildNumber ($os).
+#   Champs ADDITIFS (bloc Machine) -> SchemaVersion 2.2 INCHANGEE.
+# ============================================================
+$osBuild          = $null
+$osDisplayVersion = ''
+$osEdition        = ''
+try {
+    $cv = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop
+    # CurrentBuildNumber est un REG_SZ ("22631") -> cast entier defensif.
+    if ($cv.CurrentBuildNumber -match '^\d+$') { $osBuild = [int]$cv.CurrentBuildNumber }
+    # DisplayVersion ("23H2"/"24H2") n'existe que depuis Win10 2004 ;
+    # fallback ReleaseId ("1909") pour les builds plus anciens.
+    if     ($cv.DisplayVersion) { $osDisplayVersion = [string]$cv.DisplayVersion }
+    elseif ($cv.ReleaseId)      { $osDisplayVersion = [string]$cv.ReleaseId }
+    # EditionID brut ("Enterprise"/"Professional"...) - traduction cote Dashboard.
+    if ($cv.EditionID) { $osEdition = [string]$cv.EditionID }
+} catch {
+    Write-Log "OS CurrentVersion indisponible : $_"
+}
+# Fallback build si le registre n'a rien donne ($os = CIM deja recupere plus haut).
+if ($null -eq $osBuild -and $os.BuildNumber -match '^\d+$') { $osBuild = [int]$os.BuildNumber }
+# Derivation du produit UNIQUEMENT depuis le build (jamais depuis Caption).
+if     ($null -eq $osBuild) { $osProduct = 'Inconnu' }
+elseif ($osBuild -ge 22000) { $osProduct = 'Windows 11' }
+else                        { $osProduct = 'Windows 10' }
+Write-Log "OS : $osProduct (build=$osBuild, version=$osDisplayVersion, edition=$osEdition)"
+
 # v1.1 : LastBoot et UptimeDays sont initialises avec les valeurs KERNEL
 # (LastBootUpTime de Win32_OperatingSystem). Ces valeurs sont REMPLACEES
 # plus tard par les vraies valeurs utilisateur calculees a partir de
@@ -980,6 +1030,12 @@ $machineInfo = [PSCustomObject]@{
     PC                  = $env:COMPUTERNAME
     CollectedAt         = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
     OS                  = $os.Caption
+    # v2.2.1 : detection Windows 10/11 - ADDITIF (SchemaVersion 2.2 inchangee).
+    # OSProduct est DERIVE DU BUILD (>= 22000 => 11), jamais de Caption/ProductName.
+    OSProduct           = $osProduct
+    OSBuild             = $osBuild
+    OSDisplayVersion    = $osDisplayVersion
+    OSEdition           = $osEdition
     LastBoot            = $kernelLastBoot.ToString('yyyy-MM-dd HH:mm:ss')  # ecrase plus bas
     UptimeDays          = [math]::Round(((Get-Date) - $kernelLastBoot).TotalDays, 1)  # ecrase plus bas
     LastRealColdBoot    = $kernelLastBoot.ToString('yyyy-MM-dd HH:mm:ss')  # NEW v1.1
