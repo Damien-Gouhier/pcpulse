@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v2.2.1
+    PCPulse Dashboard v2.3.0
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,27 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.2.1
+    Version      : 2.3.0
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.3.0 : Release unifiee Collector + Dashboard. Lisibilite (cotes Collector
+           2.3.0). Retro-compatible avec les anciens JSON (fallback JS),
+           SchemaVersion inchangee.
+           - UI : cartes RAM et SMART aerees dans le panel Materiel (etaient
+             tassees en colonne etroite : gaps/polices/largeurs revus, sec-ram
+             et sec-smart elargies).
+           - Utilisateur : affiche LastLoggedUser (dernier user connu) en repli
+             quand CurrentUser = "(aucune session)", en muted + tag "dernier".
+             Recherche et export CSV etendus a ce champ. Embed + KnownMachineKeys
+             + sanitization mis a jour.
+           - Ecrans : un ecran a EDID non transmis (dock/adaptateur/KVM) est
+             libelle "Ecran non identifie" au lieu de "@@@ / 0000", exclu du top
+             fabricants et du calcul d'age, compte dans une tuile dediee. Detection
+             via le flag Identified (Collector 2.3.0) ou, a defaut, la signature
+             EDID nul deduite cote JS (anciens JSON).
+           - RAM : le fabricant JEDEC brut ("80AD000080AD") est decode en clair
+             ("SK Hynix") ; decodage cote JS aussi pour les JSON pas encore
+             reguleres par le Collector 2.3.0.
     v2.2.1 : Inventaire OS (Windows 10 vs 11) - affichage, filtre, coverage-check.
            - Re-mapping PS->embed : 4 champs Machine recopies (OSProduct / OSBuild /
              OSDisplayVersion / OSEdition). Sans cette recopie ils seraient droppes en
@@ -784,6 +802,9 @@ function Test-PCPulseJson {
     if ($data.Machine.PSObject.Properties['CurrentUser']) {
         $data.Machine.CurrentUser = Get-SafeString $data.Machine.CurrentUser
     }
+    if ($data.Machine.PSObject.Properties['LastLoggedUser']) {
+        $data.Machine.LastLoggedUser = Get-SafeString $data.Machine.LastLoggedUser
+    }
     if ($data.Machine.PSObject.Properties['IPAddress']) {
         $data.Machine.IPAddress = Get-SafeString $data.Machine.IPAddress
     }
@@ -1182,7 +1203,7 @@ Write-Host "[+] $($allData.Count) PC(s) charge(s)" -ForegroundColor Green
 # ============================================================
 $KnownMachineKeys = @(
     # --- recopiees dans l'embed ($embedData plus bas) ---
-    'PC','IP','CurrentUser','LastBoot','UptimeDays','CollectedAt',
+    'PC','IP','CurrentUser','LastLoggedUser','LastBoot','UptimeDays','CollectedAt',
     'CPUName','CPUVendor','CPUGen','CPUYear','CPUAge','CPUAgeCategory',
     'ConnectionType','ChassisInfo',
     'OSProduct','OSBuild','OSDisplayVersion','OSEdition',
@@ -1577,6 +1598,8 @@ foreach ($pc in $allData) {
                 AgeYears          = $_.AgeYears
                 Active            = [bool]$_.Active
                 VideoOutputTech   = $_.VideoOutputTech
+                # v5.8 : $true/$false si Collector >= 2.3.0, $null sinon (le JS deduit alors la signature EDID nul)
+                Identified        = if ($_.PSObject.Properties['Identified']) { [bool]$_.Identified } else { $null }
             }
         })
     }
@@ -1602,6 +1625,8 @@ foreach ($pc in $allData) {
                     Type         = ConvertTo-HtmlSafe ([string]$_.Type)
                     SpeedMHz     = if ($null -ne $_.SpeedMHz) { [int]$_.SpeedMHz } else { 0 }
                     Manufacturer = ConvertTo-HtmlSafe ([string]$_.Manufacturer)
+                    # v1.9 : ID JEDEC brut conserve pour l'audit (le JS decode aussi cote client pour les anciens JSON)
+                    ManufacturerRaw = if ($_.PSObject.Properties['ManufacturerRaw']) { ConvertTo-HtmlSafe ([string]$_.ManufacturerRaw) } else { '' }
                     PartNumber   = ConvertTo-HtmlSafe ([string]$_.PartNumber)
                 }
             })
@@ -1627,6 +1652,8 @@ foreach ($pc in $allData) {
         IP               = ConvertTo-HtmlSafe $pc.Machine.IP
         Site             = ConvertTo-HtmlSafe $site
         CurrentUser      = ConvertTo-HtmlSafe $pc.Machine.CurrentUser
+        # v2.3.0 : dernier user connu (repli d'affichage quand CurrentUser = "(aucune session)").
+        LastLoggedUser   = if ($pc.Machine.PSObject.Properties['LastLoggedUser']) { ConvertTo-HtmlSafe ([string]$pc.Machine.LastLoggedUser) } else { '' }
         LastBoot         = ConvertTo-HtmlSafe $pc.Machine.LastBoot
         UptimeDays       = $pc.Machine.UptimeDays
         CollectedAt      = ConvertTo-HtmlSafe $pc.Machine.CollectedAt
@@ -2736,10 +2763,10 @@ $metaRefresh
     .detail-section.sec-battery { border-left-color: var(--green); }
     .detail-section.sec-edr     { border-left-color: var(--purple); }
     .detail-section.sec-bootperf{ border-left-color: var(--orange); }
-    .detail-section.sec-smart   { border-left-color: var(--cyan); }
+    .detail-section.sec-smart   { border-left-color: var(--cyan); min-width: 300px; flex-basis: 320px; }
     .detail-section.sec-monitors { border-left-color: var(--purple); }
     /* v1.8 */
-    .detail-section.sec-ram      { border-left-color: var(--cyan); }
+    .detail-section.sec-ram      { border-left-color: var(--cyan); min-width: 260px; flex-basis: 280px; }
     .detail-section.sec-gpu      { border-left-color: var(--orange); }
     .detail-section.sec-throttle { border-left-color: var(--red); }
 
@@ -2787,16 +2814,18 @@ $metaRefresh
     .ram-modules {
         display: flex;
         flex-direction: column;
-        gap: 3px;
+        gap: 5px;
+        margin-top: 8px;
     }
+    /* v2.3.0-ui : lignes barrettes aerees (etaient trop tassees) */
     .ram-module-row {
         display: flex;
-        gap: 10px;
+        gap: 14px;
         align-items: center;
-        padding: 4px 6px;
+        padding: 7px 10px;
         background: var(--bg-main);
-        border-radius: 4px;
-        font-size: 11px;
+        border-radius: 5px;
+        font-size: 12px;
     }
     .ram-slot-name {
         font-family: ui-monospace, 'SF Mono', Consolas, monospace;
@@ -2813,7 +2842,8 @@ $metaRefresh
         flex: 1;
         min-width: 0;              /* v2.1.7 : autorise le flex item a retrecir sous la largeur du contenu */
         overflow-wrap: anywhere;   /* v2.1.7 : casse un Manufacturer sans espaces (ex "00000000...") au lieu de deborder */
-        font-size: 10px;
+        font-size: 11px;
+        line-height: 1.4;
     }
 
     /* v1.8 : GPU section */
@@ -2944,10 +2974,11 @@ $metaRefresh
     .smart-disk-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
     .smart-disk-name { font-weight: 700; color: var(--text-dim); font-size: 12px; }
     .smart-disk-sub  { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
-    .smart-grid      { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 10.5px; }
-    .smart-kv        { display: flex; justify-content: space-between; }
+    /* v2.3.0-ui : cartes SMART aerees (etaient trop tassees en colonne etroite) */
+    .smart-grid      { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 24px; font-size: 11.5px; margin-top: 4px; }
+    .smart-kv        { display: flex; justify-content: space-between; gap: 14px; padding: 3px 0; line-height: 1.5; }
     .smart-kv .k     { color: var(--text-muted); }
-    .smart-kv .v     { color: var(--text-dim); font-weight: 600; }
+    .smart-kv .v     { color: var(--text-dim); font-weight: 600; text-align: right; }
     .smart-kv .v.ok   { color: var(--green); }
     .smart-kv .v.warn { color: var(--orange); }
     .smart-kv .v.ko   { color: var(--red); }
@@ -3010,6 +3041,14 @@ $metaRefresh
         flex-wrap: wrap;
     }
     .monitor-meta strong { color: var(--text-dim); }
+    /* v5.8 : ecran non identifie (EDID non transmis) - visuellement neutre */
+    .monitor-card.unidentified { border-left: 3px solid var(--text-ghost); opacity: 0.85; }
+    .monitor-card.unidentified .monitor-name { color: var(--text-muted); font-style: italic; }
+    /* v2.3.0 : dernier utilisateur connu (pas de session live) */
+    .user-last { color: var(--text-muted); font-style: italic; }
+    .user-last-tag { font-style: normal; font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px;
+                     color: var(--text-ghost); border: 1px solid var(--border); border-radius: 3px;
+                     padding: 0 4px; margin-left: 6px; vertical-align: middle; }
 
     /* ===== INVENTAIRE MONITORS GLOBAL (panneau bas de page) ===== */
     .monitor-inventory {
@@ -3658,6 +3697,58 @@ function bugCheckName(stopCode) {
 
 // ===== UTILS =====
 function parseDate(s) { return new Date(s.replace(' ', 'T')); }
+
+// v2.3.0 : affichage utilisateur. Session live si presente, sinon dernier
+// utilisateur connu (LastLoggedUser) en muted/italique - equivalent du
+// "last seen" Nexthink, reduit a UNE entree. Les valeurs sont deja HTML-safe.
+function userDisplay(pc) {
+    var cur = pc.CurrentUser || '';
+    if (cur && cur !== '(aucune session)') return cur;
+    var last = pc.LastLoggedUser || '';
+    if (last) {
+        return '<span class="user-last" title="Aucune session active - dernier utilisateur connecte">'
+             + last + '<span class="user-last-tag">dernier</span></span>';
+    }
+    return cur || '';   // '(aucune session)' si vraiment rien
+}
+
+// v5.8 : un ecran est-il identifiable ? Utilise le flag Identified (Collector
+// >= 2.3.0) ; a defaut (ancien JSON) deduit la signature EDID nul (fabricant
+// "@@@" ou vide + code produit nul + pas d'annee). Sert a libeller proprement
+// les ecrans qui passent par un dock/adaptateur ne relayant pas l'EDID.
+function monIsIdentified(mon) {
+    if (mon.Identified === false) return false;
+    if (mon.Identified === true)  return true;
+    var mc = (mon.ManufacturerCode || '').trim();
+    var pc = (mon.ProductCode || '').trim();
+    var badManu = (mc === '' || /^@+$/.test(mc));
+    var badProd = (pc === '' || /^0+$/.test(pc));
+    var noYear  = !mon.YearOfManufacture;
+    return !(badManu && badProd && noYear);
+}
+
+// v1.9 : decode un ID fabricant RAM JEDEC brut cote client (miroir de
+// ConvertFrom-JedecManufacturer du Collector). Permet d'afficher un nom
+// lisible meme sur les anciens JSON pas encore reguleres par le Collector 2.3.0.
+function prettyRamManuf(raw) {
+    if (!raw) return '';
+    var s = ('' + raw).trim();
+    if (!/^[0-9A-Fa-f]+$/.test(s)) return s;   // deja un nom lisible
+    if (/^0+$/.test(s))            return '';   // BIOS non renseigne
+    if (s.length % 2 !== 0)        return s;
+    var map = { 1:'AMD', 11:'Nanya', 44:'Micron', 45:'SK Hynix', 78:'Samsung' };
+    var cont = false;
+    for (var i = 0; i < s.length; i += 2) {
+        var b = parseInt(s.substr(i, 2), 16);
+        if (b === 0x7F) { cont = true; continue; }
+        if (b === 0x00) continue;
+        if (cont) break;
+        var code = b & 0x7F;
+        if (code === 0) continue;
+        if (map[code]) return map[code];
+    }
+    return s;   // code inconnu / banque > 1 : on garde le brut
+}
 // v2.1.2 : formatage lisible d'une duree en secondes (throttling cumule par jour)
 function fmtDuration(sec) {
     if (sec === null || sec === undefined || isNaN(sec) || sec <= 0) return '';
@@ -4417,7 +4508,8 @@ function render() {
         if (state.osFilter   && p.pc.OSProduct !== state.osFilter) return false;
         if (searchTerm) {
             return p.pc.PC.toLowerCase().indexOf(searchTerm) !== -1 ||
-                   (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) !== -1;
+                   (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) !== -1 ||
+                   (p.pc.LastLoggedUser || '').toLowerCase().indexOf(searchTerm) !== -1;
         }
         return true;
     });
@@ -5066,8 +5158,12 @@ function renderMonitorInventory(pcs) {
     var oldCount = 0;
     var ageSum = 0;
     var ageCount = 0;
+    var unidentifiedCount = 0;   // v5.8 : ecrans a EDID non transmis
     allMonitors.forEach(function(item) {
         var m = item.mon;
+        // v5.8 : les ecrans non identifies ne polluent pas le top fabricants
+        // (ni "@@@" ni une entree vide) ; ils sont comptes a part.
+        if (!monIsIdentified(m)) { unidentifiedCount++; return; }
         var key = m.Manufacturer || m.ManufacturerCode || '?';
         manufCount[key] = (manufCount[key] || 0) + 1;
         if (m.AgeYears !== null && m.AgeYears !== undefined) {
@@ -5102,6 +5198,15 @@ function renderMonitorInventory(pcs) {
             '<div class="monitor-inv-label">&Eacute;crans &ge; ' + screenAgeThreshold + ' ans</div>' +
             '<div class="monitor-inv-sub">candidats au renouvellement</div>' +
             '</div>';
+
+    // v5.8 : tuile des ecrans non identifies (EDID non transmis), si presents.
+    if (unidentifiedCount > 0) {
+        html += '<div class="monitor-inv-tile">' +
+                '<div class="monitor-inv-value" style="color:var(--text-muted)">' + unidentifiedCount + '</div>' +
+                '<div class="monitor-inv-label">Non identifi&eacute;s</div>' +
+                '<div class="monitor-inv-sub">EDID non transmis (dock / adaptateur)</div>' +
+                '</div>';
+    }
 
     var manufHtml = topManufs.map(function(m) {
         return '<span class="chip">' + m.name + ' : <strong>' + m.count + '</strong></span>';
@@ -5309,7 +5414,7 @@ function renderTable(pcs) {
             '<td>' + statusBadge + '</td>' +
             siteCell +
             '<td>' + pc.IP + '</td>' +
-            '<td>' + (pc.CurrentUser || '') + '</td>' +
+            '<td>' + userDisplay(pc) + '</td>' +
             '<td>' + connCell + '</td>' +
             '<td>' + cpuCell + '</td>' +
             '<td>' + osCell + '</td>' +
@@ -5831,15 +5936,31 @@ function renderDetailRow(p, idx, colspan) {
         monitorsHTML = '<div class="detail-empty">Aucun &eacute;cran secondaire branch&eacute; (ou Collector &lt; v5.5)</div>';
     } else {
         monitorsList.forEach(function(mon) {
+            var badges = '';
+            if (mon.Active)  badges += '<span class="mon-badge active">Actif</span>';
+            else             badges += '<span class="mon-badge inactive">D&eacute;branch&eacute;</span>';
+
+            // v5.8 : ecran dont l'EDID n'est pas transmis (dock / adaptateur / KVM).
+            // On l'affiche honnetement plutot que "@@@ / 0000" : c'est un ecran
+            // reel, juste non identifiable. Hors calcul d'age (pas d'annee fiable).
+            if (!monIsIdentified(mon)) {
+                monitorsHTML += '<div class="monitor-card unidentified">' +
+                    '<div class="monitor-head">' +
+                      '<div class="monitor-name">&Eacute;cran non identifi&eacute;' +
+                        '<div class="monitor-manuf">EDID non transmis (dock / adaptateur / KVM)</div>' +
+                      '</div>' +
+                      '<div class="monitor-badges">' + badges + '</div>' +
+                    '</div>' +
+                    '</div>';
+                return;
+            }
+
             var isOld = (mon.AgeYears !== null && mon.AgeYears !== undefined && mon.AgeYears >= screenAgeThreshold);
             var cardCls = 'monitor-card' + (isOld ? ' old' : '');
             var displayName = mon.Model || mon.ProductCode || '(mod&egrave;le inconnu)';
             var displayManuf = mon.Manufacturer || mon.ManufacturerCode || '?';
 
-            var badges = '';
-            if (mon.Active)  badges += '<span class="mon-badge active">Actif</span>';
-            else             badges += '<span class="mon-badge inactive">D&eacute;branch&eacute;</span>';
-            if (isOld)       badges += '<span class="mon-badge old">' + mon.AgeYears + ' ans</span>';
+            if (isOld) badges += '<span class="mon-badge old">' + mon.AgeYears + ' ans</span>';
 
             var metaParts = [];
             if (mon.SerialNumber) metaParts.push('S/N : <strong>' + mon.SerialNumber + '</strong>');
@@ -5895,7 +6016,10 @@ function renderDetailRow(p, idx, colspan) {
                 var metaParts = [];
                 if (mod.Type)         metaParts.push(mod.Type);
                 if (mod.SpeedMHz > 0) metaParts.push(mod.SpeedMHz + ' MHz');
-                if (mod.Manufacturer) metaParts.push(mod.Manufacturer);
+                // v1.9 : decodage JEDEC cote client (couvre les anciens JSON pas
+                // encore reguleres par le Collector 2.3.0).
+                var ramManuf = prettyRamManuf(mod.Manufacturer);
+                if (ramManuf) metaParts.push(ramManuf);
                 ramHTML += '<div class="ram-module-row">' +
                              '<span class="ram-slot-name">' + (mod.Slot || '?') + '</span>' +
                              '<span class="ram-capacity">' + mod.CapacityGB + ' Go</span>' +
@@ -6160,7 +6284,8 @@ function exportCSV() {
         if (state.osFilter   && p.pc.OSProduct !== state.osFilter) return false;
         if (searchTerm) {
             if (p.pc.PC.toLowerCase().indexOf(searchTerm) === -1 &&
-                (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) === -1) return false;
+                (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) === -1 &&
+                (p.pc.LastLoggedUser || '').toLowerCase().indexOf(searchTerm) === -1) return false;
         }
         if (!matchKpiFilter(p, state.kpiFilter)) return false;
         if (state.maskHealthy && state.kpiFilter !== 'anomaly' && p.score === 0) return false;
@@ -6221,6 +6346,7 @@ function exportCSV() {
         var monList = '';
         if (monCount > 0) {
             monList = p.monitors.map(function(m) {
+                if (!monIsIdentified(m)) return 'Ecran non identifie (EDID non transmis)';
                 var s = (m.Manufacturer || '?') + ' ' + (m.Model || m.ProductCode || '?');
                 if (m.SerialNumber) s += ' [SN:' + m.SerialNumber + ']';
                 if (m.YearOfManufacture) s += ' (' + m.YearOfManufacture + ')';
@@ -6228,8 +6354,11 @@ function exportCSV() {
             }).join(' | ');
         }
 
+        var csvUser = (pc.CurrentUser && pc.CurrentUser !== '(aucune session)')
+            ? pc.CurrentUser
+            : (pc.LastLoggedUser ? pc.LastLoggedUser + ' (dernier)' : (pc.CurrentUser || ''));
         var row = [
-            pc.PC, pc.Site, pc.IP, pc.CurrentUser || '',
+            pc.PC, pc.Site, pc.IP, csvUser,
             pc.IsOffline ? 'OFFLINE' : 'OK',
             pc.ConnectionType || '',
             pc.CPUName || '', pc.CPUAgeCategory || '', pc.CPUYear || '',

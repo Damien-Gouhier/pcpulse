@@ -4,9 +4,14 @@
     "PC": "LAPTOP-002",
     "CollectedAt": "2026-07-03 09:00:00",
     "OS": "Microsoft Windows 11 Entreprise",
+    "OSProduct": "Windows 11",
+    "OSBuild": 22631,
+    "OSDisplayVersion": "23H2",
+    "OSEdition": "Entreprise",
     "LastBoot": "2026-07-03 06:12:00",
     "UptimeDays": 0.1,
     "CurrentUser": "camille.bernard",
+    "LastLoggedUser": "camille.bernard",
     "IP": "10.10.1.58",
     "CPUName": "Intel(R) Core(TM) i7-10750H",
     "CPUVendor": "Intel",
@@ -399,7 +404,8 @@
       "WeekOfManufacture": 42,
       "AgeYears": 5,
       "Active": true,
-      "VideoOutputTech": 5
+      "VideoOutputTech": 5,
+      "Identified": true
     }
   ],
   "TopCrashers": [
@@ -585,23 +591,21 @@
         "Slot": "DIMM A",
         "Bank": "BANK 0",
         "CapacityGB": 8,
-        "TypeCode": 26,
         "Type": "DDR4",
-        "SpeedMTs": 2666,
+        "SpeedMHz": 2666,
         "Manufacturer": "SK Hynix",
-        "PartNumber": "HMA81GS6CJR8N-VK",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "80AD000080AD",
+        "PartNumber": "HMA81GS6CJR8N-VK"
       },
       {
         "Slot": "DIMM B",
         "Bank": "BANK 2",
         "CapacityGB": 8,
-        "TypeCode": 26,
         "Type": "DDR4",
-        "SpeedMTs": 2666,
+        "SpeedMHz": 2666,
         "Manufacturer": "SK Hynix",
-        "PartNumber": "HMA81GS6CJR8N-VK",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "80AD000080AD",
+        "PartNumber": "HMA81GS6CJR8N-VK"
       }
     ]
   },

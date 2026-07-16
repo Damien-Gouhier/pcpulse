@@ -115,7 +115,7 @@ Dashboard, la liste `PriorityApps` (« à investiguer en priorité »), et la
 ### 2.2 `ip-ranges.csv` — optionnel (colonne Site)
 
 Si tu veux la colonne **Site**, copie `ip-ranges.example.csv` en `ip-ranges.csv` sur
-le partage. Le Dashboard 2.2 mappe les sites **par plage IP (CIDR) uniquement**, sur
+le partage. Le Dashboard mappe les sites **par plage IP (CIDR) uniquement**, sur
 l'IP de la machine :
 
 ```csv

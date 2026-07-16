@@ -13,7 +13,7 @@
     SeuilBootMax         = 30      # borne haute anti-aberrations (minutes)
 
     # ---- Seuils Dashboard ----
-    SeuilDiskAlert       = 10      # % espace libre -> alerte disque
+    SeuilDiskAlert       = 10      # % espace libre -> alerte disque (lu AUSSI par le Collector)
     SeuilCrashRecent     = 7       # fenetre "crash recent" (jours)
     SeuilDiskWarning     = 25      # % espace libre -> warning disque
     SeuilOfflineJours    = 1       # aucune remontee depuis N jours -> offline
@@ -72,5 +72,18 @@
         Battery      = 1   # batterie usee
         BootPerfSlow = 1   # boot lent (perf)
         DiskHealth   = 3   # SMART / usure disque
+    }
+
+    # ---- Killswitch (lu par PCPulse-Updater.ps1) ----
+    # Permet de desinstaller PCPulse a distance : l'admin depose un fichier
+    # sentinelle nomme <Filename> dans le sous-dossier release\ du share, contenant
+    # exactement la <Phrase>. Chaque poste, a son prochain cycle, se desinstalle et
+    # ecrit un rapport dans killed\<HOST>.txt. Bloc OPTIONNEL : sans lui, les
+    # defauts ci-dessous s'appliquent. EN PRODUCTION, personnalisez Filename ET
+    # Phrase (valeurs non publiques) pour eviter tout declenchement accidentel.
+    KillSwitch = @{
+        Enabled  = $true
+        Filename = 'KILLSWITCH.txt'                # defaut public - a personnaliser en prod
+        Phrase   = 'CONFIRM-UNINSTALL-PCPULSE'     # defaut public - a personnaliser en prod
     }
 }

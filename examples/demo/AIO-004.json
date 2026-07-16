@@ -4,9 +4,14 @@
     "PC": "AIO-004",
     "CollectedAt": "2026-07-03 09:00:00",
     "OS": "Microsoft Windows 11 Pro",
+    "OSProduct": "Windows 11",
+    "OSBuild": 22631,
+    "OSDisplayVersion": "23H2",
+    "OSEdition": "Pro",
     "LastBoot": "2026-07-01 09:03:00",
     "UptimeDays": 2.0,
     "CurrentUser": "sophie.moreau",
+    "LastLoggedUser": "sophie.moreau",
     "IP": "10.20.1.150",
     "CPUName": "Intel(R) Core(TM) i7-11700",
     "CPUVendor": "Intel",
@@ -179,7 +184,8 @@
       "WeekOfManufacture": 14,
       "AgeYears": 8,
       "Active": true,
-      "VideoOutputTech": 10
+      "VideoOutputTech": 10,
+      "Identified": true
     }
   ],
   "TopCrashers": [],
@@ -238,23 +244,21 @@
         "Slot": "DIMM 0",
         "Bank": "BANK 0",
         "CapacityGB": 8,
-        "TypeCode": 26,
         "Type": "DDR4",
-        "SpeedMTs": 3200,
+        "SpeedMHz": 3200,
         "Manufacturer": "Kingston",
-        "PartNumber": "KCP432SS8/8",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "",
+        "PartNumber": "KCP432SS8/8"
       },
       {
         "Slot": "DIMM 1",
         "Bank": "BANK 1",
         "CapacityGB": 8,
-        "TypeCode": 26,
         "Type": "DDR4",
-        "SpeedMTs": 3200,
+        "SpeedMHz": 3200,
         "Manufacturer": "Kingston",
-        "PartNumber": "KCP432SS8/8",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "",
+        "PartNumber": "KCP432SS8/8"
       }
     ]
   },

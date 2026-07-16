@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v2.2.1
+    PCPulse Collector v2.3.0
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,9 +10,45 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.2.1
+    Version      : 2.3.0
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v2.3.0 : Release unifiee Collector + Dashboard (retour au numero commun de
+           la 2.2.0). Cote Collector, trois ameliorations de qualite de donnee,
+           toutes ADDITIVES (SchemaVersion INCHANGEE "2.2") :
+           1. RAM (MemoryInventory v1.9) : Manufacturer decode depuis l'ID JEDEC
+              brut ("80AD000080AD" -> "SK Hynix"). ID brut conserve dans le champ
+              additif ManufacturerRaw.
+           2. Machine.LastLoggedUser (additif) : dernier utilisateur ayant ouvert
+              une session (cle LogonUI). Repli d'affichage quand CurrentUser vaut
+              "(aucune session)".
+           3. Monitors (v5.8) : detection des ecrans dont l'EDID n'est pas transmis
+              (dock/adaptateur/KVM : "@@@" / code 0000 / serie 0). Fallback de
+              lecture EDID dans le registre ; a defaut, champ additif Identified=
+              $false + neutralisation des valeurs parasites. Ecrans non identifies
+              hors calcul d'age (comme avant).
+           (Historique interne : le parc a ete deploye sous les etiquettes 2.2.2 a
+           2.2.4 ; la release publique regroupe le tout en 2.3.0.)
+    v2.2.3 : Fix de Invoke-LogCleanup (rotation du log machine sur le share).
+           Le split se faisait sur "`n" seul -> chaque ligne gardait son \r et le
+           rejoin recollait la ligne suivante, faussant le tri par date : le log
+           ne s'elaguait pas de facon fiable. Corrige (split "`r?`n", TrimEnd,
+           rejoin CRLF + newline final). SchemaVersion INCHANGEE ("2.2").
+    v2.2.2 : Publication atomique du JSON sur le share (fix JSON tronque cote Dashboard).
+           Contrat de schema INCHANGE (SchemaVersion reste "2.2") : seule la facon
+           d'ecrire le fichier final change, aucun champ touche.
+           - Probleme : les etapes 2/3 ecrivaient DIRECTEMENT sur le nom final via
+             Copy-Item -Force puis WriteAllText. Ecriture non atomique : le fichier
+             existe a moitie ecrit quelques ms pendant la copie, et le Dashboard qui
+             scanne le share pouvait le lire en plein milieu -> JSON tronque rejete
+             par les sanity-checks (1 PC absent du rapport ce run-la). Transitoire
+             (le run suivant reecrit le fichier entier) mais parasite.
+           - Correctif : on remplit un fichier temporaire UNIQUE dans le meme dossier
+             du share, puis on bascule sur le nom final par un renommage atomique
+             (IO.File.Replace si la cible existe, sinon IO.File.Move au 1er passage).
+             Un lecteur voit alors soit l'ancien fichier complet soit le nouveau
+             complet, jamais un tronque. Le buffer local (etape 1) est inchange, donc
+             la resilience est conservee. Le .tmp est nettoye si la bascule echoue.
     v2.2.1 : Collecte de la version de Windows (10 vs 11) - inventaire parc / migration EOL.
            Ajout de 4 champs ADDITIFS au bloc Machine (SchemaVersion 2.2 INCHANGEE ; un
            Dashboard plus ancien ignore ce qu'il ne connait pas) :
@@ -472,14 +508,16 @@ function Invoke-LogCleanup {
     try {
         $cutoff = (Get-Date).AddDays(-$HistoriqueJours).ToString('yyyy-MM-dd')
         $content = Get-Content -Path $logFile -Raw -ErrorAction Stop
-        $filtrees = $content -split "`n" | Where-Object {
-            if ($_.Length -ge 10) {
-                $dateLigne = $_.Substring(0, 10)
-                $dateLigne -ge $cutoff
-            }
+        # Decoupe tolerante CRLF/LF puis retrait du \r residuel en bout de ligne.
+        # (Avant : split sur "`n" seul -> chaque ligne gardait son \r, et le rejoin
+        #  sur "`n" recollait la ligne suivante en cassant le tri par date.)
+        $lignes = $content -split "`r?`n"
+        $filtrees = foreach ($l in $lignes) {
+            $ligne = $l.TrimEnd("`r")
+            if (($ligne.Length -ge 10) -and ($ligne.Substring(0, 10) -ge $cutoff)) { $ligne }
         }
-        # Ecriture UTF-8 sans BOM pour rester coherent avec Write-Log
-        $finalText = if ($filtrees) { ($filtrees -join "`n") } else { '' }
+        # Reecriture CRLF avec newline final, UTF-8 sans BOM (coherent avec Write-Log)
+        $finalText = if ($filtrees) { ($filtrees -join "`r`n") + "`r`n" } else { '' }
         [System.IO.File]::WriteAllText($logFile, $finalText, [System.Text.UTF8Encoding]::new($false))
     } catch {
         # On ne bloque pas le Collector si le cleanup echoue
@@ -554,6 +592,36 @@ function Get-CurrentInteractiveUser {
     }
 
     return '(aucune session)'
+}
+
+# v2.3.0 : dernier utilisateur ayant ouvert une session interactive.
+# Quand CurrentUser = "(aucune session)" (poste fraichement demarre, personne
+# connecte au moment du run), on veut quand meme afficher la derniere personne
+# connue - comportement equivalent au "last seen" de Nexthink, mais reduit a
+# UNE seule entree (la plus recente), pas un historique.
+# Source : cle LogonUI, renseignee par Windows a chaque ouverture de session
+# interactive. Format "DOMAINE\user" -> on strippe le domaine pour rester
+# coherent avec l'affichage de CurrentUser. Champ ADDITIF (SchemaVersion 2.2
+# inchangee) : le Dashboard s'en sert en repli, jamais en remplacement.
+function Get-LastLoggedUser {
+    try {
+        $key   = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI'
+        $props = Get-ItemProperty -Path $key -ErrorAction Stop
+        $name  = $null
+        if ($props.PSObject.Properties['LastLoggedOnSAMUser'] -and $props.LastLoggedOnSAMUser) {
+            $name = [string]$props.LastLoggedOnSAMUser
+        } elseif ($props.PSObject.Properties['LastLoggedOnUser'] -and $props.LastLoggedOnUser) {
+            $name = [string]$props.LastLoggedOnUser
+        }
+        if ($name) {
+            # Strippe "DOMAINE\" ou ".\" pour ne garder que le username.
+            $name = $name -replace '^[^\\]*\\', ''
+            if ($name) { return $name }
+        }
+    } catch {
+        # Cle absente / illisible : pas de dernier user connu.
+    }
+    return ''
 }
 
 # Analyse le nom d'un CPU et en deduit :
@@ -1041,6 +1109,8 @@ $machineInfo = [PSCustomObject]@{
     LastRealColdBoot    = $kernelLastBoot.ToString('yyyy-MM-dd HH:mm:ss')  # NEW v1.1
     FastStartupEnabled  = $null  # rempli plus bas (registry)
     CurrentUser         = Get-CurrentInteractiveUser
+    # v2.3.0 : dernier user connu (repli d'affichage quand aucune session live). ADDITIF.
+    LastLoggedUser      = Get-LastLoggedUser
     IP                  = $currentIP
     CPUName             = $cpuName
     CPUVendor           = $cpu.Vendor
@@ -2182,6 +2252,68 @@ function ConvertFrom-EdidBytes {
     }
 }
 
+# v5.8 : fallback quand WMI (WmiMonitorID) ne renvoie pas d'EDID exploitable
+# (ecran passant par un dock / adaptateur / KVM qui ne relaie pas l'EDID :
+# le fabricant se decode a "@@@", code produit et serie a zero). Windows garde
+# parfois un blob EDID en cache dans le registre, issu d'un branchement direct
+# anterieur. On tente de le relire et de le decoder nous-memes.
+#
+# WmiMonitorID.InstanceName = "DISPLAY\<PnP>\<inst>_0" ; la cle Enum du registre
+# n'a PAS le suffixe "_N" -> on le retire.
+function Get-EdidFromRegistry {
+    param([string]$InstanceName)
+    if ([string]::IsNullOrWhiteSpace($InstanceName)) { return $null }
+    $regInst = $InstanceName -replace '_\d+$', ''
+    $path = "HKLM:\SYSTEM\CurrentControlSet\Enum\$regInst\Device Parameters"
+    try {
+        $edid = (Get-ItemProperty -Path $path -Name 'EDID' -ErrorAction Stop).EDID
+        if ($edid -and $edid.Length -ge 128) { return [byte[]]$edid }
+    } catch {
+        # Pas d'EDID en cache pour cet ecran.
+    }
+    return $null
+}
+
+# Decode un blob EDID binaire (128 octets) : fabricant (PnP 3 lettres), code
+# produit, annee/semaine de fabrication, nom convivial (descripteur 0xFC).
+# Valide l'entete magique avant tout ; renvoie $null si l'EDID est nul/invalide
+# (on ne remplace jamais du garbage par du garbage).
+function ConvertFrom-EdidBlob {
+    param([byte[]]$Edid)
+    if ($null -eq $Edid -or $Edid.Length -lt 128) { return $null }
+    $magic = @(0,255,255,255,255,255,255,0)
+    for ($i = 0; $i -lt 8; $i++) { if ($Edid[$i] -ne $magic[$i]) { return $null } }
+    # Fabricant : offsets 8-9, big-endian, 3 codes de 5 bits (A=1).
+    $m  = ([int]$Edid[8] -shl 8) -bor [int]$Edid[9]
+    $c1 = (($m -shr 10) -band 0x1F)
+    $c2 = (($m -shr 5)  -band 0x1F)
+    $c3 = ($m -band 0x1F)
+    if ($c1 -eq 0 -and $c2 -eq 0 -and $c3 -eq 0) { return $null }   # EDID encore nul
+    $manu = ('{0}{1}{2}' -f [char](64 + $c1), [char](64 + $c2), [char](64 + $c3))
+    # Code produit : offsets 10-11, little-endian, en hex 4 chiffres.
+    $prod = ('{0:X2}{1:X2}' -f $Edid[11], $Edid[10])
+    # Annee (offset 17, +1990) / semaine (offset 16).
+    $yr = $null; $wk = $null
+    if ($Edid[17] -gt 0) { $yr = 1990 + [int]$Edid[17] }
+    if ($Edid[16] -gt 0 -and $Edid[16] -le 54) { $wk = [int]$Edid[16] }
+    # Nom convivial : descripteur avec tag 0xFC dans la zone 54..125 (blocs de 18).
+    $name = ''
+    for ($d = 54; $d -le 108; $d += 18) {
+        if ($Edid[$d] -eq 0 -and $Edid[$d+1] -eq 0 -and $Edid[$d+3] -eq 0xFC) {
+            $raw  = $Edid[($d+5)..($d+17)]
+            $name = ((-join ($raw | Where-Object { $_ -ge 32 -and $_ -lt 127 } | ForEach-Object { [char]$_ }))).Trim()
+            break
+        }
+    }
+    return [PSCustomObject]@{
+        ManufacturerCode = $manu
+        Model            = $name
+        ProductCode      = $prod
+        Year             = $yr
+        Week             = $wk
+    }
+}
+
 $monitors = [System.Collections.Generic.List[PSCustomObject]]::new()
 try {
     $monIds = @(Get-CimInstance -Namespace 'root\wmi' -ClassName 'WmiMonitorID' -ErrorAction SilentlyContinue)
@@ -2253,20 +2385,61 @@ try {
             }
         }
 
+        # Annee/semaine de fabrication (si non expose, reste a null)
+        $year  = if ($m.YearOfManufacture) { [int]$m.YearOfManufacture } else { $null }
+        $week  = if ($m.WeekOfManufacture) { [int]$m.WeekOfManufacture } else { $null }
+
+        # -------------------------------------------------------
+        # v5.8 : EDID non transmis (dock / adaptateur / KVM).
+        # Signature : fabricant nul ("@@@" = code PNP 0) ET code produit nul
+        # ("0000") ET pas d'annee. L'ecran est bien branche (Active), mais on
+        # ne peut pas l'identifier via WMI. On tente un fallback registre ;
+        # a defaut, on le marque Identified=$false et on neutralise les
+        # valeurs parasites (le Dashboard le libelle proprement).
+        # -------------------------------------------------------
+        $edidUnusable = (
+            ([string]::IsNullOrWhiteSpace($manuCode) -or $manuCode -match '^@+$') -and
+            ([string]::IsNullOrWhiteSpace($prodCode) -or $prodCode -match '^0+$') -and
+            (-not $year)
+        )
+        $identified = -not $edidUnusable
+        if ($edidUnusable) {
+            $fb = $null
+            $blob = Get-EdidFromRegistry -InstanceName $instName
+            if ($blob) { $fb = ConvertFrom-EdidBlob -Edid $blob }
+            if ($fb) {
+                if ($fb.ManufacturerCode) { $manuCode = $fb.ManufacturerCode }
+                if ($fb.Model)            { $model    = $fb.Model }
+                if ($fb.ProductCode)      { $prodCode = $fb.ProductCode }
+                if ($null -ne $fb.Year)   { $year     = $fb.Year }
+                if ($null -ne $fb.Week)   { $week     = $fb.Week }
+                $identified = ($manuCode -and $manuCode -notmatch '^@+$')
+                Write-Log "  Monitor EDID absent en WMI, recupere via le registre : $manuCode $model"
+            } else {
+                Write-Log "  Monitor EDID non transmis (dock/adaptateur/KVM), non identifie"
+            }
+        }
+
         # Traduction code fabricant -> nom lisible
         $manuName = $manuCode
         if ($manuCode -and $EdidManufacturers.ContainsKey($manuCode)) {
             $manuName = $EdidManufacturers[$manuCode]
         }
 
-        # Annee/semaine de fabrication (si non expose, reste a 0)
-        $year  = if ($m.YearOfManufacture) { [int]$m.YearOfManufacture } else { $null }
-        $week  = if ($m.WeekOfManufacture) { [int]$m.WeekOfManufacture } else { $null }
-
         # Calcul de l'age (en annees) pour detecter les ecrans anciens
         $ageYears = $null
         if ($year -and $year -gt 1990 -and $year -lt 2100) {
             $ageYears = (Get-Date).Year - $year
+        }
+
+        # Si toujours non identifie, on neutralise les valeurs parasites
+        # (@@@, 0000, S/N 0) : on garde ManufacturerCode brut pour l'audit,
+        # mais on n'expose pas de faux identifiants au Dashboard.
+        if (-not $identified) {
+            $manuName = ''
+            $model    = ''
+            $serial   = ''
+            $prodCode = ''
         }
 
         $monitors.Add([PSCustomObject]@{
@@ -2281,6 +2454,8 @@ try {
             Active            = [bool]$m.Active
             # VideoOutputTechnology : null si WmiMonitorConnectionParams KO
             VideoOutputTech   = $videoTech
+            # v5.8 : $false si EDID non exploitable (ni WMI ni registre)
+            Identified        = $identified
         })
     }
 
@@ -2293,13 +2468,58 @@ try {
 }
 
 # ============================================================
-# 12c. MEMORY INVENTORY (v1.8)
+# 12c. MEMORY INVENTORY (v1.9)
 #      - Win32_PhysicalMemoryArray : capacite max supportee par la
 #        carte mere + nombre de slots total.
 #      - Win32_PhysicalMemory       : detail des barrettes presentes
 #        (taille, type DDRx, vitesse, fabricant, banque/slot).
 #      - Permet de decider : upgrade possible (slots libres ou
 #        barrette plus grosse) vs remplacement du PC.
+#      - v1.9 : Manufacturer decode depuis l'ID JEDEC brut (ex "80AD000080AD"
+#        -> "SK Hynix"). Certains BIOS ne renseignent pas le nom du fabricant
+#        et laissent l'ID JEP106 hexadecimal, illisible au Dashboard. On le
+#        traduit ; l'ID brut est conserve dans ManufacturerRaw (additif).
+# ============================================================
+
+# Table JEDEC JEP106 (banque 1) des fabricants de DRAM courants du parc
+# Dell / HP. Cle = code 7 bits (octet & 0x7F), valeur = nom lisible.
+# Volontairement limite a la banque 1 (pas d'octet de continuation 0x7F) :
+# un code inconnu OU une banque > 1 => on garde la chaine brute, on n'invente
+# jamais un fabricant. Table extensible au besoin.
+$JedecBank1 = @{
+    0x01 = 'AMD'
+    0x0B = 'Nanya'
+    0x2C = 'Micron'
+    0x2D = 'SK Hynix'
+    0x4E = 'Samsung'
+}
+
+# Helper : decode l'ID fabricant d'une barrette.
+#   - deja un nom lisible (contient un caractere non hexadecimal) -> tel quel
+#   - tout a zero ("0000...") -> chaine vide (BIOS non renseigne)
+#   - flux hexadecimal = ID JEDEC brut -> decodage banque 1
+function ConvertFrom-JedecManufacturer {
+    param([string]$Raw)
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return '' }
+    $s = $Raw.Trim()
+    if ($s -notmatch '^[0-9A-Fa-f]+$') { return $s }   # nom deja lisible
+    if ($s -match '^0+$')              { return '' }    # BIOS non renseigne
+    if ($s.Length % 2 -ne 0)           { return $s }    # pas un flux d'octets propre
+    $hasContinuation = $false
+    for ($i = 0; $i -lt $s.Length; $i += 2) {
+        $b = [Convert]::ToInt32($s.Substring($i, 2), 16)
+        if ($b -eq 0x7F) { $hasContinuation = $true; continue }  # marqueur banque > 1
+        if ($b -eq 0x00) { continue }
+        if ($hasContinuation) { break }   # on ne decode que la banque 1
+        $code = $b -band 0x7F
+        if ($code -eq 0) { continue }
+        if ($JedecBank1.ContainsKey($code)) { return $JedecBank1[$code] }
+    }
+    return $s   # code inconnu ou banque > 1 : on garde le brut (pas d'invention)
+}
+
+# ============================================================
+# MEMORY INVENTORY
 # ============================================================
 $memoryInventory = [PSCustomObject]@{
     TotalInstalledGB = 0
@@ -2333,14 +2553,21 @@ try {
         $typeCode = [int]($m.SMBIOSMemoryType)
         $typeStr  = if ($typeMap.ContainsKey($typeCode)) { $typeMap[$typeCode] } else { "Type=$typeCode" }
 
+        # v1.9 : decodage de l'ID fabricant. On garde le brut dans
+        # ManufacturerRaw (additif) et on expose le nom lisible dans
+        # Manufacturer (retro-compatible : le Dashboard lit deja ce champ).
+        $manuRaw  = ($m.Manufacturer -replace '\s+$', '')
+        $manuName = ConvertFrom-JedecManufacturer -Raw $manuRaw
+
         $memoryInventory.Modules += [PSCustomObject]@{
-            Slot         = $m.DeviceLocator
-            Bank         = $m.BankLabel
-            CapacityGB   = [math]::Round($m.Capacity / 1GB, 0)
-            Type         = $typeStr
-            SpeedMHz     = [int]$m.Speed
-            Manufacturer = ($m.Manufacturer -replace '\s+$', '')
-            PartNumber   = ($m.PartNumber   -replace '\s+$', '')
+            Slot            = $m.DeviceLocator
+            Bank            = $m.BankLabel
+            CapacityGB      = [math]::Round($m.Capacity / 1GB, 0)
+            Type            = $typeStr
+            SpeedMHz        = [int]$m.Speed
+            Manufacturer    = $manuName
+            ManufacturerRaw = $manuRaw
+            PartNumber      = ($m.PartNumber -replace '\s+$', '')
         }
     }
     $memoryInventory.TotalInstalledGB = [math]::Round($totalBytes / 1GB, 0)
@@ -2878,29 +3105,55 @@ try {
     Write-Log "Erreur ecriture buffer local : $_"
 }
 
-# --- Etape 2 : copier le buffer sur le share ---
-# On NE copie que si le buffer vient d'etre ecrit avec succes.
-# Sinon on tentera une ecriture directe sur le share en etape 3.
+# --- Etapes 2/3 : PUBLICATION ATOMIQUE sur le share ---
+# Avant : les deux etapes ecrivaient DIRECTEMENT sur le nom final ($outputFile).
+# Une ecriture non atomique laisse le fichier visible a moitie ecrit -> le
+# Dashboard, qui scanne le share, peut le lire en plein milieu -> JSON tronque
+# rejete par les sanity-checks. Correctif : on remplit un fichier temporaire
+# UNIQUE dans le meme dossier, puis on bascule sur le nom final par un
+# renommage atomique. Un lecteur voit soit l'ancien complet, soit le nouveau
+# complet, jamais un tronque. Le buffer local (etape 1) reste la resilience.
+$shareTmp = "$outputFile.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+$tmpReady = $false
+
+# (1) Remplir le tmp : depuis le buffer local si dispo, sinon serialisation directe
 if ($bufferWritten) {
     try {
-        Copy-Item -Path $localBuffer -Destination $outputFile -Force -ErrorAction Stop
-        $shareWritten = $true
+        Copy-Item -Path $localBuffer -Destination $shareTmp -Force -ErrorAction Stop
+        $tmpReady = $true
     } catch {
-        Write-Log "Erreur copie buffer vers share : $_"
+        Write-Log "Erreur copie buffer vers tmp share : $_"
+    }
+}
+if (-not $tmpReady) {
+    try {
+        [System.IO.File]::WriteAllText($shareTmp, $jsonContent, $utf8NoBom)
+        $tmpReady = $true
+        Write-Log "Tmp share ecrit en direct (sans buffer local)"
+    } catch {
+        Write-Log "Erreur ecriture directe tmp share : $_"
     }
 }
 
-# --- Etape 3 : fallback - ecriture directe sur le share ---
-# Utilisee si l'etape 1 OU l'etape 2 a echoue.
-# On sacrifie la resilience buffer mais on evite la corruption silencieuse.
-if (-not $shareWritten) {
+# (2) Bascule ATOMIQUE tmp -> nom final
+if ($tmpReady) {
     try {
-        [System.IO.File]::WriteAllText($outputFile, $jsonContent, $utf8NoBom)
+        if (Test-Path -LiteralPath $outputFile) {
+            # Replace = renommage atomique avec remplacement (ReplaceFile Win32)
+            [System.IO.File]::Replace($shareTmp, $outputFile, $null, $true)
+        } else {
+            # 1re ecriture : pas de cible a remplacer
+            [System.IO.File]::Move($shareTmp, $outputFile)
+        }
         $shareWritten = $true
-        Write-Log "Ecriture directe sur share OK (sans buffer local)"
     } catch {
-        Write-Log "Erreur ecriture directe share : $_"
+        Write-Log "Erreur bascule atomique tmp -> final : $_"
     }
+}
+
+# (3) Nettoyage du tmp s'il reste (bascule non faite)
+if (Test-Path -LiteralPath $shareTmp) {
+    try { Remove-Item -LiteralPath $shareTmp -Force -ErrorAction SilentlyContinue } catch {}
 }
 
 # --- Bilan final ---
