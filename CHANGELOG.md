@@ -54,6 +54,11 @@ lisible).
 - **Rotation du log machine** (`Invoke-LogCleanup`) : gestion CRLF corrigée (le
   log ne s'élaguait pas de façon fiable).
 
+### 🔒 Sécurité / déploiement (scripts d'installation)
+
+- **Updater (1.3)** : self-update de l'agent par SHA256 ; nettoyage automatique des traces post-déploiement sur les postes ; journal déplacé sur le partage (plus aucun log local sur le poste) ; ACL du dossier runtime durcies (SYSTEM + Administrateurs).
+- **Install-Client (2.3)** : auto-nettoyage du dossier source en fin d'installation + ACL durcies dès l'installation.
+
 ---
 
 ## [2.2.0]
