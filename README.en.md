@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.3.0-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.3.2-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Zero-dependency Windows fleet monitoring.**

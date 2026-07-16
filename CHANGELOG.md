@@ -13,6 +13,64 @@ ce fichier consolide les évolutions notables au niveau du projet.
 
 ---
 
+## [2.3.2]
+
+**Correctif critique** + affinage backlog. **Schéma JSON inchangé (`2.2`)**,
+additif et rétrocompatible. (Regroupe le lot testé sous l'étiquette interne 2.3.1
++ les finitions suivantes ; publié en 2.3.2 pour déclencher proprement
+l'auto-update du parc.)
+
+### Corrigé — critique (production)
+
+- **Publication du JSON sur le partage réparée.** L'écriture « atomique » via
+  `[System.IO.File]::Replace` échoue sur un chemin réseau UNC/SMB (« le chemin
+  d'accès n'a pas une forme conforme ») : l'export échouait à chaque exécution,
+  les fichiers du partage n'étaient plus mis à jour (postes « figés » côté
+  tableau de bord) et les journaux gonflaient sans fin. Repli sur un renommage
+  compatible SMB (`Move-Item -Force`) quand le renommage atomique n'est pas
+  supporté.
+- **Plafond de taille des journaux.** La rotation ne purgeait que par ancienneté
+  (30 jours), sans limite de taille : un poste en échec répété voyait son journal
+  atteindre plusieurs Go et saturer le partage. Ajout d'un plafond (troncature de
+  la fin au-delà d'un seuil) qui s'auto-répare à l'exécution suivante.
+
+### Ajouté
+
+- **Lisibilité des crashers** (drill-down) : « X plantés / Y figés », origine
+  déduite du module fautif (application / interne mémoire-système / .NET /
+  conflit de composant) et code d'exception traduit en clair
+  (`0xc0000005` → accès mémoire invalide, etc.). Plus aucun code brut ni « hang »
+  affiché ; le détail technique reste en infobulle pour l'administrateur.
+- **`CollectorRunAs`** : compte réel d'exécution de l'agent (écrit à chaque
+  relevé), exporté dans le CSV — permet d'auditer le compte de service utilisé
+  sur tout le parc sans se connecter aux postes.
+- **Jusqu'à 25 applications en échec** listées par poste (au lieu de 10) — la
+  limite tronquait les postes cumulant beaucoup d'applications distinctes.
+
+### Sécurité / robustesse
+
+- **Cast strict des champs numériques** du Dashboard (défense en profondeur) :
+  un champ censé être un nombre est forcé au type numérique (ou `null`), jamais
+  interprété comme du texte.
+- **Garde-fou de complétude** étendu aux sous-objets (crashers, erreurs
+  matérielles, moniteurs, disques, barrettes mémoire) : un champ ajouté au
+  collecteur mais oublié à l'affichage est signalé à la génération.
+- **Fusion de configuration récursive** : un `ScoreWeights` partiel dans
+  `config.psd1` ne remet plus à zéro (en silence) les poids non redéfinis ; seuls
+  les poids explicitement fournis sont surchargés.
+
+### Corrigé
+
+- Résumé de fin de collecte qui n'affichait pas l'uptime.
+- Profondeur de sérialisation JSON augmentée (marge pour les objets imbriqués).
+- Documentation du délai anti-collision (0-15 min) alignée sur le code.
+- Nettoyage de branches de sanitisation visant des champs inexistants (no-op
+  silencieux) ; assainissement aligné sur les vrais champs.
+- Utilitaire de démo (`Refresh-DemoDates`) : gestion de l'heure UTC et de
+  l'alignement des dates sans heure.
+
+---
+
 ## [2.3.0]
 
 Release unifiée regroupant les évolutions publiées entre-temps (le parc a été
@@ -54,10 +112,14 @@ lisible).
 - **Rotation du log machine** (`Invoke-LogCleanup`) : gestion CRLF corrigée (le
   log ne s'élaguait pas de façon fiable).
 
-### 🔒 Sécurité / déploiement (scripts d'installation)
+### Sécurité / déploiement (scripts d'installation)
 
-- **Updater (1.3)** : self-update de l'agent par SHA256 ; nettoyage automatique des traces post-déploiement sur les postes ; journal déplacé sur le partage (plus aucun log local sur le poste) ; ACL du dossier runtime durcies (SYSTEM + Administrateurs).
-- **Install-Client (2.3)** : auto-nettoyage du dossier source en fin d'installation + ACL durcies dès l'installation.
+- **Updater (→ 1.3)** : self-update de l'agent par empreinte SHA256 ; nettoyage
+  automatique des traces post-déploiement sur les postes (`Invoke-LocalCleanup`) ;
+  journal déplacé sur le partage (`logs\<HOST>.updater.log`, plus aucun log local
+  sur le poste) ; durcissement des ACL du dossier runtime (SYSTEM + Administrateurs).
+- **Install-Client (→ 2.3)** : auto-nettoyage du dossier source en fin
+  d'installation et pose des ACL durcies dès l'installation.
 
 ---
 

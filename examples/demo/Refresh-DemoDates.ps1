@@ -124,11 +124,11 @@ foreach ($f in $files) {
         $stateLbl = "online"
     }
 
-    $delta     = $target - $caOrig
-    # Pour les dates SANS heure (ex CPUThrottling.Day, valeur a 00:00), on decale
-    # d'un nombre ENTIER de jours (delta arrondi) pour rester aligne avec les
-    # FirstSeen/LastSeen du meme objet (qui sont en journee).
-    $deltaDays = [timespan]::FromDays([math]::Round($delta.TotalDays))
+    $delta = $target - $caOrig
+    # v2.3.1 (#16) : les dates SANS heure (ex CPUThrottling.Day) sont decalees du
+    # MEME delta que les FirstSeen/LastSeen du meme objet, puis tronquees a la date.
+    # Avant : delta ARRONDI a l'entier de jours -> pouvait desaligner Day d'un jour
+    # calendaire par rapport a ses FirstSeen/LastSeen (delta different).
 
     # Evaluateur regex : detecte le format, parse, decale, reformate a l'identique.
     $eval = {
@@ -141,12 +141,15 @@ foreach ($f in $files) {
             $new = ($dt + $delta).ToString('yyyy-MM-dd HH:mm:ss')
         }
         elseif ($val -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z$') {
-            $dt  = [datetime]::ParseExact($val.Substring(0, 19), "yyyy-MM-dd'T'HH:mm:ss", $ci)
+            # v2.3.1 (#16) : parse en UTC (AssumeUniversal) pour que le suffixe Z
+            # reste semantiquement correct apres decalage.
+            $dt  = [datetime]::ParseExact($val.Substring(0, 19), "yyyy-MM-dd'T'HH:mm:ss", $ci, `
+                       [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal)
             $new = ($dt + $delta).ToString("yyyy-MM-dd'T'HH:mm:ss") + '.0000000Z'
         }
         elseif ($val -match '^\d{4}-\d{2}-\d{2}$') {
             $dt  = [datetime]::ParseExact($val, 'yyyy-MM-dd', $ci)
-            $new = ($dt + $deltaDays).ToString('yyyy-MM-dd')
+            $new = ($dt + $delta).ToString('yyyy-MM-dd')
         }
         else {
             return $m.Value   # format non reconnu : on ne touche pas

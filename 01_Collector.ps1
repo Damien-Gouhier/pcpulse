@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v2.3.0
+    PCPulse Collector v2.3.2
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,9 +10,28 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.3.0
+    Version      : 2.3.2
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v2.3.2 : HOTFIX prod + backlog (SchemaVersion INCHANGEE "2.2").
+           - [HOTFIX] Ecriture JSON sur le share : [System.IO.File]::Replace echoue
+             sur un chemin UNC/SMB ("Le chemin d'acces n'a pas une forme conforme")
+             -> l'export echouait a CHAQUE run, JSON du share jamais mis a jour
+             (figes au Dashboard) et log qui gonfle sans fin. Fallback Move-Item
+             -Force (renommage SMB-safe) quand Replace throw.
+           - [HOTFIX] Invoke-LogCleanup : cap de TAILLE en plus du filtre par age -
+             au-dela de 20 Mo on ne garde que la fin (Get-Content -Tail, sans charger
+             le fichier). Empeche un run en echec de remplir le share (les logs
+             avaient atteint ~2 Go/poste, limite string .NET, cleanup KO).
+           - Machine.CollectorRunAs (ADDITIF) : compte d'execution reel du process
+             (WindowsIdentity), ecrit a chaque run -> audit de la migration
+             gMSA -> SYSTEM depuis le share, sans contacter les postes.
+           - Fix : le resume "Export OK" logguait une variable $uptimeDays vide ->
+             utilise $machineInfo.UptimeDays.
+           - ConvertTo-Json -Depth 5 -> 6 (marge pour les sous-objets imbriques).
+           - MaxTopCrashers 10 -> 25 (10 tronquait des qu'un poste avait >10 apps
+             distinctes en echec).
+           - Doc : delai anti-collision corrige (0-15 min, cf. Get-Random 0-900 s).
     v2.3.0 : Release unifiee Collector + Dashboard (retour au numero commun de
            la 2.2.0). Cote Collector, trois ameliorations de qualite de donnee,
            toutes ADDITIVES (SchemaVersion INCHANGEE "2.2") :
@@ -166,7 +185,7 @@
            - Garde-fou contre les PC en boucle d'erreur generant des JSON
              disproportionnes (ex : reboot loop, spam Event 41, RAM
              exhaustion permanente). Cap applique a 5 arrays :
-               * TopCrashers       : 10  (formalise, etait deja en hardcode)
+               * TopCrashers       : 25  (v2.3.1 : 10 -> 25)
                * BSODs             : 10  (formalise, idem)
                * BootDurations     : 100 (~30j x 3 boots/jour max)
                * Events            : 200 (events 6005/6006/41/1074)
@@ -255,7 +274,7 @@
     Voir CHANGELOG.md du repo pour l'historique complet.
 .EXAMPLE
     .\01_Collector.ps1
-    # Execution normale avec delai anti-collision aleatoire (0-60 min)
+    # Execution normale avec delai anti-collision aleatoire (0-15 min ; cf. Get-Random 0-900 s)
 .EXAMPLE
     .\01_Collector.ps1 -NoDelay
     # Execution immediate, pour tests manuels
@@ -289,7 +308,7 @@ $ConfigFile    = Join-Path $SharePath 'config.psd1'
 # compromis bypass trivialement en generant son propre JSON.
 # La vraie defense anti-DoS est cote Dashboard (limite taille
 # fichier avant lecture, prevue en v2.2).
-$MaxTopCrashers      = 10    # formalise (etait deja en hardcode v2.0)
+$MaxTopCrashers      = 25    # v2.3.1 (#12) : 10 -> 25 (10 tronquait des qu'un poste avait >10 apps distinctes en echec)
 $MaxBSODs            = 10    # formalise (idem)
 $MaxBootDurations    = 100   # ~30j x 3 boots/jour max
 $MaxEvents           = 200   # 6005/6006/41/1074 sur la periode
@@ -506,6 +525,22 @@ function Invoke-LogCleanup {
     $logFile = Join-Path $SharePath "logs\$($env:COMPUTERNAME).log"
     if (-not (Test-Path $logFile)) { return }
     try {
+        # v2.3.2 HOTFIX : CAP DE TAILLE (le cleanup ne purgeait que par AGE, sans
+        # plafond de taille). Si un run echoue en boucle, le log peut exploser ;
+        # au-dela de ~2 Go, Get-Content -Raw plante (limite string .NET ~2^31) et
+        # le cleanup ne s'executait plus du tout -> log qui remplit le share.
+        # Ici : si le fichier est anormalement gros, on garde seulement la FIN
+        # (Get-Content -Tail lit depuis la fin sans charger le fichier entier),
+        # ce qui auto-guerit un log runaway au prochain passage.
+        $maxBytes     = 20MB
+        $maxTailLines = 5000
+        $fi = Get-Item -LiteralPath $logFile -ErrorAction Stop
+        if ($fi.Length -gt $maxBytes) {
+            $tail = Get-Content -LiteralPath $logFile -Tail $maxTailLines -ErrorAction Stop
+            $txt  = if ($tail) { (($tail -join "`r`n") + "`r`n") } else { '' }
+            [System.IO.File]::WriteAllText($logFile, $txt, [System.Text.UTF8Encoding]::new($false))
+            return
+        }
         $cutoff = (Get-Date).AddDays(-$HistoriqueJours).ToString('yyyy-MM-dd')
         $content = Get-Content -Path $logFile -Raw -ErrorAction Stop
         # Decoupe tolerante CRLF/LF puis retrait du \r residuel en bout de ligne.
@@ -622,6 +657,14 @@ function Get-LastLoggedUser {
         # Cle absente / illisible : pas de dernier user connu.
     }
     return ''
+}
+
+# v2.3.1 (#13) : compte d'execution reel du process Collector (le writer du JSON).
+# Ecrit a CHAQUE run -> toujours a jour, contrairement a l'owner du fichier share
+# (fige a la creation). Permet d'auditer la migration gMSA -> SYSTEM sur tout le
+# parc depuis le share, zero contact endpoint, zero bruit EDR. Champ ADDITIF.
+function Get-CollectorRunAs {
+    try { return [Security.Principal.WindowsIdentity]::GetCurrent().Name } catch { return '' }
 }
 
 # Analyse le nom d'un CPU et en deduit :
@@ -1111,6 +1154,8 @@ $machineInfo = [PSCustomObject]@{
     CurrentUser         = Get-CurrentInteractiveUser
     # v2.3.0 : dernier user connu (repli d'affichage quand aucune session live). ADDITIF.
     LastLoggedUser      = Get-LastLoggedUser
+    # v2.3.1 (#13) : compte d'execution reel (audit migration gMSA->SYSTEM). ADDITIF.
+    CollectorRunAs      = Get-CollectorRunAs
     IP                  = $currentIP
     CPUName             = $cpuName
     CPUVendor           = $cpu.Vendor
@@ -3082,7 +3127,7 @@ $null = New-Item $SharePath -ItemType Directory -Force -ErrorAction SilentlyCont
 $null = New-Item (Split-Path $localBuffer) -ItemType Directory -Force -ErrorAction SilentlyContinue
 
 # Serialisation en memoire (une seule fois)
-$jsonContent  = $payload | ConvertTo-Json -Depth 5
+$jsonContent  = $payload | ConvertTo-Json -Depth 6
 $utf8NoBom    = [System.Text.UTF8Encoding]::new($false)
 $bufferWritten = $false
 $shareWritten  = $false
@@ -3135,19 +3180,31 @@ if (-not $tmpReady) {
     }
 }
 
-# (2) Bascule ATOMIQUE tmp -> nom final
+# (2) Bascule tmp -> nom final
+# v2.3.2 HOTFIX : [System.IO.File]::Replace (renommage atomique Win32 ReplaceFile)
+# THROW "Le chemin d'acces n'a pas une forme conforme" sur un chemin UNC/SMB
+# (\\SERVER\Share$\...). Consequence : l'export echouait a CHAQUE run -> JSON du
+# share jamais mis a jour (donc fige au Dashboard) + log qui gonfle sans fin.
+# Correctif : on tente Replace (ideal en local/volume NTFS), et on retombe sur
+# Move-Item -Force qui fonctionne en SMB (rename cote serveur, ecrase la cible).
+# Le lecteur voit soit l'ancien complet soit le nouveau complet, jamais un tronque
+# (au pire le fichier est brievement absent = simple cycle saute cote Dashboard).
 if ($tmpReady) {
     try {
         if (Test-Path -LiteralPath $outputFile) {
-            # Replace = renommage atomique avec remplacement (ReplaceFile Win32)
-            [System.IO.File]::Replace($shareTmp, $outputFile, $null, $true)
+            try {
+                [System.IO.File]::Replace($shareTmp, $outputFile, $null, $true)
+            } catch {
+                # Fallback UNC/SMB (Replace non supporte sur share)
+                Move-Item -LiteralPath $shareTmp -Destination $outputFile -Force -ErrorAction Stop
+            }
         } else {
             # 1re ecriture : pas de cible a remplacer
-            [System.IO.File]::Move($shareTmp, $outputFile)
+            Move-Item -LiteralPath $shareTmp -Destination $outputFile -Force -ErrorAction Stop
         }
         $shareWritten = $true
     } catch {
-        Write-Log "Erreur bascule atomique tmp -> final : $_"
+        Write-Log "Erreur bascule tmp -> final (Replace + fallback Move-Item) : $_"
     }
 }
 
@@ -3165,7 +3222,7 @@ if ($shareWritten) {
         $payload.Stats.BootsByType.Resume,
         $payload.Stats.TotalCrashFreeze,
         $payload.Stats.TotalBSOD,
-        $uptimeDays,
+        $machineInfo.UptimeDays,
         $payload.Stats.TotalWHEAFatal,
         $payload.Stats.TotalWHEACorrected,
         $(if ($batteryInfo.HasBattery) { $batteryInfo.HealthPercent } else { 'N/A' }),

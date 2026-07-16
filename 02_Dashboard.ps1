@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v2.3.0
+    PCPulse Dashboard v2.3.2
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,32 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.3.0
+    Version      : 2.3.2
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.3.2 : Backlog - lisibilite crashers, durcissement, garde-fou, additif.
+           - Drill-down crashers (#9) : affichage "X plantes / Y figes", origine
+             traduite depuis le module fautif (.exe = application, ntdll/kernelbase
+             = interne, clr = .NET, autre dll = conflit de composant) et code
+             exception en clair (0xc0000005 = acces memoire invalide, etc.). Le brut
+             (module + code) reste en tooltip pour l'admin. Jamais "hang" ni code
+             brut a l'ecran. Meme traduction dans la carte "piste memoire".
+           - XSS passe 2 (#2) : cast STRICT des champs numeriques du re-mapping
+             (EventId, Count(s), Severity, temperatures + SMART, CycleCount,
+             ChassisType, VideoOutputTech, annees/age moniteurs, CPUYear/CPUAge...)
+             en PRESERVANT null. CPUGen reste HTML-safe (peut valoir "Ultra2").
+           - Coverage-check (#3) : generalise aux SOUS-OBJETS de l'embed (crashers,
+             WHEA fatal/corrected, moniteurs, disques SMART, barrettes RAM), pas
+             seulement Machine. Diagnostic console.
+           - CollectorRunAs (#13) : recopie dans l'embed + colonne export CSV
+             (audit gMSA -> SYSTEM). Ajoute a KnownMachineKeys.
+           - Config (#4) : merge RECURSIF des sous-objets hashtable (ScoreWeights) -
+             un override partiel n'efface plus les poids absents (score casse en
+             silence). Les listes (MonitoredServices, PriorityApps) gardent la
+             semantique de remplacement.
+           - Menage (#5) : sanitization en place corrigee - IPAddress -> IP (champ
+             reel), branches Manufacturer/Model retirees (inexistantes au niveau
+             Machine), CollectorRunAs ajoute.
     v2.3.0 : Release unifiee Collector + Dashboard. Lisibilite (cotes Collector
            2.3.0). Retro-compatible avec les anciens JSON (fallback JS),
            SchemaVersion inchangee.
@@ -496,7 +519,19 @@ function Import-MonitorConfig {
         $loaded = Import-PowerShellDataFile -Path $Path -ErrorAction Stop
         $merged = @{}
         foreach ($key in $Defaults.Keys) {
-            $merged[$key] = if ($loaded.ContainsKey($key)) { $loaded[$key] } else { $Defaults[$key] }
+            if (-not $loaded.ContainsKey($key)) { $merged[$key] = $Defaults[$key]; continue }
+            # v2.3.1 (#4) : pour un sous-objet hashtable (ex ScoreWeights), merge
+            # RECURSIF cle par cle - un override PARTIEL ne doit plus effacer les
+            # cles absentes (sinon des poids manquants = score casse en silence).
+            # Les listes (MonitoredServices, PriorityApps) gardent la semantique de
+            # REMPLACEMENT (la liste du config remplace entierement le defaut).
+            if ($Defaults[$key] -is [hashtable] -and $loaded[$key] -is [hashtable]) {
+                $sub = $Defaults[$key].Clone()
+                foreach ($sk in $loaded[$key].Keys) { $sub[$sk] = $loaded[$key][$sk] }
+                $merged[$key] = $sub
+            } else {
+                $merged[$key] = $loaded[$key]
+            }
         }
         Write-Host "[+] Config chargee : $Path" -ForegroundColor Green
         return $merged
@@ -572,6 +607,23 @@ function ConvertTo-Array {
     if ($null -eq $Data) { return @() }
     if ($Data -is [array]) { return $Data }
     return @($Data)
+}
+
+# v2.3.1 (#2, XSS passe 2) : cast STRICT des champs numeriques du re-mapping.
+# Defense en profondeur - un endpoint compromis pourrait forger une chaine
+# (voire du markup) dans un champ cense etre un nombre. On force le type ;
+# une valeur non convertible OU absente devient $null (jamais 0 : on preserve
+# la distinction "absent" vs "zero", et le JS gere deja null). ConvertTo-Json
+# emet alors un vrai nombre ou null, jamais une chaine htmlsafe-ee.
+function ConvertTo-IntOrNull {
+    param($Value)
+    if ($null -eq $Value -or "$Value" -eq '') { return $null }
+    try { return [int]$Value } catch { return $null }
+}
+function ConvertTo-NumOrNull {
+    param($Value)
+    if ($null -eq $Value -or "$Value" -eq '') { return $null }
+    try { return [double]$Value } catch { return $null }
 }
 
 # ============================================================
@@ -805,8 +857,13 @@ function Test-PCPulseJson {
     if ($data.Machine.PSObject.Properties['LastLoggedUser']) {
         $data.Machine.LastLoggedUser = Get-SafeString $data.Machine.LastLoggedUser
     }
-    if ($data.Machine.PSObject.Properties['IPAddress']) {
-        $data.Machine.IPAddress = Get-SafeString $data.Machine.IPAddress
+    # v2.3.1 (#5) : le champ s'appelle "IP" (l'ancienne branche visait "IPAddress",
+    # inexistant = no-op silencieux, meme classe de bug que OSCaption->OS).
+    if ($data.Machine.PSObject.Properties['IP']) {
+        $data.Machine.IP = Get-SafeString $data.Machine.IP
+    }
+    if ($data.Machine.PSObject.Properties['CollectorRunAs']) {
+        $data.Machine.CollectorRunAs = Get-SafeString $data.Machine.CollectorRunAs
     }
     if ($data.Machine.PSObject.Properties['CPUName']) {
         $data.Machine.CPUName = Get-SafeString $data.Machine.CPUName
@@ -814,12 +871,7 @@ function Test-PCPulseJson {
     if ($data.Machine.PSObject.Properties['OS']) {
         $data.Machine.OS = Get-SafeString $data.Machine.OS
     }
-    if ($data.Machine.PSObject.Properties['Manufacturer']) {
-        $data.Machine.Manufacturer = Get-SafeString $data.Machine.Manufacturer
-    }
-    if ($data.Machine.PSObject.Properties['Model']) {
-        $data.Machine.Model = Get-SafeString $data.Machine.Model
-    }
+    # Manufacturer / Model : retires - inexistants au niveau Machine (sous-objets uniquement).
     if ($data.Machine.PSObject.Properties['Site']) {
         $data.Machine.Site = Get-SafeString $data.Machine.Site
     }
@@ -1203,26 +1255,52 @@ Write-Host "[+] $($allData.Count) PC(s) charge(s)" -ForegroundColor Green
 # ============================================================
 $KnownMachineKeys = @(
     # --- recopiees dans l'embed ($embedData plus bas) ---
-    'PC','IP','CurrentUser','LastLoggedUser','LastBoot','UptimeDays','CollectedAt',
+    'PC','IP','CurrentUser','LastLoggedUser','CollectorRunAs','LastBoot','UptimeDays','CollectedAt',
     'CPUName','CPUVendor','CPUGen','CPUYear','CPUAge','CPUAgeCategory',
     'ConnectionType','ChassisInfo',
     'OSProduct','OSBuild','OSDisplayVersion','OSEdition',
     # --- presentes dans Machine mais volontairement NON embarquees ---
     'OS','LastRealColdBoot','FastStartupEnabled'
 )
-$seenMachineKeys = [System.Collections.Generic.HashSet[string]]::new()
-foreach ($covPc in $allData) {
-    if ($covPc.Machine) {
-        foreach ($prop in $covPc.Machine.PSObject.Properties) { [void]$seenMachineKeys.Add($prop.Name) }
+# v2.3.1 (#3) : coverage-check GENERALISE - meme garde-fou etendu aux SOUS-OBJETS
+# de l'embed. Un champ additif d'un sous-objet (crasher, WHEA, moniteur, disque
+# SMART, barrette RAM) oublie au re-mapping serait droppe en silence, exactement
+# comme au niveau Machine. Diagnostic console uniquement (rien dans le HTML).
+function Test-EmbedCoverage {
+    param([string]$Label, $Items, [string[]]$KnownKeys)
+    $seen = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($it in @($Items)) {
+        if ($null -eq $it) { continue }
+        foreach ($prop in $it.PSObject.Properties) { [void]$seen.Add($prop.Name) }
+    }
+    $unmapped = @($seen | Where-Object { $_ -notin $KnownKeys } | Sort-Object)
+    if ($unmapped.Count -gt 0) {
+        Write-Host "[!] COVERAGE-CHECK ($Label) : cle(s) presente(s) dans les JSON mais NON traitee(s) dans l'embed :" -ForegroundColor Yellow
+        foreach ($k in $unmapped) {
+            Write-Host "      - $k  (a recopier dans l'embed, ou a declarer dans la liste connue si ignore volontairement)" -ForegroundColor Yellow
+        }
     }
 }
-$unmappedKeys = @($seenMachineKeys | Where-Object { $_ -notin $KnownMachineKeys } | Sort-Object)
-if ($unmappedKeys.Count -gt 0) {
-    Write-Host "[!] COVERAGE-CHECK : champ(s) Machine present(s) dans les JSON mais NON traite(s) dans le re-mapping embed :" -ForegroundColor Yellow
-    foreach ($k in $unmappedKeys) {
-        Write-Host "      - $k  (a recopier dans l'objet embed, ou a declarer dans KnownMachineKeys si ignore volontairement)" -ForegroundColor Yellow
-    }
-}
+
+# Niveau Machine (comportement inchange)
+Test-EmbedCoverage -Label 'Machine' -Items (@($allData | ForEach-Object { $_.Machine })) -KnownKeys $KnownMachineKeys
+
+# Sous-objets de l'embed (v2.3.1) - listes de cles connues a tenir a jour avec le re-mapping plus bas
+Test-EmbedCoverage -Label 'TopCrashers' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.TopCrashers })) -KnownKeys @(
+    'AppName','CrashCount','Type','HangCount','ErrorCount','FaultModule','ExceptionCode')
+Test-EmbedCoverage -Label 'Monitors' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.Monitors })) -KnownKeys @(
+    'ManufacturerCode','Manufacturer','Model','SerialNumber','ProductCode','YearOfManufacture',
+    'WeekOfManufacture','AgeYears','Active','VideoOutputTech','Identified')
+Test-EmbedCoverage -Label 'DiskHealth' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.DiskHealth })) -KnownKeys @(
+    'FriendlyName','MediaType','BusType','SizeGB','OperationalStatus','HealthStatus','TemperatureC',
+    'TemperatureMaxC','WearPct','PowerOnHours','ReadErrorsTotal','ReadErrorsUncorrected',
+    'WriteErrorsTotal','WriteErrorsUncorrected','IsAlert','AlertReasons')
+Test-EmbedCoverage -Label 'MemoryInventory.Modules' -Items (@($allData | ForEach-Object { if ($_.MemoryInventory) { ConvertTo-Array $_.MemoryInventory.Modules } })) -KnownKeys @(
+    'Slot','Bank','CapacityGB','Type','SpeedMHz','Manufacturer','ManufacturerRaw','PartNumber')
+Test-EmbedCoverage -Label 'WHEA_Fatal' -Items (@($allData | ForEach-Object { if ($_.HardwareHealth) { ConvertTo-Array $_.HardwareHealth.WHEA_Fatal } })) -KnownKeys @(
+    'Timestamp','EventId','Severity','Component','ErrorSource','BDF','Detail')
+Test-EmbedCoverage -Label 'WHEA_Corrected' -Items (@($allData | ForEach-Object { if ($_.HardwareHealth) { ConvertTo-Array $_.HardwareHealth.WHEA_Corrected } })) -KnownKeys @(
+    'Component','EventId','ErrorSource','BDF','Count','FirstSeen','LastSeen','Detail')
 
 # ============================================================
 # CONSTRUCTION DU PAYLOAD JS
@@ -1277,7 +1355,7 @@ foreach ($pc in $allData) {
             Timestamp = ConvertTo-HtmlSafe $_.Timestamp
             Type      = ConvertTo-HtmlSafe $_.Type
             Detail    = ConvertTo-HtmlSafe $_.Detail
-            Count     = $_.Count
+            Count     = ConvertTo-IntOrNull $_.Count
             IsBurst   = $_.IsBurst
             FirstSeen = ConvertTo-HtmlSafe $_.FirstSeen
             LastSeen  = ConvertTo-HtmlSafe $_.LastSeen
@@ -1287,7 +1365,7 @@ foreach ($pc in $allData) {
     $topRAMList = @(ConvertTo-Array $pc.TopRAM | Where-Object { $_.Name } | ForEach-Object {
         [PSCustomObject]@{
             Name         = ConvertTo-HtmlSafe $_.Name
-            WorkingSetMB = $_.WorkingSetMB
+            WorkingSetMB = ConvertTo-NumOrNull $_.WorkingSetMB
             CPUSeconds   = $_.CPUSeconds
         }
     })
@@ -1315,7 +1393,7 @@ foreach ($pc in $allData) {
         $crasherType = if ("$($_.Type)" -eq 'app_failure') { 'app_failure' } else { 'crash' }
         [PSCustomObject]@{
             AppName       = ConvertTo-HtmlSafe $_.AppName
-            CrashCount    = $_.CrashCount
+            CrashCount    = ConvertTo-IntOrNull $_.CrashCount
             Type          = $crasherType
             # v2.1.13 : champs additifs du Collector 2.1.5 (fige/plante + origine), recopies pour
             # (a) la piste materielle memoire ci-dessous, (b) le futur affichage detaille du drill-down.
@@ -1355,8 +1433,8 @@ foreach ($pc in $allData) {
             $hwHealth.WHEA_Fatal = @(ConvertTo-Array $hh.WHEA_Fatal | Where-Object { $_.Timestamp } | ForEach-Object {
                 [PSCustomObject]@{
                     Timestamp   = ConvertTo-HtmlSafe $_.Timestamp
-                    EventId     = $_.EventId
-                    Severity    = $_.Severity
+                    EventId     = ConvertTo-IntOrNull $_.EventId
+                    Severity    = ConvertTo-IntOrNull $_.Severity
                     Component   = ConvertTo-HtmlSafe $_.Component
                     ErrorSource = ConvertTo-HtmlSafe $_.ErrorSource
                     BDF         = ConvertTo-HtmlSafe $_.BDF
@@ -1366,10 +1444,10 @@ foreach ($pc in $allData) {
             $hwHealth.WHEA_Corrected = @(ConvertTo-Array $hh.WHEA_Corrected | Where-Object { $_.LastSeen } | ForEach-Object {
                 [PSCustomObject]@{
                     Component   = ConvertTo-HtmlSafe $_.Component
-                    EventId     = $_.EventId
+                    EventId     = ConvertTo-IntOrNull $_.EventId
                     ErrorSource = ConvertTo-HtmlSafe $_.ErrorSource
                     BDF         = ConvertTo-HtmlSafe $_.BDF
-                    Count       = $_.Count
+                    Count       = ConvertTo-IntOrNull $_.Count
                     FirstSeen   = ConvertTo-HtmlSafe $_.FirstSeen
                     LastSeen    = ConvertTo-HtmlSafe $_.LastSeen
                     Detail      = ConvertTo-HtmlSafe $_.Detail
@@ -1419,9 +1497,9 @@ foreach ($pc in $allData) {
             $hwHealth.CPUThrottling = @(ConvertTo-Array $hh.CPUThrottling | Where-Object { $_.Day } | ForEach-Object {
                 [PSCustomObject]@{
                     Day          = ConvertTo-HtmlSafe $_.Day
-                    EventId      = $_.EventId
+                    EventId      = ConvertTo-IntOrNull $_.EventId
                     Type         = ConvertTo-HtmlSafe $_.Type
-                    Count        = $_.Count
+                    Count        = ConvertTo-IntOrNull $_.Count
                     TotalSeconds = $_.TotalSeconds
                     FirstSeen    = ConvertTo-HtmlSafe $_.FirstSeen
                     LastSeen     = ConvertTo-HtmlSafe $_.LastSeen
@@ -1465,7 +1543,7 @@ foreach ($pc in $allData) {
             FullChargeCapacity = if ($null -ne $pc.BatteryInfo.FullChargeCapacity) { [int64]$pc.BatteryInfo.FullChargeCapacity } else { 0 }
             HealthPercent      = if ($null -ne $pc.BatteryInfo.HealthPercent)      { [double]$pc.BatteryInfo.HealthPercent }     else { 0 }
             HealthCategory     = ConvertTo-HtmlSafe ([string]$pc.BatteryInfo.HealthCategory)
-            CycleCount         = $pc.BatteryInfo.CycleCount   # peut etre $null
+            CycleCount         = ConvertTo-IntOrNull $pc.BatteryInfo.CycleCount   # peut etre $null
             CurrentChargePct   = if ($null -ne $pc.BatteryInfo.CurrentChargePct)   { [int]$pc.BatteryInfo.CurrentChargePct }     else { 0 }
             Status             = ConvertTo-HtmlSafe ([string]$pc.BatteryInfo.Status)
             IsAlert            = [bool]$pc.BatteryInfo.IsAlert
@@ -1564,17 +1642,17 @@ foreach ($pc in $allData) {
                 FriendlyName           = ConvertTo-HtmlSafe ([string]$_.FriendlyName)
                 MediaType              = ConvertTo-HtmlSafe ([string]$_.MediaType)
                 BusType                = ConvertTo-HtmlSafe ([string]$_.BusType)
-                SizeGB                 = $_.SizeGB
+                SizeGB                 = ConvertTo-NumOrNull $_.SizeGB
                 OperationalStatus      = ConvertTo-HtmlSafe ([string]$_.OperationalStatus)
                 HealthStatus           = ConvertTo-HtmlSafe ([string]$_.HealthStatus)
-                TemperatureC           = $_.TemperatureC
-                TemperatureMaxC        = $_.TemperatureMaxC
-                WearPct                = $_.WearPct
-                PowerOnHours           = $_.PowerOnHours
-                ReadErrorsTotal        = $_.ReadErrorsTotal
-                ReadErrorsUncorrected  = $_.ReadErrorsUncorrected
-                WriteErrorsTotal       = $_.WriteErrorsTotal
-                WriteErrorsUncorrected = $_.WriteErrorsUncorrected
+                TemperatureC           = ConvertTo-IntOrNull $_.TemperatureC
+                TemperatureMaxC        = ConvertTo-IntOrNull $_.TemperatureMaxC
+                WearPct                = ConvertTo-IntOrNull $_.WearPct
+                PowerOnHours           = ConvertTo-IntOrNull $_.PowerOnHours
+                ReadErrorsTotal        = ConvertTo-IntOrNull $_.ReadErrorsTotal
+                ReadErrorsUncorrected  = ConvertTo-IntOrNull $_.ReadErrorsUncorrected
+                WriteErrorsTotal       = ConvertTo-IntOrNull $_.WriteErrorsTotal
+                WriteErrorsUncorrected = ConvertTo-IntOrNull $_.WriteErrorsUncorrected
                 IsAlert                = [bool]$_.IsAlert
                 AlertReasons           = @(ConvertTo-Array $_.AlertReasons | ForEach-Object { ConvertTo-HtmlSafe ([string]$_) })
             }
@@ -1593,11 +1671,11 @@ foreach ($pc in $allData) {
                 Model             = ConvertTo-HtmlSafe ([string]$_.Model)
                 SerialNumber      = ConvertTo-HtmlSafe ([string]$_.SerialNumber)
                 ProductCode       = ConvertTo-HtmlSafe ([string]$_.ProductCode)
-                YearOfManufacture = $_.YearOfManufacture
-                WeekOfManufacture = $_.WeekOfManufacture
-                AgeYears          = $_.AgeYears
+                YearOfManufacture = ConvertTo-IntOrNull $_.YearOfManufacture
+                WeekOfManufacture = ConvertTo-IntOrNull $_.WeekOfManufacture
+                AgeYears          = ConvertTo-IntOrNull $_.AgeYears
                 Active            = [bool]$_.Active
-                VideoOutputTech   = $_.VideoOutputTech
+                VideoOutputTech   = ConvertTo-IntOrNull $_.VideoOutputTech
                 # v5.8 : $true/$false si Collector >= 2.3.0, $null sinon (le JS deduit alors la signature EDID nul)
                 Identified        = if ($_.PSObject.Properties['Identified']) { [bool]$_.Identified } else { $null }
             }
@@ -1654,15 +1732,17 @@ foreach ($pc in $allData) {
         CurrentUser      = ConvertTo-HtmlSafe $pc.Machine.CurrentUser
         # v2.3.0 : dernier user connu (repli d'affichage quand CurrentUser = "(aucune session)").
         LastLoggedUser   = if ($pc.Machine.PSObject.Properties['LastLoggedUser']) { ConvertTo-HtmlSafe ([string]$pc.Machine.LastLoggedUser) } else { '' }
+        # v2.3.1 (#13) : compte d'execution reel du Collector (audit gMSA->SYSTEM). Exporte au CSV.
+        CollectorRunAs   = if ($pc.Machine.PSObject.Properties['CollectorRunAs']) { ConvertTo-HtmlSafe ([string]$pc.Machine.CollectorRunAs) } else { '' }
         LastBoot         = ConvertTo-HtmlSafe $pc.Machine.LastBoot
         UptimeDays       = $pc.Machine.UptimeDays
         CollectedAt      = ConvertTo-HtmlSafe $pc.Machine.CollectedAt
         IsOffline        = $isOffline
         CPUName          = ConvertTo-HtmlSafe $cpuName
         CPUVendor        = ConvertTo-HtmlSafe $pc.Machine.CPUVendor
-        CPUGen           = $pc.Machine.CPUGen
-        CPUYear          = $pc.Machine.CPUYear
-        CPUAge           = $pc.Machine.CPUAge
+        CPUGen           = if ($null -ne $pc.Machine.CPUGen) { ConvertTo-HtmlSafe ([string]$pc.Machine.CPUGen) } else { $null }
+        CPUYear          = ConvertTo-IntOrNull $pc.Machine.CPUYear
+        CPUAge           = ConvertTo-IntOrNull $pc.Machine.CPUAge
         CPUAgeCategory   = if ($pc.Machine.CPUAgeCategory) { ConvertTo-HtmlSafe $pc.Machine.CPUAgeCategory } else { 'Inconnu' }
         ConnectionType   = if ($pc.Machine.ConnectionType) { ConvertTo-HtmlSafe $pc.Machine.ConnectionType } else { 'Inconnu' }
         # v2.2.1 : OS (Windows 10/11) - ADDITIF. Recopie EXPLICITE des 4 champs Machine :
@@ -1674,7 +1754,7 @@ foreach ($pc in $allData) {
         # v5.6 : chassis info (peut etre null si Collector < v5.6)
         ChassisInfo      = if ($pc.Machine.ChassisInfo) {
             [PSCustomObject]@{
-                ChassisType  = $pc.Machine.ChassisInfo.ChassisType
+                ChassisType  = ConvertTo-IntOrNull $pc.Machine.ChassisInfo.ChassisType
                 ChassisLabel = ConvertTo-HtmlSafe ([string]$pc.Machine.ChassisInfo.ChassisLabel)
                 IsLaptop     = [bool]$pc.Machine.ChassisInfo.IsLaptop
                 IsDesktop    = [bool]$pc.Machine.ChassisInfo.IsDesktop
@@ -2742,6 +2822,8 @@ $metaRefresh
     .crasher-item:last-child { border-bottom: none; }
     .crasher-name  { color: var(--yellow); font-size: 11px; }
     .crasher-count { color: var(--red); font-weight: 700; font-size: 11px; }
+    /* v2.3.1 (#9) : ligne lisible sous le crasher (nature/code/origine en clair) */
+    .crasher-detail { font-size: 10px; color: var(--text-muted); margin-top: 2px; line-height: 1.35; }
 
     /* ===== DRILL-DOWN ===== */
     .row-main td:first-child { cursor: pointer; user-select: none; }
@@ -3857,6 +3939,57 @@ function classifyCrasher(name, total, pcCount, type) {
     if (score >= 3)              return { level: 'local',  score: score, forced: false };
     if (score >= 2)              return { level: 'spread', score: score, forced: false };
     return                              { level: 'noise',  score: score, forced: false };
+}
+
+// v2.3.1 (#9) : traduction des crashers pour le tech de proximite - JAMAIS
+// "hang" ni code brut a l'ecran. Origine deduite du module fautif, code
+// exception en clair ; le brut (module + code) reste en tooltip pour l'admin.
+function crasherOrigin(module) {
+    if (!module) return '';
+    var m = String(module).toLowerCase();
+    if (m.indexOf('ntdll') !== -1 || m.indexOf('kernelbase') !== -1) return 'interne (m&eacute;moire/syst&egrave;me)';
+    if (m.indexOf('clr') !== -1 || m.indexOf('mscor') !== -1)         return 'erreur .NET';
+    if (/\.exe$/.test(m))                                             return 'vient de l\'application';
+    if (/\.(dll|sys|ocx)$/.test(m))                                   return 'conflit de composant';
+    return '';
+}
+function exceptionLabel(code) {
+    if (!code) return '';
+    var map = {
+        '0xc0000005': 'acc&egrave;s m&eacute;moire invalide',
+        '0xc0000374': 'corruption m&eacute;moire (tas)',
+        '0xe0434352': 'exception .NET non g&eacute;r&eacute;e',
+        '0xc0000409': 'd&eacute;passement de pile',
+        '0xc00000fd': 'd&eacute;bordement de pile',
+        '0x80000003': 'point d\'arr&ecirc;t (debug)',
+        '0xc0000094': 'division par z&eacute;ro'
+    };
+    return map[String(code).toLowerCase()] || '';
+}
+// "X plantes / Y figes" a partir des compteurs (fallback : rien si absents/0)
+function crasherNature(tc) {
+    var parts = [];
+    var err = +tc.ErrorCount || 0, hang = +tc.HangCount || 0;
+    if (err > 0)  parts.push(err + ' plant&eacute;'  + (err > 1 ? 's' : ''));
+    if (hang > 0) parts.push(hang + ' fig&eacute;'    + (hang > 1 ? 's' : ''));
+    return parts.join(' / ');
+}
+// Ligne de detail lisible d'un crasher (nature + code clair + origine),
+// avec le brut module/code en tooltip. Vide si rien de traduisible.
+function crasherDetailHtml(tc) {
+    var bits = [];
+    var nature = crasherNature(tc);
+    var code   = exceptionLabel(tc.ExceptionCode);
+    var orig   = crasherOrigin(tc.FaultModule);
+    if (nature) bits.push(nature);
+    if (code)   bits.push(code);
+    if (orig)   bits.push(orig);
+    if (!bits.length) return '';
+    var raw = [];
+    if (tc.FaultModule)   raw.push('module ' + tc.FaultModule);
+    if (tc.ExceptionCode) raw.push('code ' + tc.ExceptionCode);
+    var titleAttr = raw.length ? ' title="' + raw.join(' &middot; ') + '"' : '';
+    return '<div class="crasher-detail"' + titleAttr + '>' + bits.join(' &middot; ') + '</div>';
 }
 
 function computeVerdict(p) {
@@ -5601,6 +5734,7 @@ function renderDetailRow(p, idx, colspan) {
                              '<span class="crasher-name">' + tc.AppName + '</span> ' +
                              '<span class="crasher-count">(' + tc.CrashCount + ')</span>' +
                              tag +
+                             crasherDetailHtml(tc) +
                            '</div>';
         });
     } else {
@@ -5684,7 +5818,7 @@ function renderDetailRow(p, idx, colspan) {
     // meme si les WHEA RAM sont hors de la periode selectionnee, car la piste est un signal global).
     if (p.memoryPiste && p.memoryPiste.active) {
         var mp = p.memoryPiste;
-        var crashNames = mp.crashers.map(function(c) { return c.AppName + ' (' + c.ExceptionCode + ')'; }).join(', ');
+        var crashNames = mp.crashers.map(function(c) { return c.AppName + ' (' + (exceptionLabel(c.ExceptionCode) || c.ExceptionCode) + ')'; }).join(', ');
         var ramCount = mp.ramFatal.length + mp.ramCorrected.reduce(function(s, c) { return s + (c.Count || 1); }, 0);
         var pisteHTML = '<div class="memory-piste">' +
             '<div class="memory-piste-head">&#128269; Piste &agrave; v&eacute;rifier &middot; m&eacute;moire</div>' +
@@ -6295,7 +6429,7 @@ function exportCSV() {
     });
     sortPCs(visible);
 
-    var headers = ['PC', 'Site', 'IP', 'Utilisateur', 'Statut', 'Connexion', 'CPU', 'CategorieCPU',
+    var headers = ['PC', 'Site', 'IP', 'Utilisateur', 'CollectorRunAs', 'Statut', 'Connexion', 'CPU', 'CategorieCPU',
                    'AnneeCPU', 'OS', 'OSBuild', 'OSVersion', 'OSEdition',
                    'UptimeJours', 'DerniereActivite', 'Score',
                    'Crash', 'BSOD',
@@ -6358,7 +6492,7 @@ function exportCSV() {
             ? pc.CurrentUser
             : (pc.LastLoggedUser ? pc.LastLoggedUser + ' (dernier)' : (pc.CurrentUser || ''));
         var row = [
-            pc.PC, pc.Site, pc.IP, csvUser,
+            pc.PC, pc.Site, pc.IP, csvUser, pc.CollectorRunAs || '',
             pc.IsOffline ? 'OFFLINE' : 'OK',
             pc.ConnectionType || '',
             pc.CPUName || '', pc.CPUAgeCategory || '', pc.CPUYear || '',
