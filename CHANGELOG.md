@@ -13,6 +13,49 @@ ce fichier consolide les évolutions notables au niveau du projet.
 
 ---
 
+## [2.3.0]
+
+Release unifiée regroupant les évolutions publiées entre-temps (le parc a été
+déployé sous les étiquettes internes 2.2.1 → 2.2.4 ; la version publique repart
+d'un numéro commun Collecteur + Dashboard, comme acté en 2.2.0). **Schéma JSON
+inchangé (`2.2`)** : tous les ajouts ci-dessous sont additifs et rétrocompatibles
+(le Dashboard décode aussi côté client, donc un parc pas encore régénéré reste
+lisible).
+
+### Ajouté
+
+- **Inventaire OS Windows 10 / 11** (initialement 2.2.1). Quatre champs additifs
+  dérivés du build (`OSProduct` — jamais `ProductName`/`Caption` —, `OSBuild`,
+  `OSDisplayVersion`, `OSEdition`), colonne + filtre « OS » dans le tableau,
+  bloc OS dans le drill-down Matériel, colonnes OS dans l'export CSV. Utile pour
+  l'inventaire de parc et le suivi de fin de support Windows 10.
+- **Dernier utilisateur connu** (`Machine.LastLoggedUser`). Quand aucune session
+  n'est active au moment de la collecte (« (aucune session) »), le Dashboard
+  affiche le dernier utilisateur ayant ouvert une session (une seule entrée, pas
+  d'historique). Recherche et export CSV étendus à ce champ.
+- **Inventaire mémoire enrichi.** Le fabricant des barrettes est décodé depuis
+  l'identifiant JEDEC brut (ex. `80AD000080AD` → `SK Hynix`) ; l'identifiant brut
+  reste disponible (`ManufacturerRaw`).
+- **Écrans à EDID non transmis.** Les écrans branchés via dock / adaptateur / KVM
+  qui ne relaient pas l'EDID (fabricant `@@@`, code produit `0000`) sont
+  détectés, tentés en repli via l'EDID en cache du registre, et sinon libellés
+  « Écran non identifié » (champ `Identified`) — exclus du top fabricants et du
+  calcul d'âge au lieu d'afficher des identifiants parasites.
+
+### Modifié
+
+- **UI drill-down Matériel** : cartes RAM et SMART aérées (largeurs, espacements
+  et tailles de police revus ; elles étaient tassées en colonne étroite).
+- **Écriture atomique du JSON** côté Collecteur (buffer temporaire puis bascule
+  par renommage) — fiabilise la lecture concurrente par le Dashboard.
+
+### Corrigé
+
+- **Rotation du log machine** (`Invoke-LogCleanup`) : gestion CRLF corrigée (le
+  log ne s'élaguait pas de façon fiable).
+
+---
+
 ## [2.2.0]
 
 Généralisation du projet pour publication open source. Le code ne nomme plus

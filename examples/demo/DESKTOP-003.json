@@ -3,10 +3,15 @@
   "Machine": {
     "PC": "DESKTOP-003",
     "CollectedAt": "2026-07-03 09:00:00",
-    "OS": "Microsoft Windows 11 Pro",
+    "OS": "Microsoft Windows 10 Pro",
+    "OSProduct": "Windows 10",
+    "OSBuild": 19045,
+    "OSDisplayVersion": "22H2",
+    "OSEdition": "Professional",
     "LastBoot": "2026-06-25 09:22:00",
     "UptimeDays": 8.0,
     "CurrentUser": "thomas.petit",
+    "LastLoggedUser": "thomas.petit",
     "IP": "10.20.0.101",
     "CPUName": "Intel(R) Core(TM) i5-8500",
     "CPUVendor": "Intel",
@@ -150,7 +155,21 @@
       "WeekOfManufacture": 32,
       "AgeYears": 6,
       "Active": true,
-      "VideoOutputTech": 5
+      "VideoOutputTech": 5,
+      "Identified": true
+    },
+    {
+      "ManufacturerCode": "@@@",
+      "Manufacturer": "",
+      "Model": "",
+      "SerialNumber": "",
+      "ProductCode": "",
+      "YearOfManufacture": null,
+      "WeekOfManufacture": null,
+      "AgeYears": null,
+      "Active": true,
+      "VideoOutputTech": 10,
+      "Identified": false
     }
   ],
   "TopCrashers": [],
@@ -193,7 +212,7 @@
     "BootPerfAlert": false,
     "DiskWorstWear": 15,
     "DiskHealthAlert": false,
-    "MonitorsCount": 1,
+    "MonitorsCount": 2,
     "TotalHardCrash": 0,
     "TotalCPUThrottling": 0
   },
@@ -209,12 +228,11 @@
         "Slot": "DIMM_A1",
         "Bank": "BANK 0",
         "CapacityGB": 8,
-        "TypeCode": 26,
         "Type": "DDR4",
-        "SpeedMTs": 2400,
+        "SpeedMHz": 2400,
         "Manufacturer": "Crucial",
-        "PartNumber": "CT8G4DFS824A.M8FE",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "",
+        "PartNumber": "CT8G4DFS824A.M8FE"
       }
     ]
   },

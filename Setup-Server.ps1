@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Setup-Server.ps1 - Hardening du serveur PCPulse pour pentest
+    Setup-Server.ps1 - Durcissement des ACL du share serveur PCPulse
 .DESCRIPTION
     Script de hardening a executer en compte admin local sur le serveur
     hebergeant le share PCPulse$.
@@ -36,9 +36,11 @@
 
     PRE-REQUIS :
     - Compte admin local sur le serveur (admin local ou Domain Admin)
-    - PCPulse$ deja existant (cree par Setup-Server.ps1 v1.0)
+    - PCPulse$ deja cree (partage SMB + sous-dossiers ; voir docs/INSTALL.md,
+      section "Creation du share" : New-SmbShare). Ce script NE cree PAS le
+      share, il en durcit les ACL.
     - Optionnel : un gMSA cree au prealable dans AD si tu veux remplacer
-      SYSTEM par un compte de service dedie (recommande pour le pentest)
+      SYSTEM par un compte de service dedie (recommande)
     - Connexion AD fonctionnelle pour resoudre les SIDs
 
 .PARAMETER ShareName
@@ -106,7 +108,7 @@ function Write-Info { Write-Host ("    [..]   " + $args[0]) -ForegroundColor Gra
 
 Write-Host ""
 Write-Host "======================================================" -ForegroundColor Cyan
-Write-Host " PCPulse - Setup serveur (hardening pentest)" -ForegroundColor Cyan
+Write-Host " PCPulse - Setup serveur (durcissement des ACL)" -ForegroundColor Cyan
 Write-Host "======================================================" -ForegroundColor Cyan
 if ($WhatIfPreference) {
     Write-Host " *** MODE DRY-RUN : aucune modification ne sera appliquee ***" -ForegroundColor Magenta
@@ -201,7 +203,9 @@ Write-Step "2/6 Localisation share et inventaire"
 
 $share = Get-SmbShare -Name $ShareName -ErrorAction SilentlyContinue
 if (-not $share) {
-    Write-Err "Le share $ShareName n'existe pas. Lance d'abord Setup-Server.ps1 v1.0"
+    Write-Err "Le share $ShareName n'existe pas. Cree-le d'abord (voir docs/INSTALL.md, section 'Creation du share'), par ex. :"
+    Write-Err "  New-SmbShare -Name '$ShareName' -Path 'D:\PCPulse' -FullAccess 'Administrateurs'"
+    Write-Err "  puis cree les sous-dossiers release\ , killed\ , logs\"
     exit 1
 }
 $sharePath = $share.Path
@@ -500,7 +504,7 @@ try {
 if ($canModifyRelease) {
     Write-Err "FAILLE : Domain Computers peut encore modifier release\ - hardening incomplet"
 } else {
-    Write-OK "Domain Computers ne peut PAS modifier release\ (faille pentest fermee)"
+    Write-OK "Domain Computers ne peut PAS modifier release\ (exposition fermee)"
 }
 
 # Test 3 : gMSA si present

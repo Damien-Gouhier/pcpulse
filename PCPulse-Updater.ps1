@@ -33,24 +33,31 @@
     PCPulse-Updater.ps1 -SharePath "\\SRV-PCPULSE\PCPulse$"
 
 .NOTES
-    Version : 1.2
+    Version : 1.3
     Auteur  : Damien Gouhier
     Licence : MIT
 
     CHANGELOG :
-    v1.2 : Self-update de l'Updater par SHA256 (resout le bootstrap : un Updater
-           deploye one-shot par GPO peut desormais se mettre a jour seul, sans
-           re-deploiement). Backups Updater purges par Remove-OldBackups.
+    v1.3 : updater.log deplace sur le share (logs\<HOST>.updater.log) : plus aucun
+           journal sur le poste agent, purge de l'ancien updater.log local. Durcissement
+           ACL du dossier runtime (SYSTEM + Administrateurs, SID en dur) via Set-PCPulseAcl.
+    v1.2 : Housekeeping local (Invoke-LocalCleanup) : a chaque cycle, supprime
+           le dossier de deploiement C:\Temp\PCPulse-deploy laisse par
+           Deploy-PCPulse, borne updater.log a N jours, sweep les battreport
+           orphelins. Ne touche pas PsExec. Non-bloquant, idempotent.
     v1.1 : Ajout du killswitch (auto-desinstallation a distance via
            fichier sentinelle). Configurable via config.psd1.
     v1.0 : Initiale - auto-update + verification SHA256.
+    v1.1 : Self-update de l'Updater par SHA256 (resout le bootstrap : un Updater
+           deploye one-shot par GPO peut desormais se mettre a jour seul, sans
+           re-deploiement). Backups Updater purges par Remove-OldBackups.
 
     Layout attendu cote serveur :
         \\SRV-PCPULSE\PCPulse$\
             release\
                 01_Collector.ps1     (derniere version officielle)
                 PCPulse-Updater.ps1  (self-update de l'Updater par SHA256)
-                version.txt          (ex: "2.2.0")
+                version.txt          (ex: "1.1")
                 KILLSWITCH.txt       (optionnel, declenche le kill)
             killed\                 (rapports de desinstallation)
 
@@ -60,7 +67,7 @@
             PCPulse-Updater.ps1     (ce script)
             version.txt             (version active)
             backup\                 (5 derniers backups, rolling)
-            updater.log             (log dedie)
+            (updater.log deplace sur le share : logs\<HOST>.updater.log)
             .update.lock            (lock file temporaire)
 
     Personnalisation killswitch (optionnel) via config.psd1 :
@@ -87,7 +94,8 @@ $UpdaterLocal   = Join-Path $LocalDir 'PCPulse-Updater.ps1'
 $VersionLocal   = Join-Path $LocalDir 'version.txt'
 $LockFile       = Join-Path $LocalDir '.update.lock'
 $BackupDir      = Join-Path $LocalDir 'backup'
-$UpdaterLog     = Join-Path $LocalDir 'updater.log'
+$UpdaterLog       = Join-Path $SharePath "logs\$($env:COMPUTERNAME).updater.log"  # v1.3 : sur le share, plus sur le poste agent
+$LegacyUpdaterLog = Join-Path $LocalDir 'updater.log'                             # ancien emplacement local, purge par Invoke-LocalCleanup
 
 $ReleaseDir   = Join-Path $SharePath 'release'
 $KilledDir    = Join-Path $SharePath 'killed'
@@ -96,6 +104,11 @@ $VersionSrv   = Join-Path $ReleaseDir 'version.txt'
 $UpdaterSrv   = Join-Path $ReleaseDir 'PCPulse-Updater.ps1'
 
 $BackupRetention = 5
+
+# v1.2 : nettoyage local des traces post-deploiement (housekeeping)
+$DeployLeftoverDir       = 'C:\Temp\PCPulse-deploy'   # depose par Deploy-PCPulse, inutile apres install
+$UpdaterLogRetentionDays = 7                          # borne updater.log (rotation par date)
+$TempBattReportPattern   = 'battreport_*.xml'         # rapports batterie orphelins du Collector
 
 # Defauts killswitch (si pas surcharge dans config.psd1)
 $KillSwitchDefaults = @{
@@ -113,6 +126,8 @@ $ScheduledTaskName = 'PCPulse-Collector'
 function Write-UpdaterLog {
     param([string]$Message, [string]$Level = 'INFO')
     try {
+        $logDir = Split-Path $UpdaterLog
+        if ($logDir -and -not (Test-Path -LiteralPath $logDir)) { $null = New-Item $logDir -ItemType Directory -Force -ErrorAction SilentlyContinue }
         $line = "{0} | {1} | {2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Message
         Add-Content -Path $UpdaterLog -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
     } catch {
@@ -243,7 +258,7 @@ function Invoke-Collector {
 
 function Remove-OldBackups {
     if (-not (Test-Path $BackupDir)) { return }
-    # v1.1 : purge les deux familles de backups (Collector + Updater), retention chacune
+    # v1.2 : purge les deux familles de backups (Collector + Updater), retention chacune
     foreach ($pattern in @('01_Collector_v*.ps1', 'PCPulse-Updater_*.ps1')) {
         $backups = Get-ChildItem -Path $BackupDir -Filter $pattern -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending
@@ -259,7 +274,7 @@ function Remove-OldBackups {
 
 function Update-Self {
     # ============================================================
-    # v1.1 : SELF-UPDATE de l'Updater par comparaison SHA256.
+    # v1.2 : SELF-UPDATE de l'Updater par comparaison SHA256.
     #   - Compare le hash de CE script (local) a release\PCPulse-Updater.ps1
     #   - Si different : backup, copie, re-verif SHA256, restauration si echec
     #   - NON-BLOQUANT : tout echec est logge mais n'interrompt pas le cycle
@@ -328,6 +343,96 @@ function Update-Self {
     Write-UpdaterLog "Self-update : Updater mis a jour, effectif au prochain cycle" 'SUCCESS'
 }
 
+function Set-PCPulseAcl {
+    # Verrouille le dossier runtime : SYSTEM + Administrateurs uniquement.
+    # SID en dur (S-1-5-18 SYSTEM / S-1-5-32-544 Administrateurs) pour etre
+    # independant de la langue de Windows (parc FR). Idempotent (ne fait rien
+    # si l'heritage est deja coupe), non-bloquant.
+    param([string]$Path)
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        $acl = Get-Acl -LiteralPath $Path
+        if ($acl.AreAccessRulesProtected) { return }
+        $sidSystem = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+        $sidAdmins = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
+        $inherit   = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+        $none      = [System.Security.AccessControl.PropagationFlags]::None
+        $full      = [System.Security.AccessControl.FileSystemRights]::FullControl
+        $allow     = [System.Security.AccessControl.AccessControlType]::Allow
+        # Coupe l'heritage (ne recopie pas les ACE herites) puis retire les ACE explicites.
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($ace in @($acl.Access | Where-Object { -not $_.IsInherited })) { [void]$acl.RemoveAccessRule($ace) }
+        [void]$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sidSystem, $full, $inherit, $none, $allow)))
+        [void]$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sidAdmins, $full, $inherit, $none, $allow)))
+        Set-Acl -LiteralPath $Path -AclObject $acl
+    } catch {
+        # non-bloquant : un echec ACL ne casse jamais l'updater / l'install
+    }
+}
+
+function Invoke-LocalCleanup {
+    # v1.2 : HOUSEKEEPING LOCAL - supprime les traces post-deploiement qui ne
+    # servent plus a rien et pourraient renseigner un attaquant sur un poste.
+    # Tourne a chaque cycle. Idempotent, non-bloquant. Ne touche JAMAIS le
+    # produit vivant (tache, scripts runtime, JSON buffer, backups) ni PsExec.
+
+    # 1. Dossier de deploiement laisse par Deploy-PCPulse (Install-Client ne
+    #    l'effacait pas). Revele share/serveur/killswitch/layout en clair.
+    #    Garde stricte : uniquement ce chemin exact, jamais le dossier runtime.
+    try {
+        # Suppression INCONDITIONNELLE : la console de deploiement porte un nom
+        # DIFFERENT (jamais C:\Temp\PCPulse-deploy), donc aucune regle de contenu.
+        if ((Test-Path -LiteralPath $DeployLeftoverDir) -and ($DeployLeftoverDir -ine $LocalDir)) {
+            Remove-Item -LiteralPath $DeployLeftoverDir -Recurse -Force -ErrorAction Stop
+            Write-UpdaterLog "Cleanup : dossier de deploiement supprime ($DeployLeftoverDir)"
+        }
+    } catch {
+        Write-UpdaterLog "Cleanup : echec suppression dossier deploiement (non-bloquant) : $_" 'WARN'
+    }
+
+    # 2. Rapports batterie orphelins du Collector dans le TEMP (SYSTEM -> C:\Windows\Temp).
+    try {
+        $tempDir = [System.IO.Path]::GetTempPath()
+        Get-ChildItem -Path $tempDir -Filter $TempBattReportPattern -File -ErrorAction SilentlyContinue | ForEach-Object {
+            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-UpdaterLog "Cleanup : rapport batterie orphelin supprime ($($_.Name))"
+        }
+    } catch {
+        Write-UpdaterLog "Cleanup : echec sweep battreport (non-bloquant) : $_" 'WARN'
+    }
+
+    # 3. Rotation de updater.log : ne garder que les N derniers jours (borne la
+    #    taille et limite la divulgation d'historique). Meme discipline CRLF que
+    #    Invoke-LogCleanup du Collector (split tolerant, rejoin CRLF, newline final).
+    try {
+        if (Test-Path -LiteralPath $UpdaterLog) {
+            $cutoff  = (Get-Date).AddDays(-$UpdaterLogRetentionDays).ToString('yyyy-MM-dd')
+            $content = Get-Content -LiteralPath $UpdaterLog -Raw -ErrorAction Stop
+            $lignes  = $content -split "`r?`n"
+            $gardees = foreach ($l in $lignes) {
+                $ligne = $l.TrimEnd("`r")
+                if (($ligne.Length -ge 10) -and ($ligne.Substring(0, 10) -ge $cutoff)) { $ligne }
+            }
+            $finalText = if ($gardees) { ($gardees -join "`r`n") + "`r`n" } else { '' }
+            [System.IO.File]::WriteAllText($UpdaterLog, $finalText, [System.Text.UTF8Encoding]::new($false))
+        }
+    } catch {
+        Write-UpdaterLog "Cleanup : echec rotation updater.log (non-bloquant) : $_" 'WARN'
+    }
+
+    # 4. Purge de l'ancien updater.log LOCAL (v1.3 : le log est desormais sur le
+    #    share). Retire la trace residuelle des postes deja deployes.
+    try {
+        if (Test-Path -LiteralPath $LegacyUpdaterLog) {
+            Remove-Item -LiteralPath $LegacyUpdaterLog -Force -ErrorAction SilentlyContinue
+        }
+    } catch { }
+
+    # 5. Durcissement ACL du dossier runtime : SYSTEM + Administrateurs uniquement
+    #    (empeche un compte standard de lire les scripts = chemin share, killswitch).
+    Set-PCPulseAcl -Path $LocalDir
+}
+
 # ============================================================
 # INIT : creation du layout local si necessaire
 # ============================================================
@@ -348,6 +453,11 @@ if (Test-Path $ReleaseDir) {
         exit 0
     }
 }
+
+# ============================================================
+# ETAPE 0b (NEW v1.2) : HOUSEKEEPING LOCAL (traces post-deploiement)
+# ============================================================
+Invoke-LocalCleanup
 
 # ============================================================
 # ETAPE 1 : VERROU ANTI-COLLISION

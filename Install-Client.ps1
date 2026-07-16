@@ -28,7 +28,7 @@
 
 .PARAMETER InitialVersion
     Version a ecrire dans version.txt si aucun n'est fourni dans SourceDir.
-    Par defaut : "2.0".
+    Par defaut : "2.3.0".
 
 .PARAMETER gMSAName
     Nom du compte gMSA a utiliser pour la tache planifiee, au lieu de SYSTEM
@@ -57,16 +57,22 @@
     .\Install-Client.ps1 -ServerPath "\\SRV-PCPULSE\PCPulse$" -SourceDir "C:\Temp\pcpulse"
 
 .NOTES
-    Version  : 2.1 (support gMSA optionnel, voir SECURITY.md)
+    Version  : 2.3 (auto-nettoyage + ACL runtime durcie, voir SECURITY.md)
     Auteur   : Damien Gouhier
     Licence  : MIT
 
     Fichiers attendus dans SourceDir :
       - 01_Collector.ps1     (obligatoire)
       - PCPulse-Updater.ps1  (obligatoire)
-      - version.txt          (optionnel, "2.1" par defaut)
+      - version.txt          (optionnel, "2.3.0" par defaut)
 
     CHANGELOG :
+    v2.3 : Durcissement ACL du dossier runtime C:\ProgramData\PCPulse (SYSTEM +
+           Administrateurs uniquement, SID en dur) via Set-PCPulseAcl : un compte
+           standard ne peut plus lire les scripts (chemin share, killswitch, layout).
+    v2.2 : Auto-nettoyage differe du dossier source en fin d'install, uniquement
+           si c'est C:\Temp\PCPulse-deploy : le package depose par Deploy-PCPulse
+           ne traine plus sur le poste (aucune trace du share/layout).
     v2.1 : Resolution robuste de SourceDir (cascade PSScriptRoot /
            PSCommandPath / MyInvocation au lieu d'un defaut de parametre
            fragile qui pouvait etre vide selon le contexte d'appel).
@@ -88,7 +94,7 @@ param(
 
     [string]$SourceDir,
 
-    [string]$InitialVersion = '2.1',
+    [string]$InitialVersion = '2.3.0',
 
     # v2.0 : support gMSA optionnel pour la tache planifiee
     # Si vide, on garde l'ancien comportement (SYSTEM via ServiceAccount)
@@ -141,6 +147,34 @@ function Write-OK   { Write-Host (" [OK] " + $args[0]) -ForegroundColor Green }
 function Write-Warn { Write-Host (" [!!] " + $args[0]) -ForegroundColor Yellow }
 function Write-Err  { Write-Host (" [KO] " + $args[0]) -ForegroundColor Red }
 function Write-Info { Write-Host (" [..] " + $args[0]) -ForegroundColor Gray }
+
+function Set-PCPulseAcl {
+    # Verrouille le dossier runtime : SYSTEM + Administrateurs uniquement.
+    # SID en dur (S-1-5-18 SYSTEM / S-1-5-32-544 Administrateurs) pour etre
+    # independant de la langue de Windows (parc FR). Idempotent (ne fait rien
+    # si l'heritage est deja coupe), non-bloquant.
+    param([string]$Path)
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        $acl = Get-Acl -LiteralPath $Path
+        if ($acl.AreAccessRulesProtected) { return }
+        $sidSystem = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+        $sidAdmins = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
+        $inherit   = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+        $none      = [System.Security.AccessControl.PropagationFlags]::None
+        $full      = [System.Security.AccessControl.FileSystemRights]::FullControl
+        $allow     = [System.Security.AccessControl.AccessControlType]::Allow
+        # Coupe l'heritage (ne recopie pas les ACE herites) puis retire les ACE explicites.
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($ace in @($acl.Access | Where-Object { -not $_.IsInherited })) { [void]$acl.RemoveAccessRule($ace) }
+        [void]$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sidSystem, $full, $inherit, $none, $allow)))
+        [void]$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sidAdmins, $full, $inherit, $none, $allow)))
+        Set-Acl -LiteralPath $Path -AclObject $acl
+    } catch {
+        # non-bloquant : un echec ACL ne casse jamais l'updater / l'install
+    }
+}
+
 
 Write-Host ""
 Write-Host "======================================================" -ForegroundColor Cyan
@@ -277,6 +311,11 @@ Write-OK "Updater copie : $UpdaterDst (SHA256 OK)"
 # Ecrire version.txt
 Set-Content -Path $VersionDst -Value $versionToWrite -Encoding UTF8
 Write-OK "version.txt ecrit : $versionToWrite"
+
+# Durcissement ACL : SYSTEM + Administrateurs uniquement (empeche un compte
+# standard de lire les scripts -> chemin share, killswitch, layout).
+Set-PCPulseAcl -Path $LocalPath
+Write-OK "ACL durcie : SYSTEM + Administrateurs uniquement"
 
 # ============================================================
 # ETAPE 4 : Creation de la tache planifiee
@@ -447,3 +486,26 @@ Write-Host "POUR DESINSTALLER MANUELLEMENT :" -ForegroundColor Cyan
 Write-Host "  Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:`$false"
 Write-Host "  Remove-Item '$LocalPath' -Recurse -Force"
 Write-Host ""
+
+# ============================================================
+# ETAPE 8 (v2.2) : AUTO-NETTOYAGE DU DOSSIER SOURCE
+# ============================================================
+# Deploy-PCPulse depose le package dans C:\Temp\PCPulse-deploy puis lance ce
+# script depuis ce dossier. Une fois l'install faite, il ne sert plus a rien
+# et exposerait le layout/share a qui debarque sur le poste. On le supprime,
+# mais UNIQUEMENT s'il correspond au dossier de deploiement attendu (jamais un
+# dossier source legitime, jamais C:\ProgramData\PCPulse). Comme on tourne
+# depuis ce dossier, on differe la suppression apres notre exit (meme pattern
+# que le killswitch de l'Updater).
+$DeployLeftoverDir = 'C:\Temp\PCPulse-deploy'
+try {
+    $srcFull  = (Resolve-Path -LiteralPath $SourceDir -ErrorAction Stop).ProviderPath.TrimEnd('\')
+    $expected = $DeployLeftoverDir.TrimEnd('\')
+    if (($srcFull -ieq $expected) -and ($srcFull -ine $LocalPath.TrimEnd('\'))) {
+        $cleanupCmd = "Start-Sleep -Seconds 3; Remove-Item -LiteralPath '$srcFull' -Recurse -Force -ErrorAction SilentlyContinue"
+        Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-WindowStyle','Hidden','-Command',$cleanupCmd -WindowStyle Hidden | Out-Null
+        Write-Info "Auto-nettoyage differe du dossier source lance ($srcFull)"
+    }
+} catch {
+    Write-Warn "Auto-nettoyage du dossier source non effectue (non-bloquant) : $_"
+}

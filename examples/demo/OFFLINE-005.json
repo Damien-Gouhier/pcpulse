@@ -4,9 +4,14 @@
     "PC": "OFFLINE-005",
     "CollectedAt": "2026-06-20 09:00:00",
     "OS": "Microsoft Windows 11 Entreprise",
+    "OSProduct": "Windows 11",
+    "OSBuild": 22631,
+    "OSDisplayVersion": "23H2",
+    "OSEdition": "Entreprise",
     "LastBoot": "2026-06-20 08:00:00",
     "UptimeDays": 0.1,
-    "CurrentUser": "lucas.roux",
+    "CurrentUser": "(aucune session)",
+    "LastLoggedUser": "thomas.bernard",
     "IP": "192.168.50.73",
     "CPUName": "AMD Ryzen 7 PRO 6850U",
     "CPUVendor": "AMD",
@@ -303,23 +308,21 @@
         "Slot": "Onboard 1",
         "Bank": "-",
         "CapacityGB": 8,
-        "TypeCode": 28,
         "Type": "LPDDR4",
-        "SpeedMTs": 4266,
+        "SpeedMHz": 4266,
         "Manufacturer": "Micron",
-        "PartNumber": "MT53E1G32D2NP-046",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "2C00000000000000",
+        "PartNumber": "MT53E1G32D2NP-046"
       },
       {
         "Slot": "Onboard 2",
         "Bank": "-",
         "CapacityGB": 8,
-        "TypeCode": 28,
         "Type": "LPDDR4",
-        "SpeedMTs": 4266,
+        "SpeedMHz": 4266,
         "Manufacturer": "Micron",
-        "PartNumber": "MT53E1G32D2NP-046",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "2C00000000000000",
+        "PartNumber": "MT53E1G32D2NP-046"
       }
     ]
   },

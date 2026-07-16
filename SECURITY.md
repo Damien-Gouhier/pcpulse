@@ -247,6 +247,6 @@ Engagement :
 
 ---
 
-*Dernière mise à jour : 2026-05-04 — release v2.0* 
+*Dernière mise à jour : 2026-07-16 — repo v2.3.0 (le durcisseur `Setup-Server.ps1` reste versionné à part, v2.0).* 
 
 

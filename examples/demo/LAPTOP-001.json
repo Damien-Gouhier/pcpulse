@@ -4,9 +4,14 @@
     "PC": "LAPTOP-001",
     "CollectedAt": "2026-07-03 09:00:00",
     "OS": "Microsoft Windows 11 Entreprise",
+    "OSProduct": "Windows 11",
+    "OSBuild": 22631,
+    "OSDisplayVersion": "23H2",
+    "OSEdition": "Entreprise",
     "LastBoot": "2026-07-03 06:20:42",
     "UptimeDays": 0.1,
     "CurrentUser": "martin.dupont",
+    "LastLoggedUser": "martin.dupont",
     "IP": "10.10.0.42",
     "CPUName": "Intel(R) Core(TM) Ultra 7 155U",
     "CPUVendor": "Intel",
@@ -463,7 +468,8 @@
       "WeekOfManufacture": 18,
       "AgeYears": 3,
       "Active": true,
-      "VideoOutputTech": 10
+      "VideoOutputTech": 10,
+      "Identified": true
     },
     {
       "ManufacturerCode": "DEL",
@@ -475,7 +481,8 @@
       "WeekOfManufacture": 18,
       "AgeYears": 3,
       "Active": true,
-      "VideoOutputTech": 10
+      "VideoOutputTech": 10,
+      "Identified": true
     }
   ],
   "TopCrashers": [],
@@ -534,23 +541,21 @@
         "Slot": "ChannelA-DIMM0",
         "Bank": "BANK 0",
         "CapacityGB": 16,
-        "TypeCode": 26,
         "Type": "DDR4",
-        "SpeedMTs": 3200,
+        "SpeedMHz": 3200,
         "Manufacturer": "Samsung",
-        "PartNumber": "M471A2K43DB1-CWE",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "80CE000080CE",
+        "PartNumber": "M471A2K43DB1-CWE"
       },
       {
         "Slot": "ChannelB-DIMM0",
         "Bank": "BANK 2",
         "CapacityGB": 16,
-        "TypeCode": 26,
         "Type": "DDR4",
-        "SpeedMTs": 3200,
+        "SpeedMHz": 3200,
         "Manufacturer": "Samsung",
-        "PartNumber": "M471A2K43DB1-CWE",
-        "SerialNumber": "-"
+        "ManufacturerRaw": "80CE000080CE",
+        "PartNumber": "M471A2K43DB1-CWE"
       }
     ]
   },
