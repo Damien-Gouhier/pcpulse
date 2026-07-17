@@ -2,6 +2,12 @@
 # (copie ta version depuis les modeles .example)
 /config.psd1
 /ip-ranges.csv
+decommissioning.json
+decom-config.psd1
+
+# --- Lanceurs .bat internes (contiennent le chemin UNC du share) : NE JAMAIS committer ---
+# (ex : PCPulse-Dashboard.bat, Decommission-PC.bat)
+*.bat
 
 # --- Sorties generees par le Dashboard ---
 PCPulse-Dashboard-*.html
