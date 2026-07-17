@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.3.2-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.0-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Supervision de parc Windows zéro-dépendance.**
@@ -40,7 +40,7 @@ Si l'un de ces points résonne avec toi, n'hésite pas à ouvrir une [Issue](htt
 
 | Famille | Métriques |
 |---|---|
-| 🔒 **Sécurité** | Statut de l'EDR (défini dans config.psd1), PC offline |
+| 🔒 **Sécurité** | Statut de l'EDR (défini dans config.psd1) : arrêté / absent ; OS en fin de support |
 | ⚠️ **Stabilité** | Crashs applicatifs, freezes, BSOD, WHEA fatal/corrected, GPU TDR, throttling thermique |
 | ⚡ **Performance** | Durée des boots, Boot Performance détaillée (MainPath, PostBoot, UserProfile, Explorer init) |
 | 🔧 **Usure matérielle** | Santé batterie (% d'usure + cycles), SMART disque (wear, temp, erreurs), écrans secondaires âgés |
@@ -81,9 +81,16 @@ Avant d'installer sur ton parc, tu peux voir le Dashboard **tout de suite** avec
 git clone https://github.com/Damien-Gouhier/pcpulse.git
 cd pcpulse
 
-# 2. Lancer le Dashboard sur les JSON de démo
+# 2. Ré-ancrer les dates de démo sur "maintenant"
+#    (les JSON de démo ont des dates figées ; sans ça, le Dashboard finit
+#     par afficher TOUS les postes hors ligne). Script idempotent.
+pwsh .\examples\demo\Refresh-DemoDates.ps1
+
+# 3. Lancer le Dashboard sur les JSON de démo
 pwsh .\02_Dashboard.ps1 -SharePath ".\examples\demo"
 ```
+
+> ℹ️ L'étape 2 est **idempotente** : relance-la autant de fois que tu veux, elle recale toujours les dates d'activité sur l'heure courante (un poste reste « hors ligne » de démo : `OFFLINE-005`). Sans elle, les dates figées des JSON finiraient par faire passer tout le parc de démo hors ligne.
 
 > 💡 **Si Windows bloque l'exécution** avec une erreur `cannot be loaded... not digitally signed`, c'est normal (protection par défaut). Deux solutions :
 >
@@ -180,6 +187,24 @@ PCPulse intègre un mécanisme **killswitch** qui permet de désinstaller à dis
 3. Tu retires le fichier sentinelle quand tous les PC sont apparus dans `\killed\`
 
 **En production**, change la phrase et le nom de fichier via `config.psd1` pour éviter tout déclenchement par accident. Voir [`config.psd1.example`](config.psd1.example) et [`SECURITY.md`](SECURITY.md) pour les détails.
+
+## 🔄 Décommissionnement — cycle de vie des postes
+
+> 🚧 **En développement.** Ajout récent, **additif** (aucun impact sur la collecte ni le schéma JSON) et **voué à évoluer** : le workflow, les états et l'ergonomie bougeront selon les retours. La purge automatique des postes retirés n'est pas encore là (voir plus bas).
+
+![Cycle de vie — décommissionnement (badge et famille KPI)](screenshots/cycle-de-vie.png)
+
+Quand un poste est remplacé, volé ou en fin de vie, il continue d'apparaître dans le Dashboard comme « hors ligne » — sans qu'on sache si c'est une panne ou une sortie de parc assumée. Le décommissionnement lève cette ambiguïté.
+
+L'outil **`Decommission-PC.ps1`** marque un poste dans un **registre séparé** (`decommissioning.json`), avec un petit workflow :
+
+- **À faire → Fait** : on marque le poste (raison, technicien assigné, échéance), puis on clôture une fois l'opération réalisée. Historique horodaté conservé.
+- **Registre séparé, jamais dans le JSON du poste** : le Collecteur réécrit le JSON à chaque cycle tant que la machine tourne, donc le marqueur ne peut pas y vivre.
+- **Écriture au compte normal** : le registre est déposé dans un dossier où les techniciens écrivent avec leur **compte de session habituel** (hors partage durci) — pas de credentials, pas d'élévation. Les réglages non sensibles (liste des techniciens, admins autorisés à repousser/retirer, délai) vivent dans `decom-config.psd1` à côté du registre (cf. [`decom-config.psd1.example`](decom-config.psd1.example)).
+
+Côté Dashboard, une famille KPI **Cycle de vie** lit ce registre (chemin `DecommissionRegistryPath`) et affiche un badge par poste : *à décommissionner* (avec compte à rebours), *en retard*, *fait mais en ligne* (incohérence à vérifier), *faite (à purger)*. Un filtre par état permet de lister les postes concernés.
+
+**Limite actuelle (à faire évoluer)** : une fois un poste marqué « Fait », son `<PC>.json` n'est **pas** supprimé automatiquement — il faut l'effacer manuellement sur le partage (compte disposant de l'écriture). Le filtre *« faite (à purger) »* est justement là pour lister ce qu'il reste à nettoyer. Une purge automatique (tâche planifiée côté serveur, après un délai) est envisagée.
 
 ## 🎯 À qui ça s'adresse
 

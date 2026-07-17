@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v2.3.2
+    PCPulse Dashboard v2.4.0
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,21 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.3.2
+    Version      : 2.4.0
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.4.0 : Dashboard + outillage (le Collector reste en 2.3.2, INCHANGE -> aucun
+           redeploiement du parc, version.txt non touche). SchemaVersion inchangee.
+           - KPI Securite recompose : "EDR arrete" / "EDR absent" / "OS fin de
+             support" (retrait de "PC offline", non pertinent en securite).
+           - Tuile "En ligne 24h" cliquable -> filtre les postes hors ligne.
+           - Colonne CPU triable (ancien -> recent).
+           - Cycle de vie (decommission, EN DEVELOPPEMENT) : lecture du registre
+             decommissioning.json (chemin DecommissionRegistryPath), badges par
+             poste (a decommissionner / en retard / fait mais en ligne / faite a
+             purger), famille KPI dediee + filtres. Outil Decommission-PC.ps1
+             (v2.0) pour marquer/cloturer cote donnee. Additif, voue a evoluer
+             (purge auto a venir).
     v2.3.2 : Backlog - lisibilite crashers, durcissement, garde-fou, additif.
            - Drill-down crashers (#9) : affichage "X plantes / Y figes", origine
              traduite depuis le module fautif (.exe = application, ntdll/kernelbase
@@ -477,6 +489,12 @@ $DefaultConfig = @{
     CsvRanges            = 'ip-ranges.csv'
     MaskHealthyByDefault = $false
 
+    # v2.4.0 : dossier ou vit le registre de decommission (ecrit par
+    # Decommission-PC.ps1 dans un dossier ecrivable par les techs, hors share
+    # durci). Le generateur du Dashboard doit pouvoir LIRE ce dossier. Vide =>
+    # on cherche le registre a cote des JSON (retro-compat).
+    DecommissionRegistryPath = ''
+
     # v2.2.0 : applis suivies ("A investiguer en priorite") - de-vendorise, pilote par config.
     # Defaut generique = socle bureautique/collab (universel). Les applis SPECIFIQUES au site
     # (metier maison, services securite/reseau, Java metier...) vivent dans config.psd1, jamais
@@ -668,6 +686,32 @@ if (Test-Path $CsvRanges) {
     Write-Host "[!] CSV de ranges non trouve : $CsvRanges (colonne Site desactivee)" -ForegroundColor Yellow
 }
 $showSite = ($rangesIP.Count -gt 0)
+
+# ============================================================
+# LECTURE DU REGISTRE DE DECOMMISSION (v2.4.0)
+# Registre SEPARE (jamais dans le JSON du poste, que le Collector reecrit a
+# chaque cycle). Ecrit par Decommission-PC.ps1. Cle = nom PC. Lecture seule ici.
+# ============================================================
+# Registre ecrit par Decommission-PC.ps1 dans un dossier ecrivable par les techs
+# (hors share durci). Chemin pilote par DecommissionRegistryPath (config) ; a
+# defaut on cherche a cote des JSON (retro-compat).
+$decomDir = [string]$cfg.DecommissionRegistryPath
+if (-not $decomDir) { $decomDir = $SharePath }
+$decomPath = Join-Path $decomDir 'decommissioning.json'
+$decomByPc = @{}
+if (Test-Path $decomPath) {
+    try {
+        $decomRaw = Get-Content $decomPath -Raw -ErrorAction Stop
+        if (-not [string]::IsNullOrWhiteSpace($decomRaw)) {
+            foreach ($d in @($decomRaw | ConvertFrom-Json)) {
+                if ($d.PC) { $decomByPc[[string]$d.PC] = $d }
+            }
+        }
+        Write-Host "[+] Registre decommission : $($decomByPc.Count) entree(s)" -ForegroundColor Green
+    } catch {
+        Write-Host "[!] Registre decommission illisible ($_)" -ForegroundColor Yellow
+    }
+}
 
 # ============================================================
 # v2.0 : SANITY-CHECKS - fonctions de validation et sanitization
@@ -1164,7 +1208,10 @@ function Test-PCPulseAnomalies {
 # ============================================================
 Write-Host "[*] Lecture des donnees depuis $SharePath ..." -ForegroundColor Cyan
 
-$jsonFiles      = Get-ChildItem -Path $SharePath -Filter "$FiltrePC.json" -ErrorAction Stop
+# NB : on exclut decommissioning.json (registre de cycle de vie, pas un poste) au
+# cas ou il partage le dossier des JSON (demo, ou repli par defaut sur SharePath).
+$jsonFiles      = Get-ChildItem -Path $SharePath -Filter "$FiltrePC.json" -ErrorAction Stop |
+                  Where-Object { $_.Name -ne 'decommissioning.json' }
 $allData        = [System.Collections.Generic.List[PSCustomObject]]::new()
 $rejectedJsons  = [System.Collections.Generic.List[PSCustomObject]]::new()  # v2.0 : pour la section HTML "JSON suspects"
 $anomalyJsons   = [System.Collections.Generic.List[PSCustomObject]]::new()  # v2.0+ : anomalies (warnings) detectees
@@ -1798,6 +1845,21 @@ foreach ($pc in $allData) {
                 Detail = ConvertTo-HtmlSafe ([string]$_.Detail)
             }
         })
+        # v2.4.0 : entree de decommission de ce PC (registre separe), ou $null.
+        Decom            = $(
+            $d = $decomByPc[[string]$pc.Machine.PC]
+            if ($d) {
+                [PSCustomObject]@{
+                    Statut     = ConvertTo-HtmlSafe ([string]$d.Statut)
+                    Reason     = ConvertTo-HtmlSafe ([string]$d.Reason)
+                    AssignedTo = ConvertTo-HtmlSafe ([string]$d.AssignedTo)
+                    MarkedAt   = ConvertTo-HtmlSafe ([string]$d.MarkedAt)
+                    TargetDate = ConvertTo-HtmlSafe ([string]$d.TargetDate)
+                    DoneAt     = ConvertTo-HtmlSafe ([string]$d.DoneAt)
+                    DoneBy     = ConvertTo-HtmlSafe ([string]$d.DoneBy)
+                }
+            } else { $null }
+        )
     })
 }
 
@@ -2035,6 +2097,11 @@ $metaRefresh
         opacity: 0.85;
     }
     .anomaly-badge:hover { opacity: 1; }
+    /* v2.4.0 : badge decommission (cycle de vie) */
+    .decom-badge { cursor: pointer; color: var(--purple); font-size: 13px; margin-left: 5px; vertical-align: middle; opacity: 0.9; }
+    .decom-badge:hover { opacity: 1; }
+    .decom-badge.late, .decom-badge.done-online { color: var(--red); font-weight: 700; }
+    .decom-badge.done { color: var(--text-muted); cursor: default; }
     .filter-btn-anomaly { border-color: var(--orange); color: var(--orange); }
     .filter-btn-anomaly:hover { border-color: var(--orange); color: var(--orange); background: rgba(255, 165, 2, 0.12); }
     .filter-btn-anomaly.active { background: var(--orange); color: #1a1a1a; border-color: var(--orange); }
@@ -2167,6 +2234,10 @@ $metaRefresh
         align-items: center;
         gap: 14px;
     }
+    /* v2.3.3 : tuile cliquable (ex : "En ligne" -> filtre les hors ligne) */
+    .summary-tile.clickable { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+    .summary-tile.clickable:hover { border-color: var(--accent); }
+    .summary-tile.clickable.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
     .summary-icon {
         width: 42px; height: 42px;
         border-radius: 10px;
@@ -2342,6 +2413,7 @@ $metaRefresh
     .kpi-group-btn.calm.family-stability .kpi-group-btn-icon { color: var(--pink); }
     .kpi-group-btn.calm.family-performance .kpi-group-btn-icon { color: var(--yellow); }
     .kpi-group-btn.calm.family-material .kpi-group-btn-icon { color: var(--cyan); }
+    .kpi-group-btn.calm.family-lifecycle .kpi-group-btn-icon { color: var(--green); }
 
     /* Popover au survol : detail des sous-KPIs de la famille */
     .kpi-group-popover {
@@ -4464,6 +4536,10 @@ function enrichPC(pc, cutoff) {
         if (monitoredServices[mi] && monitoredServices[mi].Role === 'EDR') { edr = monitoredServices[mi]; break; }
     }
     var edrAlert = !!(edr && edr.IsAlert);
+    // v2.3.3 : on distingue EDR ARRETE (installe mais en alerte) vs ABSENT (pas
+    // installe) - c'est plus actionnable dans la carte Securite. Somme = edrAlert.
+    var edrStopped = !!(edr && edr.IsAlert && edr.Installed);
+    var edrAbsent  = !!(edr && edr.IsAlert && !edr.Installed);
 
     var bootPerf = pc.BootPerformance || null;
     var bootPerfAlert = !!(bootPerf && bootPerf.IsAlert);
@@ -4506,12 +4582,30 @@ function enrichPC(pc, cutoff) {
         ramCorrected: ramWheaCorrected
     };
 
+    // v2.4.0 : cycle de vie (decommission). Registre separe, embed champ Decom.
+    var decom = pc.Decom || null;
+    var decomTodo = !!(decom && decom.Statut === 'A faire');
+    var decomDone = !!(decom && decom.Statut === 'Fait');
+    var decomDaysLeft = null, decomLate = false;
+    if (decomTodo && decom.TargetDate) {
+        decomDaysLeft = Math.ceil((parseDate(decom.TargetDate + ' 00:00:00') - generatedAt) / 86400000);
+        decomLate = (decomDaysLeft < 0);
+    }
+    // marque "Fait" mais le poste remonte encore = incoherence a signaler
+    var decomDoneOnline = !!(decomDone && !pc.IsOffline);
+
     var result = {
         pc: pc,
         crashes: crashes, boots: boots, bsods: bsods, warnings: warnings,
         topRAM: pc.TopRAM || [], diskInfo: pc.DiskInfo || [], diskAlerts: diskAlerts,
         topCrashers: pc.TopCrashers || [],
         anomalies: pc.Anomalies || [],
+        decom: decom,
+        decomTodo: decomTodo,
+        decomDone: decomDone,
+        decomLate: decomLate,
+        decomDaysLeft: decomDaysLeft,
+        decomDoneOnline: decomDoneOnline,
         bootsLongs: bootsLongs, dernierBoot: dernierBoot,
         bootsByType: bootsByType,
         crashCount: crashes.length,
@@ -4538,6 +4632,8 @@ function enrichPC(pc, cutoff) {
         monitoredServices: monitoredServices,
         edr: edr,
         edrAlert: edrAlert,
+        edrStopped: edrStopped,
+        edrAbsent: edrAbsent,
         bootPerf: bootPerf,
         bootPerfAlert: bootPerfAlert,
         diskHealth: diskHealth,
@@ -4565,6 +4661,17 @@ function sortPCs(pcs) {
             case 'name':   return dir * a.pc.PC.localeCompare(b.pc.PC);
             case 'site':   return dir * (a.pc.Site || '').localeCompare(b.pc.Site || '');
             case 'user':   return dir * (a.pc.CurrentUser || '').localeCompare(b.pc.CurrentUser || '');
+            case 'cpu': {
+                // Tri par annee du CPU (asc = plus ancien d'abord). CPU inconnus
+                // (CPUYear null) toujours en bas, quel que soit le sens.
+                var ay = a.pc.CPUYear, by = b.pc.CPUYear;
+                var an = (ay === null || ay === undefined || ay === '');
+                var bn = (by === null || by === undefined || by === '');
+                if (an && bn) return 0;
+                if (an) return 1;
+                if (bn) return -1;
+                return dir * (ay - by);
+            }
             case 'uptime':
                 var ua = a.pc.UptimeDays || 0, ub = b.pc.UptimeDays || 0;
                 return dir * (ua - ub);
@@ -4605,6 +4712,13 @@ function matchKpiFilter(p, filter) {
         case 'crashRecent': return (p.pc.Crashes || []).some(function(c) { return parseDate(c.Timestamp) >= crashRecentCutoff; });
         // v5.3 / v5.4
         case 'edrDown':     return p.edrAlert;
+        case 'edrStopped':  return p.edrStopped;
+        case 'edrAbsent':   return p.edrAbsent;
+        case 'osEol':       return p.pc.OSProduct === 'Windows 10';
+        case 'decomTodo':   return p.decomTodo;
+        case 'decomLate':   return p.decomLate;
+        case 'decomOnline': return p.decomDoneOnline;
+        case 'decomDone':   return (p.decomDone && !p.decomDoneOnline); // faite + hors ligne = a purger
         case 'battery':     return p.batteryAlert;
         case 'bootPerf':    return p.bootPerfAlert;
         case 'smart':       return p.diskSmartAlert;
@@ -4867,6 +4981,13 @@ function renderKpis(pcs) {
     var totalOldCPU = pcs.filter(function(p) { return p.pc.CPUAgeCategory === 'Ancien'; }).length;
 
     var totalEdrDown = pcs.filter(function(p) { return p.edrAlert; }).length;
+    var totalEdrStopped = pcs.filter(function(p) { return p.edrStopped; }).length;
+    var totalEdrAbsent  = pcs.filter(function(p) { return p.edrAbsent; }).length;
+    var totalOsEol      = pcs.filter(function(p) { return p.pc.OSProduct === 'Windows 10'; }).length;  // Win10 = fin de support (oct. 2025)
+    var totalDecomTodo   = pcs.filter(function(p) { return p.decomTodo; }).length;
+    var totalDecomLate   = pcs.filter(function(p) { return p.decomLate; }).length;
+    var totalDecomOnline = pcs.filter(function(p) { return p.decomDoneOnline; }).length;
+    var totalDecomDone   = pcs.filter(function(p) { return p.decomDone && !p.decomDoneOnline; }).length;
     var totalBatteryWorn = pcs.filter(function(p) { return p.batteryAlert; }).length;
     var totalBootPerfSlow = pcs.filter(function(p) { return p.bootPerfAlert; }).length;
     var totalSmartAlert = pcs.filter(function(p) { return p.diskSmartAlert; }).length;
@@ -4900,12 +5021,12 @@ function renderKpis(pcs) {
             '<div class="summary-sub">dans la p&eacute;riode s&eacute;lectionn&eacute;e</div>' +
           '</div>' +
         '</div>' +
-        '<div class="summary-tile">' +
+        '<div class="summary-tile clickable' + (state.kpiFilter === 'offline' ? ' active' : '') + '" onclick="toggleKpiFilter(\'offline\')" title="Cliquer pour filtrer les postes hors ligne">' +
           '<div class="summary-icon green">&#10003;</div>' +
           '<div class="summary-content">' +
             '<div class="summary-value">' + (totalPC - totalOffline) + ' <span style="font-size:14px;color:var(--text-muted);font-weight:500">/ ' + totalPC + '</span></div>' +
             '<div class="summary-label">En ligne (24h)</div>' +
-            '<div class="summary-sub">' + pctOnline + '% du parc joignable</div>' +
+            '<div class="summary-sub">' + pctOnline + '% joignable' + (totalOffline > 0 ? ' &middot; ' + totalOffline + ' hors ligne &rarr;' : '') + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="summary-tile">' +
@@ -4925,8 +5046,9 @@ function renderKpis(pcs) {
     var familySecurity = {
         key: 'security', family: 'family-security', icon: '&#128274;', title: 'S&eacute;curit&eacute;',
         subs: [
-            { k: 'offline', label: 'Offline',      v: totalOffline,  level: (totalOffline > 0 ? 'warn' : 'neutral') },
-            { k: 'edrDown', label: 'EDR en panne', v: totalEdrDown,  level: (totalEdrDown > 0 ? 'danger' : 'neutral') }
+            { k: 'edrStopped', label: 'EDR arr&ecirc;t&eacute;',   v: totalEdrStopped, level: (totalEdrStopped > 0 ? 'danger' : 'neutral') },
+            { k: 'edrAbsent',  label: 'EDR absent',                 v: totalEdrAbsent,  level: (totalEdrAbsent > 0 ? 'danger' : 'neutral') },
+            { k: 'osEol',      label: 'OS fin de support',          v: totalOsEol,      level: (totalOsEol > 0 ? 'warn' : 'neutral') }
         ]
     };
     var familyStability = {
@@ -4957,7 +5079,17 @@ function renderKpis(pcs) {
         ]
     };
 
-    var families = [familySecurity, familyStability, familyPerformance, familyMaterial];
+    var familyLifecycle = {
+        key: 'lifecycle', family: 'family-lifecycle', icon: '&#128260;', title: 'Cycle de vie',
+        subs: [
+            { k: 'decomTodo',   label: 'A d&eacute;commissionner', v: totalDecomTodo,   level: (totalDecomTodo > 0 ? 'warn' : 'neutral') },
+            { k: 'decomLate',   label: 'En retard',                v: totalDecomLate,   level: (totalDecomLate > 0 ? 'danger' : 'neutral') },
+            { k: 'decomOnline', label: 'Fait mais en ligne',       v: totalDecomOnline, level: (totalDecomOnline > 0 ? 'danger' : 'neutral') },
+            { k: 'decomDone',   label: 'Faite (&agrave; purger)',  v: totalDecomDone,   level: 'neutral' }
+        ]
+    };
+
+    var families = [familySecurity, familyStability, familyPerformance, familyMaterial, familyLifecycle];
 
     // Quels filtres KPI appartiennent a quelle famille (pour marquer
     // un bouton "active" si le filtre courant pointe vers cette famille)
@@ -5020,6 +5152,13 @@ function renderKpis(pcs) {
         if (primaryKey === fam.subs[0].k) {
             for (var j = 0; j < fam.subs.length; j++) {
                 if (fam.subs[j].v > 0 && fam.subs[j].level === 'warn') { primaryKey = fam.subs[j].k; break; }
+            }
+        }
+        // Aucune alerte chaude mais un compteur neutre > 0 (ex: "Faite a purger")
+        // -> un clic direct sur la carte filtre ce sous-KPI plutot que rien.
+        if (primaryKey === fam.subs[0].k && fam.subs[0].v === 0) {
+            for (var n = 0; n < fam.subs.length; n++) {
+                if (fam.subs[n].v > 0) { primaryKey = fam.subs[n].k; break; }
             }
         }
 
@@ -5365,7 +5504,7 @@ function sortColumn(col) {
         state.sort.dir = state.sort.dir === 'desc' ? 'asc' : 'desc';
     } else {
         state.sort.col = col;
-        state.sort.dir = (col === 'name' || col === 'site' || col === 'user') ? 'asc' : 'desc';
+        state.sort.dir = (col === 'name' || col === 'site' || col === 'user' || col === 'cpu') ? 'asc' : 'desc';
     }
     render();
 }
@@ -5382,7 +5521,9 @@ function renderTable(pcs) {
         '<th>Statut</th>' + siteHeader +
         '<th>IP</th>' +
         '<th class="' + sortClass('user')  + '" onclick="sortColumn(\'user\')">Utilisateur ' + sortArrow('user') + '</th>' +
-        '<th>Conn.</th><th>CPU</th><th>OS</th>' +
+        '<th>Conn.</th>' +
+        '<th class="' + sortClass('cpu') + '" onclick="sortColumn(\'cpu\')">CPU ' + sortArrow('cpu') + '</th>' +
+        '<th>OS</th>' +
         '<th class="' + sortClass('uptime') + '" onclick="sortColumn(\'uptime\')">Uptime ' + sortArrow('uptime') + '</th>' +
         '<th class="' + sortClass('fresh')  + '" onclick="sortColumn(\'fresh\')">Vu '  + sortArrow('fresh')  + '</th>' +
         '<th class="' + sortClass('boot')   + '" onclick="sortColumn(\'boot\')">Boot ' + sortArrow('boot')   + '</th>' +
@@ -5541,9 +5682,28 @@ function renderTable(pcs) {
                            '" onclick="event.stopPropagation(); toggleKpiFilter(\'anomaly\')">&#9888;</span>';
         }
 
+        // v2.4.0 : badge decommission (cycle de vie). Cliquable -> filtre.
+        var decomBadge = '';
+        if (p.decom) {
+            if (p.decomTodo) {
+                var dLeft = (p.decomDaysLeft === null) ? '' :
+                    (p.decomDaysLeft < 0 ? ' (' + Math.abs(p.decomDaysLeft) + 'j de retard)' : ' (J-' + p.decomDaysLeft + ')');
+                var dTitle = 'A decommissionner - ' + (p.decom.Reason || '') +
+                             ' | assigne: ' + (p.decom.AssignedTo || '?') +
+                             ' | echeance: ' + (p.decom.TargetDate || '?') + dLeft;
+                decomBadge = ' <span class="decom-badge' + (p.decomLate ? ' late' : '') + '" title="' + dTitle +
+                             '" onclick="event.stopPropagation(); toggleKpiFilter(\'' + (p.decomLate ? 'decomLate' : 'decomTodo') + '\')">&#9851;</span>';
+            } else if (p.decomDoneOnline) {
+                decomBadge = ' <span class="decom-badge done-online" title="Marque FAIT mais le poste remonte encore - a verifier (fait par ' + (p.decom.DoneBy || '?') +
+                             ')" onclick="event.stopPropagation(); toggleKpiFilter(\'decomOnline\')">&#9851;!</span>';
+            } else if (p.decomDone) {
+                decomBadge = ' <span class="decom-badge done" title="Decommission faite le ' + (p.decom.DoneAt || '?') + ' par ' + (p.decom.DoneBy || '?') + '">&#9851;</span>';
+            }
+        }
+
         tbody += '<tr class="' + rowClass + ' row-main" onclick="toggleDetail(\'detail-' + idx + '\')">' +
             '<td>' + scoreCell + '</td>' +
-            '<td><span class="toggle-icon">&#9654;</span>' + pc.PC + anomalyBadge + '</td>' +
+            '<td><span class="toggle-icon">&#9654;</span>' + pc.PC + anomalyBadge + decomBadge + '</td>' +
             '<td>' + statusBadge + '</td>' +
             siteCell +
             '<td>' + pc.IP + '</td>' +

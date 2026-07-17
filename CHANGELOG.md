@@ -13,6 +13,39 @@ ce fichier consolide les évolutions notables au niveau du projet.
 
 ---
 
+## [2.4.0]
+
+Release **Dashboard + outillage**. Le **Collecteur reste en 2.3.2** (aucun
+changement de code) : pas de redéploiement du parc, `version.txt` non touché.
+**Schéma JSON inchangé (`2.2`)**, additif et rétrocompatible.
+
+### Ajouté
+
+- **Décommissionnement — cycle de vie des postes (🚧 en développement).** Nouvel
+  axe, **additif et voué à évoluer**. Un outil interactif `Decommission-PC.ps1`
+  (v2.0) marque un poste « À faire » puis « Fait » (workflow), assigne un
+  technicien et journalise l'historique, dans un **registre séparé**
+  (`decommissioning.json`) — jamais dans le JSON du poste (que le Collecteur
+  réécrit à chaque cycle). Le registre vit dans un dossier où les techniciens
+  écrivent avec leur **compte de session normal** (hors partage durci) ; le
+  Dashboard le lit via `DecommissionRegistryPath` et affiche une famille KPI
+  **Cycle de vie** (badges par poste : à décommissionner / en retard / fait mais
+  en ligne / faite à purger, et filtres associés). La purge des postes
+  décommissionnés reste **manuelle** pour l'instant (suppression du `<PC>.json`
+  par un compte disposant de l'écriture sur le partage) ; une purge automatique
+  est envisagée. Réglages non sensibles (techniciens, admins, délai) dans
+  `decom-config.psd1` à côté du registre.
+- **Tuile « En ligne 24h » cliquable** : filtre les postes hors ligne d'un clic.
+- **Colonne CPU triable** (du plus ancien au plus récent).
+
+### Modifié
+
+- **KPI Sécurité recomposé** : « EDR arrêté » / « EDR absent » / « OS en fin de
+  support » remplacent l'ancien « PC offline » (non pertinent comme signal de
+  sécurité). Le score et les autres familles sont inchangés.
+
+---
+
 ## [2.3.2]
 
 **Correctif critique** + affinage backlog. **Schéma JSON inchangé (`2.2`)**,

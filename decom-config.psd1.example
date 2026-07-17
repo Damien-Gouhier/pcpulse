@@ -1,0 +1,25 @@
+﻿@{
+    # ============================================================
+    # PCPulse - decom-config.psd1 (EXEMPLE)
+    # ============================================================
+    # Petit fichier de reglages de l'outil Decommission-PC.ps1. Il vit A COTE du
+    # registre, dans le dossier -RegistryPath (ex: \\SERVER-METIER\SHARE\...\decom)
+    # -- c.-a-d. la ou les techs ecrivent avec leur COMPTE NORMAL.
+    #
+    # IMPORTANT : ce fichier ne contient RIEN de sensible (juste des noms de techs
+    # et un delai). Il est donc normal qu'un compte normal puisse le lire. Ne
+    # jamais y mettre de secret (le config.psd1 durci reste sur le share protege).
+    #
+    # Copier en 'decom-config.psd1' dans le dossier du registre et adapter.
+
+    # Techs assignables (menu "Assigner a" lors du marquage). Vide => saisie libre.
+    DecommissionTechs     = @('Tech1', 'Tech2', 'Tech3')
+
+    # Comptes de SESSION ($env:USERNAME) autorises a Repousser [3] / Retirer [4].
+    # Vide/absent => aucune restriction. Marquer [1] / Cloturer [2] restent
+    # ouverts a tous les techs.
+    DecommissionAdmins    = @()      # ex: @('jdupont')
+
+    # Delai par defaut avant echeance (TargetDate = aujourd'hui + N jours).
+    DecommissionGraceDays = 30
+}

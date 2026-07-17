@@ -1,0 +1,21 @@
+[
+  {
+    "PC": "OFFLINE-005",
+    "Statut": "A faire",
+    "Reason": "fin de vie",
+    "AssignedTo": "Tech2",
+    "MarkedAt": "2026-07-15 09:30:00",
+    "Operator": "ADMIN-DEMO",
+    "TargetDate": "2026-08-14",
+    "DoneAt": null,
+    "DoneBy": null,
+    "History": [
+      {
+        "Date": "2026-07-15 09:30:00",
+        "Action": "Marque",
+        "By": "ADMIN-DEMO",
+        "Detail": "assigne a Tech2, echeance 2026-08-14"
+      }
+    ]
+  }
+]

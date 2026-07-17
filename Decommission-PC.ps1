@@ -1,0 +1,331 @@
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+    PCPulse - Decommission-PC.ps1 v2.0 - marquage du cycle de vie des postes
+.DESCRIPTION
+    Outil interactif (double-clic via un .bat lanceur) pour gerer la mise en
+    decommission d'un poste, cote DONNEE uniquement : il ne touche JAMAIS la
+    machine cible. Il ecrit un registre separe :
+        <RegistryPath>\decommissioning.json
+
+    ARCHITECTURE (v2.0) : le registre vit dans un dossier ou les techs ont deja
+    le droit d'ecrire avec leur COMPTE DE SESSION NORMAL (ex: un dossier metier
+    sur un serveur non durci). L'outil n'accede PLUS au share durci PCPulse : pas
+    de credentials, pas d'ADMT1, pas de RunAs. Le tech lance, coche, c'est tout.
+    Le Dashboard (genere par un poste/serveur qui a le droit de lire ce dossier)
+    lit ce registre pour afficher les badges "A decommissionner / Fait / En
+    retard". Le registre ne pilote qu'un badge : aucun code, aucun deploiement.
+
+    Workflow : Marquer (A faire) -> Cloturer (Fait). Repousser l'echeance et
+    Retirer une marque sont possibles tant que l'entree existe (reserves aux
+    comptes DecommissionAdmins).
+
+    Anti-faute de frappe : le nom saisi est valide sur le format du parc
+    (2K#### ou V####). Un nom hors-format demande une confirmation (postes a la
+    marge). Aucun acces au parc n'est requis pour ca.
+
+    Attribution : l'operateur (qui marque / qui cloture) est capte via le compte
+    qui lance l'outil ($env:USERNAME). AssignedTo (le tech CENSE s'en occuper)
+    est choisi dans la liste DecommissionTechs.
+
+    Multi-ecriture : plusieurs techs peuvent modifier le registre en meme temps
+    -> verrou par fichier lock + retry (recuperation auto d'un lock abandonne),
+    et ecriture ATOMIQUE SMB-safe (fichier tmp puis Move-Item -Force ; JAMAIS
+    [IO.File]::Replace qui echoue sur un chemin UNC).
+.PARAMETER RegistryPath
+    Dossier OU vivent le registre (decommissioning.json), le lock et le fichier
+    de reglages (decom-config.psd1). C'est l'emplacement ou les techs ont le
+    droit d'ecrire (ex: \\SERVER\SHARE\...\decom). Obligatoire.
+.PARAMETER GraceDays
+    Delai par defaut avant echeance (TargetDate = aujourd'hui + N jours). Defaut
+    lu dans decom-config.psd1 (DecommissionGraceDays) sinon 30.
+.NOTES
+    Auteur     : Damien Gouhier
+    Repository : https://github.com/Damien-Gouhier/pcpulse
+    Licence    : MIT
+    Version    : 2.0
+    Runtime    : PowerShell 5.1+ (lance depuis le poste d'un tech, compte normal)
+.CHANGELOG
+    v2.0 : Re-architecture. Le registre vit dans un dossier ecrivable au compte
+           NORMAL du tech (hors share durci) : suppression totale de la
+           machinerie de credentials (WNet / Get-Credential / ADMT1 / -SharePath
+           / -AskCredential). Reglages lus depuis decom-config.psd1 a cote du
+           registre (DecommissionTechs / DecommissionAdmins / DecommissionGraceDays,
+           rien de sensible). Anti-typo par format (2K#### / V####) au lieu d'une
+           lecture des JSON du parc. Sonde d'ecriture ciblee sur RegistryPath.
+           Cloture/Repousse : reconstruction de l'entree (muter en place un objet
+           ConvertFrom-Json pouvait echouer "propriete introuvable"). Cloture a
+           un seul poste = confirmation directe o/N (pas de numero a saisir).
+    v1.0 : Version initiale (registre sur le share durci via credentials ADMT1).
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$RegistryPath,
+
+    [int]$GraceDays = 0   # 0 = prendre la valeur config (DecommissionGraceDays) ou 30
+)
+
+$ErrorActionPreference = 'Stop'
+
+$RegistryFile = Join-Path $RegistryPath 'decommissioning.json'
+$LockFile     = Join-Path $RegistryPath 'decommissioning.lock'
+$ConfigFile   = Join-Path $RegistryPath 'decom-config.psd1'
+$Utf8NoBom    = [System.Text.UTF8Encoding]::new($false)
+$Operator     = $env:USERNAME
+
+# ============================================================
+# SONDE D'ECRITURE : echec ici = probleme de DROITS, pas de verrou.
+# ============================================================
+try {
+    if (-not (Test-Path $RegistryPath)) { New-Item -ItemType Directory -Path $RegistryPath -Force | Out-Null }
+    $probe = Join-Path $RegistryPath (".pcpulse.write.test.$PID.tmp")
+    [System.IO.File]::WriteAllText($probe, 'ok', $Utf8NoBom)
+    Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+} catch {
+    Write-Host "[X] Ecriture IMPOSSIBLE dans le dossier du registre (compte : $env:USERNAME)." -ForegroundColor Red
+    Write-Host "    Ce n'est PAS un verrou : ce compte n'a pas les droits d'ecriture sur" -ForegroundColor Yellow
+    Write-Host "    $RegistryPath" -ForegroundColor Yellow
+    Write-Host "    Verifiez le chemin et vos droits, puis relancez." -ForegroundColor Yellow
+    exit 1
+}
+
+# ============================================================
+# REGLAGES : liste des techs + admins + delai (decom-config.psd1, non sensible)
+# ============================================================
+$Techs     = @()
+$Admins    = @()
+$graceCfg  = 30
+if (Test-Path $ConfigFile) {
+    try {
+        $cfg = Import-PowerShellDataFile -Path $ConfigFile -ErrorAction Stop
+        if ($cfg.DecommissionTechs)      { $Techs    = @($cfg.DecommissionTechs) }
+        if ($cfg.DecommissionAdmins)     { $Admins   = @($cfg.DecommissionAdmins) }
+        if ($cfg.DecommissionGraceDays)  { $graceCfg = [int]$cfg.DecommissionGraceDays }
+    } catch {
+        Write-Host "[!] decom-config.psd1 illisible ($_). Liste techs vide, saisie libre." -ForegroundColor Yellow
+    }
+}
+if ($GraceDays -le 0) { $GraceDays = $graceCfg }
+
+# Repousser [3] / Retirer [4] reserves aux comptes listes dans DecommissionAdmins
+# (comparaison sur le compte de SESSION $env:USERNAME). Liste vide/absente =>
+# aucune restriction (tout le monde a acces).
+$IsAdmin = ($Admins.Count -eq 0) -or ($Admins -contains $env:USERNAME)
+
+# ============================================================
+# VERROU (multi-ecriture) : lock-file + retry + recuperation auto
+# ============================================================
+function Get-RegistryLock {
+    param([int]$TimeoutSec = 20, [int]$StaleMinutes = 5)
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            # CreateNew echoue si le fichier existe deja = verrou tenu par un autre
+            $fs = [System.IO.File]::Open($LockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $w = New-Object System.IO.StreamWriter($fs)
+            $w.WriteLine("$Operator | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+            $w.Flush(); $w.Dispose(); $fs.Dispose()
+            return $true
+        } catch {
+            # Verrou tenu. S'il est plus vieux que StaleMinutes, c'est un verrou
+            # ABANDONNE (fenetre restee ouverte / run interrompu) -> on le recupere.
+            try {
+                $lockAge = (Get-Date) - (Get-Item $LockFile -ErrorAction Stop).LastWriteTime
+                if ($lockAge.TotalMinutes -ge $StaleMinutes) {
+                    Write-Host ("  [i] Verrou abandonne ({0:N0} min) -> recupere." -f $lockAge.TotalMinutes) -ForegroundColor Yellow
+                    Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
+                    continue
+                }
+            } catch {}
+            Start-Sleep -Milliseconds 400
+        }
+    }
+    return $false
+}
+function Remove-RegistryLock {
+    try { if (Test-Path $LockFile) { Remove-Item $LockFile -Force -ErrorAction SilentlyContinue } } catch {}
+}
+
+# ============================================================
+# LECTURE / ECRITURE du registre
+# ============================================================
+function Get-Registry {
+    if (-not (Test-Path $RegistryFile)) { return @() }
+    try {
+        $raw = Get-Content -Path $RegistryFile -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
+        return @($raw | ConvertFrom-Json)
+    } catch {
+        Write-Host "[!] Registre illisible ($_). Repartir d'une liste vide serait DANGEREUX -> abandon." -ForegroundColor Red
+        throw
+    }
+}
+function Save-Registry {
+    param([object[]]$Entries)
+    # Ecriture ATOMIQUE SMB-safe : tmp unique -> Move-Item -Force (rename cote
+    # serveur). Pas de [IO.File]::Replace (throw sur UNC).
+    # Piege PS 5.1 : ConvertTo-Json d'un tableau a 1 element emet un OBJET, pas un
+    # tableau -> on force les crochets a la main pour 0 et 1 element.
+    $arr = @($Entries)
+    if     ($arr.Count -eq 0) { $json = '[]' }
+    elseif ($arr.Count -eq 1) { $json = '[' + ($arr[0] | ConvertTo-Json -Depth 6) + ']' }
+    else                      { $json = $arr | ConvertTo-Json -Depth 6 }
+    $tmp = "$RegistryFile.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+    [System.IO.File]::WriteAllText($tmp, $json, $Utf8NoBom)
+    Move-Item -LiteralPath $tmp -Destination $RegistryFile -Force
+}
+
+# ============================================================
+# HELPERS UI
+# ============================================================
+function Test-PcNameFormat {
+    # Format du parc : 2K + 4 chiffres, ou V + 4 chiffres (insensible a la casse).
+    param([string]$Pc)
+    return ($Pc -match '^(2K|V)\d{4}$')
+}
+
+function Read-NonEmpty {
+    param([string]$Prompt)
+    do { $v = (Read-Host $Prompt).Trim() } while (-not $v)
+    return $v
+}
+
+function Select-Tech {
+    if ($Techs.Count -eq 0) {
+        return (Read-NonEmpty "  Assigner a (nom du tech)")
+    }
+    Write-Host "  Assigner a :"
+    for ($i = 0; $i -lt $Techs.Count; $i++) { Write-Host ("    [{0}] {1}" -f ($i+1), $Techs[$i]) }
+    do {
+        $sel = (Read-Host "  Numero du tech").Trim()
+        $ok  = ($sel -match '^\d+$') -and ([int]$sel -ge 1) -and ([int]$sel -le $Techs.Count)
+        if (-not $ok) { Write-Host "  Choix invalide." -ForegroundColor Yellow }
+    } while (-not $ok)
+    return $Techs[[int]$sel - 1]
+}
+
+function New-HistoryEntry {
+    param([string]$Action, [string]$Detail = '')
+    [PSCustomObject]@{
+        Date   = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        Action = $Action
+        By     = $Operator
+        Detail = $Detail
+    }
+}
+
+# ============================================================
+# ACTIONS
+# ============================================================
+function Invoke-Mark {
+    $entries = Get-Registry
+    $pc = (Read-NonEmpty "  Nom du PC a decommissionner").ToUpper()
+
+    $existing = $entries | Where-Object { $_.PC -eq $pc }
+    if ($existing) {
+        Write-Host "  '$pc' est deja dans le registre (statut: $($existing.Statut)). Utilise Repousser/Cloturer." -ForegroundColor Yellow
+        return
+    }
+
+    if (-not (Test-PcNameFormat $pc)) {
+        Write-Host "  (!) '$pc' ne suit pas le format habituel du parc (2K#### ou V####)." -ForegroundColor Yellow
+        if ((Read-Host "  Confirmer ce nom malgre tout ? (o/N)").Trim().ToLower() -ne 'o') {
+            Write-Host "  Annule." -ForegroundColor Yellow
+            return
+        }
+    }
+
+    if ((Read-Host "  Confirmer le marquage de '$pc' ? (o/N)").Trim().ToLower() -ne 'o') {
+        Write-Host "  Annule." -ForegroundColor Yellow
+        return
+    }
+
+    $reason   = Read-NonEmpty "  Raison (ex: remplace, HS, vol, fin de vie)"
+    $assigned = Select-Tech
+    $target   = (Get-Date).AddDays($GraceDays).ToString('yyyy-MM-dd')
+
+    $entry = [PSCustomObject]@{
+        PC         = $pc
+        Statut     = 'A faire'
+        Reason     = $reason
+        AssignedTo = $assigned
+        MarkedAt   = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        Operator   = $Operator
+        TargetDate = $target
+        DoneAt     = $null
+        DoneBy     = $null
+        History    = @( New-HistoryEntry -Action 'Marque' -Detail "assigne a $assigned, echeance $target" )
+    }
+    Save-Registry -Entries (@($entries) + $entry)
+    Write-Host "  [OK] '$pc' marque 'A faire', assigne a $assigned, echeance $target." -ForegroundColor Green
+}
+
+function Invoke-Close {
+    $entries = @(Get-Registry)
+    $todo = @($entries | Where-Object { $_.Statut -eq 'A faire' })
+    if ($todo.Count -eq 0) { Write-Host "  Rien a cloturer." -ForegroundColor Yellow; return }
+
+    if ($todo.Count -eq 1) {
+        # Un seul poste a cloturer -> confirmation directe (pas de numero a saisir).
+        $pc = $todo[0].PC
+        Write-Host ("  A cloturer : {0}  (assigne {1}, {2})" -f $todo[0].PC, $todo[0].AssignedTo, $todo[0].Reason)
+        if ((Read-Host "  Marquer '$pc' FAIT ? (o/N)").Trim().ToLower() -ne 'o') { Write-Host "  Annule." -ForegroundColor Yellow; return }
+    } else {
+        Write-Host "  A faire :"
+        for ($i = 0; $i -lt $todo.Count; $i++) {
+            Write-Host ("    [{0}] {1,-14} assigne: {2,-10} echeance: {3}  ({4})" -f ($i+1), $todo[$i].PC, $todo[$i].AssignedTo, $todo[$i].TargetDate, $todo[$i].Reason)
+        }
+        $sel = (Read-Host "  Numero a marquer FAIT (Entree = annuler)").Trim()
+        if (-not ($sel -match '^\d+$') -or [int]$sel -lt 1 -or [int]$sel -gt $todo.Count) { Write-Host "  Annule." -ForegroundColor Yellow; return }
+        $pc = $todo[[int]$sel - 1].PC
+    }
+
+    # On RECONSTRUIT l'entree (muter en place un objet ConvertFrom-Json peut
+    # echouer "propriete introuvable") : objet neuf = toujours modifiable.
+    $new = @()
+    foreach ($e in $entries) {
+        if ($e.PC -eq $pc) {
+            $e = [PSCustomObject]@{
+                PC         = $e.PC
+                Statut     = 'Fait'
+                Reason     = $e.Reason
+                AssignedTo = $e.AssignedTo
+                MarkedAt   = $e.MarkedAt
+                Operator   = $e.Operator
+                TargetDate = $e.TargetDate
+                DoneAt     = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                DoneBy     = $Operator
+                History    = @($e.History) + (New-HistoryEntry -Action 'Cloture' -Detail 'decommission realisee')
+            }
+        }
+        $new += $e
+    }
+    Save-Registry -Entries $new
+    Write-Host "  [OK] '$pc' marque FAIT par $Operator." -ForegroundColor Green
+}
+
+function Invoke-Postpone {
+    $entries = @(Get-Registry)
+    $todo = @($entries | Where-Object { $_.Statut -eq 'A faire' })
+    if ($todo.Count -eq 0) { Write-Host "  Rien a repousser." -ForegroundColor Yellow; return }
+    for ($i = 0; $i -lt $todo.Count; $i++) {
+        Write-Host ("    [{0}] {1,-14} echeance actuelle: {2}" -f ($i+1), $todo[$i].PC, $todo[$i].TargetDate)
+    }
+    $sel = (Read-Host "  Numero a repousser").Trim()
+    if (-not ($sel -match '^\d+$') -or [int]$sel -lt 1 -or [int]$sel -gt $todo.Count) { Write-Host "  Annule." -ForegroundColor Yellow; return }
+    $pc = $todo[[int]$sel - 1].PC
+    $days = (Read-Host "  Repousser de combien de jours ? (defaut $GraceDays)").Trim()
+    if (-not ($days -match '^\d+$')) { $days = $GraceDays }
+    $newTarget = (Get-Date).AddDays([int]$days).ToString('yyyy-MM-dd')
+    # Reconstruction (cf. Invoke-Close) plutot que mutation en place.
+    $new = @()
+    foreach ($e in $entries) {
+        if ($e.PC -eq $pc) {
+            $old = $e.TargetDate
+            $e = [PSCustomObject]@{
+                PC         = $e.PC
+                Statut     = $e.Statut
+                Reason     = $e.Reason
+                AssignedTo = $e.Assig

@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.3.2-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.0-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Zero-dependency Windows fleet monitoring.**
@@ -42,7 +42,7 @@ If any of these resonate with you, feel free to open an [Issue](https://github.c
 
 | Category | Metrics |
 |---|---|
-| 🔒 **Security** | EDR status (defined in config.psd1), offline PCs |
+| 🔒 **Security** | EDR status (defined in config.psd1): stopped / absent; OS end-of-support |
 | ⚠️ **Stability** | Application crashes, freezes, BSODs, WHEA fatal/corrected, GPU TDR, thermal throttling |
 | ⚡ **Performance** | Boot duration, detailed Boot Performance (MainPath, PostBoot, UserProfile, Explorer init) |
 | 🔧 **Hardware wear** | Battery health (wear % + cycles), Disk SMART (wear, temp, errors), aging secondary monitors |
@@ -83,9 +83,16 @@ Before deploying to your fleet, you can see the Dashboard **right now** with the
 git clone https://github.com/Damien-Gouhier/pcpulse.git
 cd pcpulse
 
-# 2. Run the Dashboard on demo JSONs
+# 2. Re-anchor the demo dates to "now"
+#    (demo JSONs have frozen dates; without this the Dashboard eventually
+#     shows ALL endpoints as offline). Idempotent script.
+pwsh .\examples\demo\Refresh-DemoDates.ps1
+
+# 3. Run the Dashboard on demo JSONs
 pwsh .\02_Dashboard.ps1 -SharePath ".\examples\demo"
 ```
+
+> ℹ️ Step 2 is **idempotent**: run it as often as you like, it always re-anchors activity dates to the current time (one endpoint stays "offline" by design: `OFFLINE-005`). Without it, the JSONs' frozen dates would eventually push the whole demo fleet offline.
 
 > 💡 **If Windows blocks execution** with `cannot be loaded... not digitally signed`, it's normal (default Windows protection). Two options:
 >
@@ -182,6 +189,24 @@ PCPulse ships with a **killswitch** mechanism that allows you to uninstall Colle
 3. You remove the sentinel file once all PCs have appeared in `\killed\`
 
 **In production**, change the phrase and filename via `config.psd1` to prevent any accidental triggering. See [`config.psd1.example`](config.psd1.example) and [`SECURITY.md`](SECURITY.md) for details.
+
+## 🔄 Decommissioning — endpoint lifecycle
+
+> 🚧 **Work in progress.** A recent, **additive** addition (no impact on collection or the JSON schema) that is **meant to evolve**: the workflow, states and UX will change based on feedback. Automatic purge of retired endpoints isn't there yet (see below).
+
+![Lifecycle — decommissioning (badge and KPI family)](screenshots/cycle-de-vie.png)
+
+When an endpoint is replaced, stolen or reaches end-of-life, it keeps showing up in the Dashboard as "offline" — with no way to tell a real outage from an intentional retirement. Decommissioning removes that ambiguity.
+
+The **`Decommission-PC.ps1`** tool marks an endpoint in a **separate registry** (`decommissioning.json`), with a small workflow:
+
+- **To do → Done**: mark the endpoint (reason, assigned technician, target date), then close it once the operation is complete. Timestamped history kept.
+- **Separate registry, never inside the endpoint's JSON**: the Collector rewrites the JSON on every cycle while the machine is alive, so the marker can't live there.
+- **Written with a normal account**: the registry lives in a folder where technicians already have write access with their **regular session account** (outside the hardened share) — no credentials, no elevation. Non-sensitive settings (technician list, admins allowed to postpone/remove, grace delay) live in `decom-config.psd1` next to the registry (see [`decom-config.psd1.example`](decom-config.psd1.example)).
+
+On the Dashboard side, a **Lifecycle** KPI family reads this registry (path via `DecommissionRegistryPath`) and shows a per-endpoint badge: *to decommission* (with countdown), *overdue*, *done but still online* (inconsistency to check), *done (to purge)*. A per-state filter lists the relevant endpoints.
+
+**Current limitation (to evolve)**: once an endpoint is marked "Done", its `<PC>.json` is **not** deleted automatically — you remove it manually on the share (with an account that has write access). The *"done (to purge)"* filter exists precisely to list what's left to clean up. Automatic purge (a server-side scheduled task, after a delay) is being considered.
 
 ## 🎯 Who is this for?
 

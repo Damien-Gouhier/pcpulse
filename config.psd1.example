@@ -86,4 +86,16 @@
         Filename = 'KILLSWITCH.txt'                # defaut public - a personnaliser en prod
         Phrase   = 'CONFIRM-UNINSTALL-PCPULSE'     # defaut public - a personnaliser en prod
     }
+
+    # ---- Decommission : chemin du registre (lu par le Dashboard) ----
+    # Cycle de vie de la DONNEE (ne touche jamais un poste). Decommission-PC.ps1
+    # ecrit un registre <RegistryPath>\decommissioning.json dans un dossier ou
+    # les techs ont deja le droit d'ecrire avec leur COMPTE NORMAL (hors share
+    # durci). Le Dashboard lit ce registre pour les badges "A decommissionner /
+    # Fait / En retard". Le generateur du Dashboard doit pouvoir LIRE ce dossier.
+    # Vide => on cherche le registre a cote des JSON (retro-compat).
+    # Les reglages de l'outil (techs, admins, delai) vivent dans un petit fichier
+    # decom-config.psd1 A COTE du registre (cf. decom-config.psd1.example), PAS
+    # ici : ce config.psd1 durci n'est pas lisible par les comptes normaux.
+    DecommissionRegistryPath = ''    # ex: '\\SERVER-METIER\SHARE\...\decom'
 }
