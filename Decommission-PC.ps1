@@ -20,9 +20,10 @@
     Retirer une marque sont possibles tant que l'entree existe (reserves aux
     comptes DecommissionAdmins).
 
-    Anti-faute de frappe : le nom saisi est valide sur le format du parc
-    (2K#### ou V####). Un nom hors-format demande une confirmation (postes a la
-    marge). Aucun acces au parc n'est requis pour ca.
+    Anti-faute de frappe : si un motif (regex) est defini dans decom-config.psd1
+    (cle PcNameRegex), le nom saisi est valide dessus ; un nom hors-format demande
+    une confirmation. Sans motif configure : aucun controle (tout nom accepte).
+    Le motif reste dans TA config (non publiee) : aucune nomenclature en dur ici.
 
     Attribution : l'operateur (qui marque / qui cloture) est capte via le compte
     qui lance l'outil ($env:USERNAME). AssignedTo (le tech CENSE s'en occuper)
@@ -43,16 +44,19 @@
     Auteur     : Damien Gouhier
     Repository : https://github.com/Damien-Gouhier/pcpulse
     Licence    : MIT
-    Version    : 2.0
+    Version    : 2.1
     Runtime    : PowerShell 5.1+ (lance depuis le poste d'un tech, compte normal)
 .CHANGELOG
+    v2.1 : Validation de nom pilotee par config (cle PcNameRegex de decom-config.psd1)
+           au lieu d'un motif code en dur -> aucune nomenclature d'environnement
+           dans le code publie. Sans motif : aucun controle.
     v2.0 : Re-architecture. Le registre vit dans un dossier ecrivable au compte
            NORMAL du tech (hors share durci) : suppression totale de la
            machinerie de credentials (WNet / Get-Credential / ADMT1 / -SharePath
            / -AskCredential). Reglages lus depuis decom-config.psd1 a cote du
            registre (DecommissionTechs / DecommissionAdmins / DecommissionGraceDays,
-           rien de sensible). Anti-typo par format (2K#### / V####) au lieu d'une
-           lecture des JSON du parc. Sonde d'ecriture ciblee sur RegistryPath.
+           rien de sensible). Anti-typo par motif (regex) au lieu d'une lecture
+           des JSON du parc. Sonde d'ecriture ciblee sur RegistryPath.
            Cloture/Repousse : reconstruction de l'entree (muter en place un objet
            ConvertFrom-Json pouvait echouer "propriete introuvable"). Cloture a
            un seul poste = confirmation directe o/N (pas de numero a saisir).
@@ -94,15 +98,17 @@ try {
 # ============================================================
 # REGLAGES : liste des techs + admins + delai (decom-config.psd1, non sensible)
 # ============================================================
-$Techs     = @()
-$Admins    = @()
-$graceCfg  = 30
+$Techs       = @()
+$Admins      = @()
+$graceCfg    = 30
+$PcNameRegex = ''
 if (Test-Path $ConfigFile) {
     try {
         $cfg = Import-PowerShellDataFile -Path $ConfigFile -ErrorAction Stop
-        if ($cfg.DecommissionTechs)      { $Techs    = @($cfg.DecommissionTechs) }
-        if ($cfg.DecommissionAdmins)     { $Admins   = @($cfg.DecommissionAdmins) }
-        if ($cfg.DecommissionGraceDays)  { $graceCfg = [int]$cfg.DecommissionGraceDays }
+        if ($cfg.DecommissionTechs)      { $Techs       = @($cfg.DecommissionTechs) }
+        if ($cfg.DecommissionAdmins)     { $Admins      = @($cfg.DecommissionAdmins) }
+        if ($cfg.DecommissionGraceDays)  { $graceCfg    = [int]$cfg.DecommissionGraceDays }
+        if ($cfg.PcNameRegex)            { $PcNameRegex = [string]$cfg.PcNameRegex }
     } catch {
         Write-Host "[!] decom-config.psd1 illisible ($_). Liste techs vide, saisie libre." -ForegroundColor Yellow
     }
@@ -181,9 +187,11 @@ function Save-Registry {
 # HELPERS UI
 # ============================================================
 function Test-PcNameFormat {
-    # Format du parc : 2K + 4 chiffres, ou V + 4 chiffres (insensible a la casse).
+    # Valide le nom sur le motif PcNameRegex de decom-config.psd1 (optionnel).
+    # Sans motif configure -> aucun controle (tout nom non vide accepte).
     param([string]$Pc)
-    return ($Pc -match '^(2K|V)\d{4}$')
+    if (-not $PcNameRegex) { return $true }
+    return ($Pc -match $PcNameRegex)
 }
 
 function Read-NonEmpty {
@@ -230,7 +238,7 @@ function Invoke-Mark {
     }
 
     if (-not (Test-PcNameFormat $pc)) {
-        Write-Host "  (!) '$pc' ne suit pas le format habituel du parc (2K#### ou V####)." -ForegroundColor Yellow
+        Write-Host "  (!) '$pc' ne correspond pas au format attendu ($PcNameRegex)." -ForegroundColor Yellow
         if ((Read-Host "  Confirmer ce nom malgre tout ? (o/N)").Trim().ToLower() -ne 'o') {
             Write-Host "  Annule." -ForegroundColor Yellow
             return

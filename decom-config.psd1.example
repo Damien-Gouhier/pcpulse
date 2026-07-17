@@ -22,4 +22,10 @@
 
     # Delai par defaut avant echeance (TargetDate = aujourd'hui + N jours).
     DecommissionGraceDays = 30
+
+    # Anti-faute de frappe (OPTIONNEL) : motif regex de VOS noms de postes. Un nom
+    # saisi qui ne matche pas demande une confirmation. Absent/vide => aucun
+    # controle. Mettez ICI (config non publiee) le motif de votre parc, pas dans
+    # le code. Exemple generique (lettres/chiffres/tirets, 3 a 15 car.) :
+    # PcNameRegex = '^[A-Z0-9-]{3,15}$'
 }

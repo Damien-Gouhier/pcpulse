@@ -145,7 +145,7 @@
              multi-lignes contenant un GUID / chemin / .tmp variable a chaque
              occurrence. La cle d'agregation etant le contenu brut, un meme
              probleme devenait N "apps" distinctes -> array gonfle, tronque, et
-             vrais crashers noyes (ex V0002 : ~6 lignes Bing Wallpaper +
+             vrais crashers noyes (ex sur un poste : ~6 lignes Bing Wallpaper +
              TruncatedArrays.TopCrashers=True masquant le reste).
            - Nouvelle fonction Get-CrasherKey : pour un message multi-lignes on
              agrege sur la 1ere ligne (ou la valeur de "category:"), et on ecrase
@@ -258,7 +258,7 @@
     v1.5 : Clustering des Event 51 (Disk slow / I/O timeout)
            - Avant : chaque Event 51 ecrit en ligne distincte. Un seul
              incident matos pouvait generer des centaines de lignes
-             identiques (ex pilote : V0059 = 957 events pour ~8 incidents
+             identiques (ex pilote : un poste = 957 events pour ~8 incidents
              reels, dont un burst de 894 en 1 seconde).
            - Fix : regroupement par fenetre de 60 secondes. Une entree
              par cluster, avec Count, FirstSeen, LastSeen, IsBurst.
@@ -1659,7 +1659,7 @@ foreach ($ev in $ramEvents) {
 # v1.5 : Clustering des Event 51 (Disk slow / I/O timeout)
 # Windows emet souvent des dizaines voire centaines d'Event 51 en
 # meme temps (un par secteur/IRP en timeout) pour UN seul incident.
-# Ex parc pilote : V0059 = 894 events sur 1 seule seconde = 1 incident matos,
+# Ex parc pilote : un poste = 894 events sur 1 seule seconde = 1 incident matos,
 # pas 894 evenements distincts.
 # On groupe donc par fenetre de 60s. Chaque cluster ajoute 1 entree avec :
 #   - Count      : nombre d'events dans le cluster

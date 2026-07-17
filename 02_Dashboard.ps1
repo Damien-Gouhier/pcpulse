@@ -164,7 +164,7 @@
            Collector reste une option si le bruit persiste.)
     v2.1.9 : RETRAIT de la detection "SimilarHostname" (ANOMALIE #4). Une fois le fix
            2.1.8 en place, elle s'est revelee inadaptee au parc : la nomenclature etant
-           SEQUENTIELLE (V0390/V0391, 2K5580/2K5581...), toute paire de machines voisines
+           SEQUENTIELLE (ex. PC-001/PC-002, PC-041/PC-042...), toute paire de machines voisines
            a une distance Levenshtein de 1 -> ~276 faux positifs sur 96 PC, qui noyaient
            les vraies anomalies (troncature Collector, timestamps futurs, valeurs
            aberrantes...). L'heuristique "distance <= 1 = suspect" ne peut structurellement
@@ -1245,7 +1245,7 @@ foreach ($file in $jsonFiles) {
 
 # v2.1.9 : la detection "SimilarHostname" (ANOMALIE #4, similarite Levenshtein <= 1) a
 # ete RETIREE. Inadaptee a une nomenclature de parc SEQUENTIELLE : deux machines qui se
-# suivent (V0390 / V0391, 2K5580 / 2K5581) ont une distance de 1 -> un faux positif a
+# suivent (ex. PC-001 / PC-002) ont une distance de 1 -> un faux positif a
 # chaque paire de voisins (276 signaux sur 96 PC), ce qui noyait les vraies anomalies
 # (troncature Collector, timestamps futurs, valeurs aberrantes...). Le scenario vise
 # (spoofing par hostname ressemblant) est marginal : un JSON malveillant usurpe le nom
