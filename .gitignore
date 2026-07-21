@@ -15,6 +15,11 @@ PCPulse-Dashboard-*.html
 # --- Backups d'ACL crees par Setup-Server.ps1 ---
 .acl-backup/
 
+# --- Journaux (peuvent contenir des hostnames/chemins reels) ---
+*.log
+log/
+logs/
+
 # --- Cruft OS ---
 Thumbs.db
 .DS_Store
