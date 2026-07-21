@@ -21,10 +21,11 @@ Collecteur → 2.4.6, Dashboard → 2.4.6, Updater → 1.9. `version.txt` → 2.
 
 ### Sécurité — chaîne d'update
 
-- **TOCTOU fermé.** La signature Authenticode est désormais vérifiée sur le **fichier
-  local (`.tmp`)** réellement installé puis exécuté, et non plus sur le fichier du
-  partage. Un attaquant avec write sur `release\` ne peut plus faire vérifier un
-  fichier légitime puis en installer un autre (permutation entre la vérif et la copie).
+- **TOCTOU fermé.** La signature Authenticode est désormais vérifiée sur la **copie
+  locale** réellement installée puis exécutée (copie vérifiée → renommage atomique),
+  et non plus sur le fichier du partage. Un attaquant avec write sur `release\` ne peut
+  plus faire vérifier un fichier légitime puis en installer un autre (permutation entre
+  la vérif et la copie).
 - **Anti-downgrade de l'Updater.** Le self-update lit la version dans le fichier signé
   à installer et **refuse toute version antérieure** → un ancien Updater, même
   légitimement signé, ne peut plus être ré-injecté (le maillon critique est protégé).
@@ -91,7 +92,7 @@ Schéma JSON inchangé.
   Le pin est l'ancre de confiance ; la confiance de chaîne OS devient un bonus
   (statut `Valid` automatique une fois le certificat déployé par GPO).
 - **Nettoyage local à chaque cycle.** La purge du dossier `backup\` (backups legacy
-  antérieurs au zéro-backup) et le balayage des `*.new.tmp` d'installation
+  antérieurs au zéro-backup) et le balayage des `*.new.ps1` d'installation
   interrompue s'exécutent désormais à **chaque** cycle, et plus seulement lors d'une
   mise à jour — un poste déjà à jour se nettoie aussi (auto-guérison).
 

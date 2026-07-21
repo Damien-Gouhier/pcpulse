@@ -600,7 +600,7 @@ function Invoke-LocalCleanup {
         }
     } catch { }
 
-    # 5. Sweep des .tmp d'installation atomique ORPHELINS (v1.8). Install-VerifiedUpdate
+    # 5. Sweep des fichiers .new.ps1 d'installation atomique ORPHELINS (v1.8). Install-VerifiedUpdate
     #    ecrit "<fichier>.<PID>.new.ps1" puis le renomme ; il le nettoie sur succes ET
     #    sur echec, mais un process TUE entre les deux peut en laisser un. Ce cleanup
     #    tourne en DEBUT de cycle -> tout .new.ps1 present ici vient d'un cycle anterieur
