@@ -13,6 +13,209 @@ ce fichier consolide les évolutions notables au niveau du projet.
 
 ---
 
+## [2.4.6]
+
+**Durcissement de la chaîne de mise à jour (suite audit) + robustesse Dashboard.**
+Collecteur → 2.4.6, Dashboard → 2.4.6, Updater → 1.9. `version.txt` → 2.4.6
+(redéploiement du Collecteur). Schéma JSON inchangé.
+
+### Sécurité — chaîne d'update
+
+- **TOCTOU fermé.** La signature Authenticode est désormais vérifiée sur le **fichier
+  local (`.tmp`)** réellement installé puis exécuté, et non plus sur le fichier du
+  partage. Un attaquant avec write sur `release\` ne peut plus faire vérifier un
+  fichier légitime puis en installer un autre (permutation entre la vérif et la copie).
+- **Anti-downgrade de l'Updater.** Le self-update lit la version dans le fichier signé
+  à installer et **refuse toute version antérieure** → un ancien Updater, même
+  légitimement signé, ne peut plus être ré-injecté (le maillon critique est protégé).
+- **Anti-downgrade Collecteur (deux verrous).** (1) Une `version.txt` serveur **non
+  parseable** en `[version]` est refusée (elle contournait la garde). (2) La version
+  du Collecteur est désormais lue dans le **fichier signé** (marqueur `$CollectorVersion`)
+  et non plus dans `version.txt` du share (non signé) → un attaquant ne peut plus
+  ré-injecter un vieux Collecteur signé en gonflant `version.txt`. Fail-closed si le
+  marqueur est illisible.
+
+### Robustesse — Dashboard
+
+- **Tri `DateBoot` tolérant.** Un seul JSON avec une date `DateBoot` illisible faisait
+  planter **toute** la génération (même classe que le `CollectedAt` corrigé en 2.4.5) ;
+  le tri utilise maintenant `TryParse` et la génération continue.
+
+### Divers
+
+- `config.psd1.example` : bloc killswitch en `Enabled = $false` (cohérent avec le
+  défaut opt-in).
+
+---
+
+## [2.4.5]
+
+**Correctif critique de collecte + correctifs Dashboard.** Le Collecteur ayant
+évolué, cette version **nécessite un redéploiement** du parc (`version.txt` → 2.4.5).
+Schéma JSON inchangé.
+
+### Corrigé — critique (production)
+
+- **Le nettoyage de log ne bloque plus la collecte.** `Invoke-LogCleanup` s'exécute
+  **avant** la collecte ; sur un journal corrompu et gonflé (37 Mo, une seule ligne
+  de ~9 millions de caractères — mojibake composé hérité de l'incident 2.2.x), il
+  se bloquait ou mourait (OOM) **en gardant le fichier ouvert**, si bien que la
+  collecte ne démarrait jamais : **~247 postes figés hors ligne**, journaux
+  impossibles à supprimer (« ouvert dans System »). Correctif : lecture **par
+  octets bornée** (dernier Mo) au lieu de `Get-Content -Tail` (qui charge des
+  lignes entières et s'étouffe sur une ligne géante). **Auto-guérison** en local,
+  sans aucune intervention manuelle.
+
+### Corrigé — Dashboard
+
+- **Double-encodage HTML.** Certains champs (`CurrentUser`, `LastLoggedUser`, `IP`,
+  `CollectorRunAs`, `CPUName`, `Site`) étaient échappés une première fois à la
+  validation (`Test-PCPulseJson`) puis une seconde fois à l'affichage → un nom
+  comme `O'Brien` s'affichait `O&#39;Brien`. L'échappement se fait désormais **une
+  seule fois**, à l'embed (`ConvertTo-HtmlSafe`). Vérifié : chaque champ concerné
+  reste échappé au point de sortie, **aucune perte de protection XSS**.
+- **`CollectedAt` illisible ne casse plus la génération.** Le cast en `[datetime]`
+  est désormais sous `try/catch` : un seul JSON avec une date corrompue faisait
+  planter **toute** la génération du tableau de bord ; le poste concerné s'affiche
+  maintenant hors ligne et la génération continue.
+
+### Updater (1.8)
+
+- **Vérification de signature ancrée sur le thumbprint épinglé.** Le contrôle
+  exigeait auparavant un statut Authenticode `Valid` (donc la confiance de chaîne
+  côté OS) ; tant que le certificat de signature n'est pas déployé dans les magasins
+  de confiance des postes, un script pourtant correctement signé est refusé
+  (`UnknownError`) — ce qui pouvait figer les mises à jour du parc. Désormais : on
+  exige la signature par le **thumbprint épinglé** + l'intégrité (rejet si
+  `NotSigned`/`HashMismatch`) et on **tolère** une chaîne non encore de confiance.
+  Le pin est l'ancre de confiance ; la confiance de chaîne OS devient un bonus
+  (statut `Valid` automatique une fois le certificat déployé par GPO).
+- **Nettoyage local à chaque cycle.** La purge du dossier `backup\` (backups legacy
+  antérieurs au zéro-backup) et le balayage des `*.new.tmp` d'installation
+  interrompue s'exécutent désormais à **chaque** cycle, et plus seulement lors d'une
+  mise à jour — un poste déjà à jour se nettoie aussi (auto-guérison).
+
+### Divers
+
+- `.gitignore` : ajout de `*.log` / `log/` (les journaux peuvent contenir des noms
+  de postes et chemins réels — protection contre un `git add` accidentel).
+
+---
+
+## [2.4.4]
+
+**Fiabilité des logs + hygiène des postes.** Suite à l'observation d'un log de
+poste gonflé à 37 Mo (résidu de l'incident 2.2.x). **Schéma JSON inchangé (`2.2`)**.
+Nécessite un redéploiement (Collecteur modifié).
+
+### Corrigé
+
+- **Log Collecteur : mojibake qui se composait.** La rotation lisait le journal en
+  ANSI (défaut PS 5.1) alors qu'il est écrit en UTF-8 → à chaque nettoyage, les
+  caractères accentués d'un message d'erreur .NET étaient ré-encodés de travers et
+  **grossissaient** ; une seule ligne a atteint ~9 millions de caractères (37 Mo).
+  Lecture repassée en UTF-8 (cohérente avec l'écriture) + **plafond par ligne**
+  (2000 caractères) qui tronque toute ligne monstrueuse et auto-guérit les journaux
+  déjà corrompus au prochain passage.
+
+### Durcissement
+
+- **Zéro backup local + installation atomique vérifiée (Updater → 1.6).** L'ancien
+  schéma « backup → copie → restaure si échec » est remplacé par une **installation
+  sûre sans backup** : copie vers un fichier temporaire → contrôle SHA (copie
+  fidèle) → **renommage atomique**. Le fichier vivant n'est jamais remplacé par une
+  copie partielle/corrompue, donc **aucun backup n'est nécessaire** — et c'est même
+  plus robuste. Plus **aucun code ancien exploitable** stocké sur les postes ;
+  `Remove-OldBackups` supprime en prime le dossier `backup\` laissé par les versions
+  antérieures.
+
+---
+
+## [2.4.3]
+
+**Durcissement sécurité** (suite à un audit externe). **Schéma JSON inchangé
+(`2.2`)**, additif. Le Collecteur ayant évolué (chemin de config), cette version
+**nécessite un redéploiement** du parc (`version.txt` 2.4.2 → 2.4.3).
+
+### Sécurité
+
+- **Authenticité de la chaîne de mise à jour (Updater → 1.5).** Le SHA256 ne
+  vérifiait que l'intégrité (calculé sur le même partage) : un accès en écriture à
+  `release\` permettait d'exécuter du code SYSTEM sur tout le parc. Ajout de la
+  **vérification de signature Authenticode + empreinte (thumbprint) épinglée** dans
+  l'Updater — appliquée **d'abord au self-update de l'Updater** (maillon critique),
+  puis au Collecteur, **avant toute adoption**. Empreinte(s) épinglée(s) **en dur**
+  dans l'Updater (jamais dans `config.psd1`, écrivable par les postes). Liste vide
+  = vérification désactivée (déploiement progressif). Statut de refus journalisé.
+  **Anti-downgrade** : refus d'une version serveur inférieure à la locale (empêche
+  le rejeu d'un ancien binaire légitimement signé).
+- **XSS stocké (passe 3).** `DiskInfo` (dont `Drive`) et des champs numériques
+  (`DurationMin`, `OSBuild`, tailles disque) partaient bruts vers `innerHTML` : un
+  poste compromis (ou un EDID forgé) pouvait injecter du JS dans le navigateur de
+  l'administrateur. Échappement / cast appliqués ; `DiskInfo` et `BootDurations`
+  ajoutés au garde-fou de complétude.
+- **`config.psd1` déplacé dans `release\`** (lecture seule pour les postes) au lieu
+  de la racine du partage (où « Ordinateurs du domaine » a Modify) : un poste
+  compromis ne peut plus altérer la config (phrase killswitch, seuils). Lecture
+  avec repli sur la racine pour une migration douce.
+- **Killswitch en opt-in.** Défaut passé à `Enabled = $false` : un killswitch actif
+  par défaut avec une phrase/nom publics = risque de déni de service du parc si les
+  ACL tombent. Il ne s'active que si `config.psd1` déclare explicitement
+  `KillSwitch.Enabled = $true` avec des valeurs personnalisées.
+
+### Correctif (Updater 1.4, inclus)
+
+- Rotation de `updater.log` : plafond de taille (lecture par `-Tail` au-delà) —
+  `Get-Content -Raw` levait une `OutOfMemoryException` sur un journal de plusieurs
+  Go (observé), la rotation échouait et le journal ne redescendait jamais.
+
+---
+
+## [2.4.2]
+
+**N° de série machine + audit du cycle de vie.** Collecteur et Dashboard
+**réunifiés à 2.4.2** (le Collecteur repasse sur le numéro commun ; il était resté
+en 2.3.2 pour la release Dashboard 2.4.0). **Schéma JSON inchangé (`2.2`)**,
+additif et rétrocompatible. Le Collecteur ayant évolué (n° de série), cette
+version **nécessite un redéploiement** du parc pour peupler le champ.
+(Le Collecteur a été test-déployé en interne sous l'étiquette 2.4.1 — n° de série
+seul ; publié en **2.4.2** après ajout du correctif de robustesse WMI ci-dessous,
+pour déclencher proprement l'auto-update du parc.)
+
+### Ajouté
+
+- **N° de série machine (service tag).** Le Collecteur relève
+  `Machine.SerialNumber` depuis `Win32_BIOS.SerialNumber` (service tag Dell,
+  serial HP…) ; les valeurs BIOS factices (`Default string`, `To be filled by
+  O.E.M.`…) sont normalisées à `null`. Côté Dashboard : affiché dans le drill-down
+  Matériel (carte OS), **colonne `NumeroSerie` dans l'export CSV**, et recherche
+  étendue au n° de série. Utile pour l'inventaire, la garantie et le report de
+  décommissionnement vers Excel. **Nécessite un redéploiement** du Collecteur
+  pour peupler le champ sur le parc (additif : les postes en collecteur antérieur
+  restent lisibles, champ vide).
+- **Panneau « Cycle de vie du parc » (stats / audit décommissionnement).** Lit le
+  registre **complet** (`decommissioning.json`, y compris les postes dont le JSON
+  a été purgé), indépendamment des filtres de la vue : compteurs décommissionnés
+  / à faire / en retard, **délai moyen marqué→fait**, répartition **par
+  technicien** et **par mois**. Valorise le registre comme journal d'audit
+  (reporting hiérarchie).
+
+### Corrigé
+
+- **Collecteur : robustesse WMI.** Sur un poste au WMI matériel incomplet (ni
+  modèle, ni n° de série), `Win32_OperatingSystem.LastBootUpTime` revenait `null`
+  et l'appel de méthode qui suivait faisait **planter toute la collecte** (aucun
+  JSON produit → poste invisible au tableau de bord). Les champs de boot noyau
+  sont rendus null-safe : la collecte se poursuit et le poste redevient visible.
+- **Updater (→ 1.4) : rotation du journal.** La rotation de `updater.log`
+  chargeait tout le fichier en mémoire (`Get-Content -Raw`) et levait une
+  `OutOfMemoryException` sur un journal devenu énorme (observé : 2 Go) — la
+  rotation échouait alors à chaque cycle et le journal ne redescendait jamais.
+  Ajout d'un plafond de taille : au-delà, lecture par la fin (`-Tail`, mémoire
+  bornée). Même classe de correctif que le Collecteur 2.3.2, côté Updater.
+
+---
+
 ## [2.4.0]
 
 Release **Dashboard + outillage**. Le **Collecteur reste en 2.3.2** (aucun

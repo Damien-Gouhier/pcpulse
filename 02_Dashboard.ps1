@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v2.4.0
+    PCPulse Dashboard v2.4.5
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,34 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.4.0
+    Version      : 2.4.6
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.4.5 : [FIX] Double-encodage HTML corrige (un nom type "O'Brien" s'affichait
+           "O&#39;Brien") : la sanitisation en place de Test-PCPulseJson est retiree,
+           l'echappement se fait une SEULE fois a l'embed (ConvertTo-HtmlSafe).
+           Verifie : chaque champ concerne est bien echappe a l'embed, aucune perte
+           de protection XSS. [ROBUSTESSE] CollectedAt caste en [datetime] sous
+           try/catch : un JSON avec une date pourrie ne fait plus planter TOUTE la
+           generation (le poste s'affiche hors ligne). Dashboard-only (Collector
+           inchange en 2.4.4, pas de redeploiement parc).
+    v2.4.4 : Aligne sur le numero commun (Collector 2.4.4). Aucun changement
+           fonctionnel cote Dashboard ce lot (fix log Collector + retention backups
+           Updater).
+    v2.4.3 : [SECURITE] XSS pass 3 : DiskInfo (Drive) + champs numeriques disque,
+           DurationMin, OSBuild echappes/castes avant innerHTML (un poste compromis
+           pouvait injecter du JS chez l'admin). DiskInfo/BootDurations ajoutes au
+           garde-fou Test-EmbedCoverage. config.psd1 lu en priorite depuis release\
+           (lecture seule postes). SchemaVersion inchangee.
+    v2.4.2 : N° de serie machine + audit du cycle de vie. SchemaVersion inchangee.
+           - N° de serie (Machine.SerialNumber, collecte Collector 2.4.2) : affiche
+             dans le drill-down Materiel (carte OS), colonne 'NumeroSerie' dans
+             l'export CSV, et recherche etendue au n° de serie. Sert au report
+             decommissionnement vers Excel.
+           - Panneau "Cycle de vie du parc" (stats/audit decom) : lit le registre
+             COMPLET (y compris PC dont le JSON a ete purge), independant des
+             filtres. Compteurs fait / a faire / en retard, delai moyen
+             marque->fait, repartition par technicien et par mois.
     v2.4.0 : Dashboard + outillage (le Collector reste en 2.3.2, INCHANGE -> aucun
            redeploiement du parc, version.txt non touche). SchemaVersion inchangee.
            - KPI Securite recompose : "EDR arrete" / "EDR absent" / "OS fin de
@@ -472,7 +497,10 @@ $AnomalyThresholds = @{
     MaxUptimeDays = 365
 }
 
-$ConfigFile       = Join-Path $SharePath 'config.psd1'
+# v2.4.3 : config.psd1 lu en PRIORITE dans release\ (lecture seule pour les postes,
+# durcissement #5). Repli sur la racine pour migration douce.
+$ConfigFile       = Join-Path $SharePath 'release\config.psd1'
+if (-not (Test-Path $ConfigFile)) { $ConfigFile = Join-Path $SharePath 'config.psd1' }
 # v2.1.3 : sortie parametrable. -OutputPath => chemin fixe (mode tache, ecrase a chaque run, pour publication).
 # Sans -OutputPath => fichier horodate dans TEMP (mode interactif, comportement historique).
 $OutputHTML       = if ($OutputPath) { $OutputPath } else { Join-Path $env:TEMP ("PCPulse-Dashboard-" + (Get-Date -Format 'yyyyMMdd-HHmm') + '.html') }
@@ -699,12 +727,26 @@ $decomDir = [string]$cfg.DecommissionRegistryPath
 if (-not $decomDir) { $decomDir = $SharePath }
 $decomPath = Join-Path $decomDir 'decommissioning.json'
 $decomByPc = @{}
+$decomAll  = @()   # v2.4.2 : registre COMPLET (y compris PC dont le JSON a ete purge) pour les stats/audit
 if (Test-Path $decomPath) {
     try {
         $decomRaw = Get-Content $decomPath -Raw -ErrorAction Stop
         if (-not [string]::IsNullOrWhiteSpace($decomRaw)) {
             foreach ($d in @($decomRaw | ConvertFrom-Json)) {
-                if ($d.PC) { $decomByPc[[string]$d.PC] = $d }
+                if ($d.PC) {
+                    $decomByPc[[string]$d.PC] = $d
+                    # Champs utiles aux stats uniquement (pas d'historique verbeux embarque).
+                    $decomAll += [PSCustomObject]@{
+                        PC         = ConvertTo-HtmlSafe ([string]$d.PC)
+                        Statut     = ConvertTo-HtmlSafe ([string]$d.Statut)
+                        Reason     = ConvertTo-HtmlSafe ([string]$d.Reason)
+                        AssignedTo = ConvertTo-HtmlSafe ([string]$d.AssignedTo)
+                        MarkedAt   = ConvertTo-HtmlSafe ([string]$d.MarkedAt)
+                        TargetDate = ConvertTo-HtmlSafe ([string]$d.TargetDate)
+                        DoneAt     = ConvertTo-HtmlSafe ([string]$d.DoneAt)
+                        DoneBy     = ConvertTo-HtmlSafe ([string]$d.DoneBy)
+                    }
+                }
             }
         }
         Write-Host "[+] Registre decommission : $($decomByPc.Count) entree(s)" -ForegroundColor Green
@@ -890,36 +932,14 @@ function Test-PCPulseJson {
         }
     }
 
-    # ---- SANITIZATION en place des champs string sensibles ----
-    # On HTML-encode les valeurs qu'on injectera dans le rapport HTML.
-    # Si une de ces valeurs contient '<script>...' (PC compromis), elle
-    # devient inoffensive (s'affichera comme texte, pas comme balise).
-
-    if ($data.Machine.PSObject.Properties['CurrentUser']) {
-        $data.Machine.CurrentUser = Get-SafeString $data.Machine.CurrentUser
-    }
-    if ($data.Machine.PSObject.Properties['LastLoggedUser']) {
-        $data.Machine.LastLoggedUser = Get-SafeString $data.Machine.LastLoggedUser
-    }
-    # v2.3.1 (#5) : le champ s'appelle "IP" (l'ancienne branche visait "IPAddress",
-    # inexistant = no-op silencieux, meme classe de bug que OSCaption->OS).
-    if ($data.Machine.PSObject.Properties['IP']) {
-        $data.Machine.IP = Get-SafeString $data.Machine.IP
-    }
-    if ($data.Machine.PSObject.Properties['CollectorRunAs']) {
-        $data.Machine.CollectorRunAs = Get-SafeString $data.Machine.CollectorRunAs
-    }
-    if ($data.Machine.PSObject.Properties['CPUName']) {
-        $data.Machine.CPUName = Get-SafeString $data.Machine.CPUName
-    }
-    if ($data.Machine.PSObject.Properties['OS']) {
-        $data.Machine.OS = Get-SafeString $data.Machine.OS
-    }
-    # Manufacturer / Model : retires - inexistants au niveau Machine (sous-objets uniquement).
-    if ($data.Machine.PSObject.Properties['Site']) {
-        $data.Machine.Site = Get-SafeString $data.Machine.Site
-    }
-    # Note : Machine.PC est deja valide par regex, pas besoin de sanitize
+    # ---- ECHAPPEMENT HTML : fait UNE SEULE FOIS, a l'embed ----
+    # v2.4.5 : on ne sanitise PLUS en place ici. Ces champs (CurrentUser,
+    # LastLoggedUser, IP, CollectorRunAs, CPUName, OS, Site) etaient HTML-encodes
+    # ici PUIS re-encodes par ConvertTo-HtmlSafe a l'embed -> DOUBLE encodage
+    # ("O'Brien" s'affichait "O&#39;Brien"). Verifie : chacun de ces champs est
+    # bien ConvertTo-HtmlSafe a l'embed (point d'echappement unique) et n'est
+    # utilise nulle part en brut -> aucune perte de protection XSS.
+    # Note : Machine.PC est deja valide par regex.
 
     return [pscustomobject]@{
         Valid  = $true
@@ -1304,7 +1324,7 @@ $KnownMachineKeys = @(
     # --- recopiees dans l'embed ($embedData plus bas) ---
     'PC','IP','CurrentUser','LastLoggedUser','CollectorRunAs','LastBoot','UptimeDays','CollectedAt',
     'CPUName','CPUVendor','CPUGen','CPUYear','CPUAge','CPUAgeCategory',
-    'ConnectionType','ChassisInfo',
+    'ConnectionType','ChassisInfo','SerialNumber',
     'OSProduct','OSBuild','OSDisplayVersion','OSEdition',
     # --- presentes dans Machine mais volontairement NON embarquees ---
     'OS','LastRealColdBoot','FastStartupEnabled'
@@ -1348,6 +1368,12 @@ Test-EmbedCoverage -Label 'WHEA_Fatal' -Items (@($allData | ForEach-Object { if 
     'Timestamp','EventId','Severity','Component','ErrorSource','BDF','Detail')
 Test-EmbedCoverage -Label 'WHEA_Corrected' -Items (@($allData | ForEach-Object { if ($_.HardwareHealth) { ConvertTo-Array $_.HardwareHealth.WHEA_Corrected } })) -KnownKeys @(
     'Component','EventId','ErrorSource','BDF','Count','FirstSeen','LastSeen','Detail')
+# v2.4.3 : DiskInfo et BootDurations n'etaient PAS couverts -> c'est l'angle mort
+# qui avait laisse passer le XSS DiskInfo (champ non echappe droppe en silence).
+Test-EmbedCoverage -Label 'DiskInfo' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.DiskInfo })) -KnownKeys @(
+    'Drive','Label','TotalGB','UsedGB','FreeGB','PctUsed','PctFree','IsAlert')
+Test-EmbedCoverage -Label 'BootDurations' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.BootDurations })) -KnownKeys @(
+    'DateBoot','DurationMin','EstBootLong','PrecedentType','Method','BootType')
 
 # ============================================================
 # CONSTRUCTION DU PAYLOAD JS
@@ -1358,7 +1384,15 @@ $embedData = [System.Collections.Generic.List[PSCustomObject]]::new()
 foreach ($pc in $allData) {
     $site = Get-SiteFromIP -IP $pc.Machine.IP -Ranges $rangesIP
 
-    $collectedAt = [datetime]$pc.Machine.CollectedAt
+    # v2.4.5 (#4) : cast protege. Un JSON avec un CollectedAt non parseable faisait
+    # planter TOUTE la generation (un seul poste pourri = dashboard mort). En cas
+    # d'echec : fallback tres ancien -> le poste s'affiche HORS LIGNE (defaut sur).
+    try {
+        $collectedAt = [datetime]$pc.Machine.CollectedAt
+    } catch {
+        Write-Host "[!] CollectedAt illisible pour $($pc.Machine.PC) ('$($pc.Machine.CollectedAt)') -> poste marque hors ligne" -ForegroundColor Yellow
+        $collectedAt = $now.AddYears(-1)
+    }
     $hoursAgo    = [math]::Round(($now - $collectedAt).TotalHours, 1)
     $isOffline   = ($hoursAgo -gt (24 * $SeuilOfflineJours))
 
@@ -1375,11 +1409,19 @@ foreach ($pc in $allData) {
             }
         })
 
-    $bootList = @($pc.BootDurations | Sort-Object { [datetime]$_.DateBoot } | ForEach-Object {
+    # v2.4.6 (#4) : tri TOLERANT. Avant, Sort-Object { [datetime]$_.DateBoot } jetait
+    # sur un DateBoot non parseable -> un seul JSON pourri plantait TOUTE la generation
+    # (meme classe de bug que le CollectedAt corrige plus haut). TryParse : les dates
+    # illisibles retombent en MinValue (triees en premier), la generation continue.
+    $bootList = @($pc.BootDurations | Sort-Object {
+            $d = [datetime]::MinValue
+            [void][datetime]::TryParse([string]$_.DateBoot, [ref]$d)
+            $d
+        } | ForEach-Object {
         [PSCustomObject]@{
             DateBoot      = ConvertTo-HtmlSafe $_.DateBoot
-            DurationMin   = $_.DurationMin
-            EstBootLong   = $_.EstBootLong
+            DurationMin   = ConvertTo-NumOrNull $_.DurationMin   # v2.4.3 : cast (rendu en texte -> anti-XSS)
+            EstBootLong   = [bool]$_.EstBootLong                 # v2.4.3 : flag booleen strict
             PrecedentType = ConvertTo-HtmlSafe $_.PrecedentType
             Method        = if ($_.Method) { ConvertTo-HtmlSafe $_.Method } else { 'unknown' }
             # v6.0 : fix BootType manquant dans l'embed (le Collector l'ecrivait
@@ -1418,14 +1460,17 @@ foreach ($pc in $allData) {
     })
 
     $diskList = @(ConvertTo-Array $pc.DiskInfo | Where-Object { $_.Drive } | ForEach-Object {
+        # v2.4.3 : XSS pass 3. Drive et les champs numeriques partaient BRUTS puis
+        # atterrissaient en innerHTML -> un poste compromis (JSON force) pouvait
+        # injecter du JS chez l'admin. Drive echappe, numeriques cast (ou null).
         [PSCustomObject]@{
-            Drive   = $_.Drive
+            Drive   = ConvertTo-HtmlSafe ([string]$_.Drive)
             Label   = if ($_.Label) { ConvertTo-HtmlSafe $_.Label } else { 'Sans nom' }
-            TotalGB = $_.TotalGB
-            UsedGB  = $_.UsedGB
-            FreeGB  = $_.FreeGB
-            PctUsed = $_.PctUsed
-            PctFree = $_.PctFree
+            TotalGB = ConvertTo-NumOrNull $_.TotalGB
+            UsedGB  = ConvertTo-NumOrNull $_.UsedGB
+            FreeGB  = ConvertTo-NumOrNull $_.FreeGB
+            PctUsed = ConvertTo-NumOrNull $_.PctUsed
+            PctFree = ConvertTo-NumOrNull $_.PctFree
             IsAlert = [bool]$_.IsAlert
         }
     })
@@ -1795,9 +1840,12 @@ foreach ($pc in $allData) {
         # v2.2.1 : OS (Windows 10/11) - ADDITIF. Recopie EXPLICITE des 4 champs Machine :
         #          sans ces lignes ils seraient droppes en silence (classe de bug #3).
         OSProduct        = if ($pc.Machine.OSProduct) { ConvertTo-HtmlSafe ([string]$pc.Machine.OSProduct) } else { 'Inconnu' }
-        OSBuild          = $pc.Machine.OSBuild
+        OSBuild          = ConvertTo-IntOrNull $pc.Machine.OSBuild   # v2.4.3 : cast (affiche + attribut title -> anti-XSS)
         OSDisplayVersion = if ($pc.Machine.OSDisplayVersion) { ConvertTo-HtmlSafe ([string]$pc.Machine.OSDisplayVersion) } else { '' }
         OSEdition        = if ($pc.Machine.OSEdition) { ConvertTo-HtmlSafe ([string]$pc.Machine.OSEdition) } else { '' }
+        # v2.4.2 : n° de serie machine (service tag) - inventaire / decommissionnement.
+        #          Peut etre '' si Collector < 2.4.2 ou BIOS sans serial exploitable.
+        SerialNumber     = if ($pc.Machine.PSObject.Properties['SerialNumber']) { ConvertTo-HtmlSafe ([string]$pc.Machine.SerialNumber) } else { '' }
         # v5.6 : chassis info (peut etre null si Collector < v5.6)
         ChassisInfo      = if ($pc.Machine.ChassisInfo) {
             [PSCustomObject]@{
@@ -1877,6 +1925,11 @@ $maskHealthyJs = if ($MaskHealthyByDefault) { 'true' } else { 'false' }
 # v2.1.12 : liste des applis suivies serialisee en minuscules pour le rapprochement JS.
 $priorityAppsJson = @($priorityApps | ForEach-Object { ([string]$_).ToLowerInvariant() }) | ConvertTo-Json -Compress
 if (-not $priorityAppsJson) { $priorityAppsJson = '[]' }
+
+# v2.4.2 : registre decommission complet (stats/audit). Force l'array (bug ConvertTo-Json 1 element).
+$decomRegistryJson = ConvertTo-Json -InputObject @($decomAll) -Depth 4 -EscapeHandling EscapeHtml
+if (-not $decomRegistryJson) { $decomRegistryJson = '[]' }
+if ($decomRegistryJson.TrimStart()[0] -ne '[') { $decomRegistryJson = '[' + $decomRegistryJson + ']' }
 $showSiteJs    = if ($showSite) { 'true' } else { 'false' }
 
 # Favicon SVG minimaliste (moniteur avec barres) encode en data URI
@@ -2102,6 +2155,25 @@ $metaRefresh
     .decom-badge:hover { opacity: 1; }
     .decom-badge.late, .decom-badge.done-online { color: var(--red); font-weight: 700; }
     .decom-badge.done { color: var(--text-muted); cursor: default; }
+    /* v2.4.2 : panneau stats/audit cycle de vie */
+    .decom-stat-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+    .decom-stat-tile { flex: 1 1 140px; background: var(--bg-elevated, rgba(255,255,255,0.03)); border: 1px solid var(--border, rgba(128,128,128,0.2)); border-radius: 8px; padding: 12px 14px; }
+    .decom-stat-val { font-size: 24px; font-weight: 700; line-height: 1.1; }
+    .decom-stat-lbl { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .decom-stat-tile.ok     .decom-stat-val { color: var(--green); }
+    .decom-stat-tile.warn   .decom-stat-val { color: var(--orange); }
+    .decom-stat-tile.danger .decom-stat-val { color: var(--red); }
+    .decom-sub-row { display: flex; flex-wrap: wrap; gap: 24px; }
+    .decom-sub { flex: 1 1 280px; min-width: 0; }
+    .decom-sub h5 { margin: 0 0 8px; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .decom-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .decom-table th { text-align: left; font-size: 11px; color: var(--text-muted); border-bottom: 1px solid var(--border, rgba(128,128,128,0.2)); padding: 4px 6px; }
+    .decom-table td { padding: 4px 6px; border-bottom: 1px solid var(--border, rgba(128,128,128,0.08)); }
+    .decom-month { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+    .decom-month-lbl { width: 62px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .decom-month-bar { flex: 1; height: 10px; background: rgba(128,128,128,0.12); border-radius: 5px; overflow: hidden; }
+    .decom-month-fill { height: 100%; background: var(--purple); border-radius: 5px; }
+    .decom-month-val { width: 24px; text-align: right; font-variant-numeric: tabular-nums; }
     .filter-btn-anomaly { border-color: var(--orange); color: var(--orange); }
     .filter-btn-anomaly:hover { border-color: var(--orange); color: var(--orange); background: rgba(255, 165, 2, 0.12); }
     .filter-btn-anomaly.active { background: var(--orange); color: #1a1a1a; border-color: var(--orange); }
@@ -3749,6 +3821,12 @@ $anomalyHtml
     <div id="bootBreakdown" class="boot-breakdown"></div>
 </div>
 
+<!-- v2.4.2 : stats / audit du cycle de vie (decommissionnement) -->
+<div class="global-panel" id="decomPanel" style="display:none">
+    <h3>Cycle de vie du parc &mdash; d&eacute;commissionnement</h3>
+    <div id="decomStats"></div>
+</div>
+
 <!-- v5.7 : inventaire des moniteurs externes du parc -->
 <div class="global-panel" id="monitorPanel" style="display:none">
     <div class="monitor-panel-head">
@@ -3782,6 +3860,8 @@ var seuilDiskWarning = $SeuilDiskWarning;
 var generatedAt   = new Date('$($now.ToString("yyyy-MM-ddTHH:mm:ss"))');
 // v2.1.12 : applis suivies (minuscules) - remontees dans la section "A investiguer en priorite".
 var priorityApps  = $priorityAppsJson;
+// v2.4.2 : registre decommission complet (stats/audit cycle de vie).
+var decomRegistry = $decomRegistryJson;
 
 // ===== ETAT UI =====
 var state = {
@@ -4756,7 +4836,8 @@ function render() {
         if (searchTerm) {
             return p.pc.PC.toLowerCase().indexOf(searchTerm) !== -1 ||
                    (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) !== -1 ||
-                   (p.pc.LastLoggedUser || '').toLowerCase().indexOf(searchTerm) !== -1;
+                   (p.pc.LastLoggedUser || '').toLowerCase().indexOf(searchTerm) !== -1 ||
+                   (p.pc.SerialNumber || '').toLowerCase().indexOf(searchTerm) !== -1;
         }
         return true;
     });
@@ -4800,6 +4881,7 @@ function render() {
     renderGlobalCrashers(baseFiltered);
     renderBootBreakdown(baseFiltered);
     renderMonitorInventory(baseFiltered);
+    renderDecomStats();   // v2.4.2 : audit cycle de vie (registre complet, independant des filtres)
 
     document.getElementById('pcCount').textContent = visible.length + ' / ' + allEnriched.length + ' appareil(s)';
 }
@@ -5399,6 +5481,91 @@ function toggleNoise(el) {
     }
 }
 
+// ===== AGREGATION PARC : STATS / AUDIT CYCLE DE VIE (v2.4.2) =====
+// Lit le registre COMPLET (decomRegistry, y compris PC dont le JSON a ete purge)
+// -> independant des filtres de la vue. Produit : compteurs fait/a faire/en
+// retard, delai moyen marque->fait, repartition par technicien et par mois.
+function renderDecomStats() {
+    var panel = document.getElementById('decomPanel');
+    var container = document.getElementById('decomStats');
+    var reg = decomRegistry || [];
+    if (reg.length === 0) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+
+    var today = new Date(generatedAt);
+    var todayStr = today.getFullYear() + '-' +
+                   ('0' + (today.getMonth() + 1)).slice(-2) + '-' +
+                   ('0' + today.getDate()).slice(-2);
+
+    var done = 0, todo = 0, late = 0;
+    var delays = [];         // jours marque->fait (entrees Fait)
+    var byTech = {};         // AssignedTo -> {todo, done}
+    var byMonth = {};        // YYYY-MM (DoneAt) -> count
+
+    reg.forEach(function(e) {
+        var isDone = (e.Statut === 'Fait');
+        var isTodo = (e.Statut === 'A faire');
+        if (isDone) done++;
+        if (isTodo) {
+            todo++;
+            if (e.TargetDate && e.TargetDate < todayStr) late++;
+        }
+        var tech = e.AssignedTo || '(non assigne)';
+        if (!byTech[tech]) byTech[tech] = { todo: 0, done: 0 };
+        if (isDone) byTech[tech].done++;
+        else if (isTodo) byTech[tech].todo++;
+
+        if (isDone && e.MarkedAt && e.DoneAt) {
+            var d1 = parseDate(e.MarkedAt), d2 = parseDate(e.DoneAt);
+            if (!isNaN(d1.getTime()) && !isNaN(d2.getTime())) {
+                var dd = (d2 - d1) / 86400000;
+                if (dd >= 0) delays.push(dd);
+            }
+            byMonth[e.DoneAt.slice(0, 7)] = (byMonth[e.DoneAt.slice(0, 7)] || 0) + 1;
+        }
+    });
+
+    var avgDelay = delays.length ? (delays.reduce(function(a, b) { return a + b; }, 0) / delays.length) : null;
+
+    function tile(val, label, cls) {
+        return '<div class="decom-stat-tile ' + (cls || '') + '">' +
+               '<div class="decom-stat-val">' + val + '</div>' +
+               '<div class="decom-stat-lbl">' + label + '</div></div>';
+    }
+    var tiles = '<div class="decom-stat-row">' +
+        tile(done, 'D&eacute;commissionn&eacute;s (fait)', 'ok') +
+        tile(todo, '&Agrave; faire', (todo > 0 ? 'warn' : '')) +
+        tile(late, 'En retard', (late > 0 ? 'danger' : '')) +
+        tile(avgDelay != null ? (Math.round(avgDelay) + ' j') : '&ndash;', 'D&eacute;lai moyen marqu&eacute;&rarr;fait') +
+        '</div>';
+
+    var techNames = Object.keys(byTech).sort();
+    var techRows = techNames.map(function(t) {
+        return '<tr><td>' + t + '</td>' +
+               '<td style="text-align:right">' + byTech[t].done + '</td>' +
+               '<td style="text-align:right">' + byTech[t].todo + '</td></tr>';
+    }).join('');
+    var techTable = '<div class="decom-sub"><h5>Par technicien</h5>' +
+        '<table class="decom-table"><thead><tr><th>Technicien</th>' +
+        '<th style="text-align:right">Fait</th><th style="text-align:right">&Agrave; faire</th></tr></thead>' +
+        '<tbody>' + techRows + '</tbody></table></div>';
+
+    var months = Object.keys(byMonth).sort();
+    var monthsShown = months.slice(-12);
+    var maxM = monthsShown.reduce(function(m, k) { return Math.max(m, byMonth[k]); }, 0);
+    var monthBars = monthsShown.map(function(k) {
+        var w = maxM ? Math.round(byMonth[k] / maxM * 100) : 0;
+        return '<div class="decom-month"><span class="decom-month-lbl">' + k + '</span>' +
+               '<div class="decom-month-bar"><div class="decom-month-fill" style="width:' + w + '%"></div></div>' +
+               '<span class="decom-month-val">' + byMonth[k] + '</span></div>';
+    }).join('');
+    var monthBlock = monthsShown.length
+        ? '<div class="decom-sub"><h5>D&eacute;commissions r&eacute;alis&eacute;es par mois</h5>' + monthBars + '</div>'
+        : '';
+
+    container.innerHTML = tiles + '<div class="decom-sub-row">' + techTable + monthBlock + '</div>';
+}
+
 // ===== AGREGATION PARC : INVENTAIRE MONITORS (v5.7) =====
 // Produit les stats d'inventaire des ecrans externes :
 // - Nb total d'ecrans branches
@@ -5854,9 +6021,11 @@ function renderDetailRow(p, idx, colspan) {
     if (p.pc.OSEdition) dOsMetaParts.push(p.pc.OSEdition);
     if (p.pc.OSBuild) dOsMetaParts.push('build ' + p.pc.OSBuild);
     var dOsMetaStr = dOsMetaParts.join(' &middot; ');
+    var dSerial = p.pc.SerialNumber || '';
     osHTML = '<div class="cpu-info-block">' +
                '<div style="margin-bottom:3px"><span class="os-badge ' + dOsCls + '">' + dOsProduct + '</span></div>' +
                (dOsMetaStr ? '<div class="cpu-meta"><span>' + dOsMetaStr + '</span></div>' : '') +
+               (dSerial ? '<div class="cpu-meta"><span>N&deg; s&eacute;rie : <strong>' + dSerial + '</strong></span></div>' : '') +
              '</div>';
 
     var diskHTML = '';
@@ -6579,7 +6748,8 @@ function exportCSV() {
         if (searchTerm) {
             if (p.pc.PC.toLowerCase().indexOf(searchTerm) === -1 &&
                 (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) === -1 &&
-                (p.pc.LastLoggedUser || '').toLowerCase().indexOf(searchTerm) === -1) return false;
+                (p.pc.LastLoggedUser || '').toLowerCase().indexOf(searchTerm) === -1 &&
+                (p.pc.SerialNumber || '').toLowerCase().indexOf(searchTerm) === -1) return false;
         }
         if (!matchKpiFilter(p, state.kpiFilter)) return false;
         if (state.maskHealthy && state.kpiFilter !== 'anomaly' && p.score === 0) return false;
@@ -6589,7 +6759,7 @@ function exportCSV() {
     });
     sortPCs(visible);
 
-    var headers = ['PC', 'Site', 'IP', 'Utilisateur', 'CollectorRunAs', 'Statut', 'Connexion', 'CPU', 'CategorieCPU',
+    var headers = ['PC', 'Site', 'IP', 'NumeroSerie', 'Utilisateur', 'CollectorRunAs', 'Statut', 'Connexion', 'CPU', 'CategorieCPU',
                    'AnneeCPU', 'OS', 'OSBuild', 'OSVersion', 'OSEdition',
                    'UptimeJours', 'DerniereActivite', 'Score',
                    'Crash', 'BSOD',
@@ -6652,7 +6822,7 @@ function exportCSV() {
             ? pc.CurrentUser
             : (pc.LastLoggedUser ? pc.LastLoggedUser + ' (dernier)' : (pc.CurrentUser || ''));
         var row = [
-            pc.PC, pc.Site, pc.IP, csvUser, pc.CollectorRunAs || '',
+            pc.PC, pc.Site, pc.IP, pc.SerialNumber || '', csvUser, pc.CollectorRunAs || '',
             pc.IsOffline ? 'OFFLINE' : 'OK',
             pc.ConnectionType || '',
             pc.CPUName || '', pc.CPUAgeCategory || '', pc.CPUYear || '',

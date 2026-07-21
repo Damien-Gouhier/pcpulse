@@ -10,12 +10,52 @@
     "DoneAt": null,
     "DoneBy": null,
     "History": [
-      {
-        "Date": "2026-07-15 09:30:00",
-        "Action": "Marque",
-        "By": "ADMIN-DEMO",
-        "Detail": "assigne a Tech2, echeance 2026-08-14"
-      }
+      { "Date": "2026-07-15 09:30:00", "Action": "Marque", "By": "ADMIN-DEMO", "Detail": "assigne a Tech2, echeance 2026-08-14" }
+    ]
+  },
+  {
+    "PC": "OLD-LAPTOP-01",
+    "Statut": "Fait",
+    "Reason": "remplace",
+    "AssignedTo": "Tech1",
+    "MarkedAt": "2026-06-02 10:00:00",
+    "Operator": "ADMIN-DEMO",
+    "TargetDate": "2026-07-02",
+    "DoneAt": "2026-06-10 15:20:00",
+    "DoneBy": "Tech1",
+    "History": [
+      { "Date": "2026-06-02 10:00:00", "Action": "Marque", "By": "ADMIN-DEMO", "Detail": "assigne a Tech1, echeance 2026-07-02" },
+      { "Date": "2026-06-10 15:20:00", "Action": "Cloture", "By": "Tech1", "Detail": "decommission realisee" }
+    ]
+  },
+  {
+    "PC": "OLD-DESKTOP-02",
+    "Statut": "Fait",
+    "Reason": "HS",
+    "AssignedTo": "Tech2",
+    "MarkedAt": "2026-06-20 09:00:00",
+    "Operator": "ADMIN-DEMO",
+    "TargetDate": "2026-07-20",
+    "DoneAt": "2026-07-01 11:00:00",
+    "DoneBy": "Tech2",
+    "History": [
+      { "Date": "2026-06-20 09:00:00", "Action": "Marque", "By": "ADMIN-DEMO", "Detail": "assigne a Tech2, echeance 2026-07-20" },
+      { "Date": "2026-07-01 11:00:00", "Action": "Cloture", "By": "Tech2", "Detail": "decommission realisee" }
+    ]
+  },
+  {
+    "PC": "OLD-LAPTOP-03",
+    "Statut": "Fait",
+    "Reason": "fin de vie",
+    "AssignedTo": "Tech1",
+    "MarkedAt": "2026-07-05 14:00:00",
+    "Operator": "ADMIN-DEMO",
+    "TargetDate": "2026-08-04",
+    "DoneAt": "2026-07-12 16:30:00",
+    "DoneBy": "Tech1",
+    "History": [
+      { "Date": "2026-07-05 14:00:00", "Action": "Marque", "By": "ADMIN-DEMO", "Detail": "assigne a Tech1, echeance 2026-08-04" },
+      { "Date": "2026-07-12 16:30:00", "Action": "Cloture", "By": "Tech1", "Detail": "decommission realisee" }
     ]
   }
 ]

@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.4.0-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.6-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Zero-dependency Windows fleet monitoring.**
@@ -48,7 +48,7 @@ If any of these resonate with you, feel free to open an [Issue](https://github.c
 | 🔧 **Hardware wear** | Battery health (wear % + cycles), Disk SMART (wear, temp, errors), aging secondary monitors |
 | 💻 **OS** | Windows 10 vs 11 (derived from build), edition, feature update — fleet inventory / end-of-support tracking |
 | 👤 **User** | Current session, or last logged-on user as fallback (single entry, not a history) |
-| 📊 **Inventory** | CPU (model, year, age category), RAM (modules: type, JEDEC-decoded vendor, upgrade headroom), disks, chassis (Laptop/Desktop/AIO), external monitors (EDID; screens flagged "unidentified" when a dock/adapter doesn't relay EDID) |
+| 📊 **Inventory** | Machine serial (service tag), CPU (model, year, age category), RAM (modules: type, JEDEC-decoded vendor, upgrade headroom), disks, chassis (Laptop/Desktop/AIO), external monitors (EDID; screens flagged "unidentified" when a dock/adapter doesn't relay EDID) |
 
 ## 📸 Preview
 
@@ -206,6 +206,8 @@ The **`Decommission-PC.ps1`** tool marks an endpoint in a **separate registry** 
 
 On the Dashboard side, a **Lifecycle** KPI family reads this registry (path via `DecommissionRegistryPath`) and shows a per-endpoint badge: *to decommission* (with countdown), *overdue*, *done but still online* (inconsistency to check), *done (to purge)*. A per-state filter lists the relevant endpoints.
 
+An aggregate **"Fleet lifecycle"** panel also derives audit stats from the full registry (including already-purged endpoints): decommissioned / to do / overdue, **average mark→done delay**, and a breakdown **by technician** and **by month** — handy for a status check or reporting.
+
 **Current limitation (to evolve)**: once an endpoint is marked "Done", its `<PC>.json` is **not** deleted automatically — you remove it manually on the share (with an account that has write access). The *"done (to purge)"* filter exists precisely to list what's left to clean up. Automatic purge (a server-side scheduled task, after a delay) is being considered.
 
 ## 🎯 Who is this for?
@@ -236,16 +238,39 @@ The [Quick Start](#-quick-start--try-it-in-3-minutes) isn't enough for productio
 
 ## 🔐 Security
 
-PCPulse is designed to be **deployed on production endpoints**. As such, the project takes security seriously.
+PCPulse is built to be **deployed on production endpoints**, with a *pull*-based
+auto-update mechanism (endpoints pull from a share). That vector is the sensitive
+part of the model — so it has been **hardened in depth**:
 
-→ **Before any deployment**, read [`SECURITY.md`](SECURITY.md) which details:
-- The **trust model** (who can do what on the share)
-- **Recommended ACLs** (and the attack scenario they close)
-- The **threat model** of the killswitch
-- The **hardening roadmap** (code signing, sanity-checks, etc.)
-- How to **report a vulnerability**
+- **Signed & pinned update chain.** Collector and Updater are Authenticode-signed.
+  Before executing anything, the Updater verifies the signature against a **pinned
+  thumbprint**: the pin is the trust anchor, independent of OS chain trust.
+- **TOCTOU-safe verification.** The signature is checked on the **bytes actually
+  installed** (verified local copy → atomic rename), not on the remote file. Write
+  access to the share is **not enough** to run arbitrary code. SHA256 is now just a
+  change detector; the barrier is the signature.
+- **Anti-downgrade.** Updater and Collector read their version **from the signed
+  file** and refuse any older version → no re-injection of an old (yet signed) binary.
+- **Atomic install, zero backup.** Copy → verify → rename: the live file is never
+  replaced by a partial copy, and no old binary is left on endpoints (smaller
+  exploitable surface).
+- **Endpoint hardening.** Housekeeping every cycle (no exploitable trace left on the
+  endpoint), runtime folder ACL reduced to SYSTEM + Administrators, logs offloaded to
+  the share, and **self-healing** logs (a corrupted log can't block collection).
+- **Dashboard.** XSS defense (single escaping at embed + per-field allowlist, CSP
+  `connect-src 'none'`) and robustness (one corrupted JSON no longer breaks the whole
+  build).
+- **Reduced surface.** Config **read-only** for endpoints (in `release\`), killswitch
+  **opt-in** (disabled by default).
 
-`Setup-Server.ps1` automates the application of recommended hardened ACLs on your existing share.
+→ **Before any deployment**, read [`SECURITY.md`](SECURITY.md): trust model,
+recommended ACLs (and the attack scenario they close), killswitch threat model, and
+how to **report a vulnerability**. `Setup-Server.ps1` applies the recommended hardened
+ACLs on an existing share.
+
+*Still on the roadmap: switching endpoints to `AllSigned` execution policy and
+deploying certificate chain trust (GPO) — pinning already guarantees authenticity
+without them.*
 
 ## 🛠️ Tech stack
 

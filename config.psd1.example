@@ -1,7 +1,10 @@
 ﻿@{
     # ============================================================
     # PCPulse - config.psd1 (EXEMPLE)
-    # Copier en "config.psd1" a la racine du share et adapter.
+    # Copier en "config.psd1" dans le sous-dossier release\ du share et adapter.
+    # (v2.4.3 : lu en priorite depuis release\ = LECTURE SEULE pour les postes ->
+    #  un poste compromis ne peut plus alterer la config. Repli sur la racine si
+    #  absent de release\, mais preferer release\ et supprimer la copie racine.)
     # Fichier partage entre le Collector (PS 5.1) et le Dashboard (PS 7). Chaque
     # outil ne lit que les cles de son propre jeu par defaut (merge whitelist),
     # les cles "en trop" pour l'un sont simplement ignorees.
@@ -78,13 +81,16 @@
     # Permet de desinstaller PCPulse a distance : l'admin depose un fichier
     # sentinelle nomme <Filename> dans le sous-dossier release\ du share, contenant
     # exactement la <Phrase>. Chaque poste, a son prochain cycle, se desinstalle et
-    # ecrit un rapport dans killed\<HOST>.txt. Bloc OPTIONNEL : sans lui, les
-    # defauts ci-dessous s'appliquent. EN PRODUCTION, personnalisez Filename ET
-    # Phrase (valeurs non publiques) pour eviter tout declenchement accidentel.
+    # ecrit un rapport dans killed\<HOST>.txt.
+    # v1.5 : OPT-IN. Le defaut est desormais Enabled = $false (un killswitch actif
+    # avec une phrase publique = risque de DoS parc si les ACL sautent). Pour
+    # l'utiliser, declarez EXPLICITEMENT ce bloc avec Enabled = $true ET une
+    # Filename + Phrase PERSONNALISEES (non publiques). Sans ce bloc -> killswitch
+    # DESACTIVE.
     KillSwitch = @{
-        Enabled  = $true
-        Filename = 'KILLSWITCH.txt'                # defaut public - a personnaliser en prod
-        Phrase   = 'CONFIRM-UNINSTALL-PCPULSE'     # defaut public - a personnaliser en prod
+        Enabled  = $false                          # opt-in : passer a $true SEULEMENT avec Filename + Phrase perso
+        Filename = 'A-PERSONNALISER.txt'           # NE PAS laisser le defaut public
+        Phrase   = 'A-PERSONNALISER-PHRASE'        # NE PAS laisser le defaut public
     }
 
     # ---- Decommission : chemin du registre (lu par le Dashboard) ----

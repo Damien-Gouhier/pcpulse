@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v2.3.2
+    PCPulse Collector v2.4.5
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,9 +10,40 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.3.2
+    Version      : 2.4.6
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v2.4.6 : [SECURITE] Marqueur de version machine-lisible $CollectorVersion : permet
+           a l'Updater de verifier la version dans le fichier SIGNE (anti-downgrade)
+           au lieu de faire confiance a version.txt du share (non signe). Ferme la
+           reinjection d'un vieux Collector signe via un version.txt gonfle.
+    v2.4.5 : [FIX CRITIQUE] Invoke-LogCleanup ne s'etouffe plus sur un log geant.
+           Il tournait AVANT la collecte et, sur un log corrompu (37 Mo, une ligne
+           de 9 M caracteres = mojibake compose de l'incident 2.2.x), il bloquait/
+           mourait (OOM) en gardant le fichier ouvert -> la collecte ne demarrait
+           JAMAIS -> ~247 postes figes hors ligne, log impossible a supprimer ("ouvert
+           dans System"). Correctif : lecture par OCTETS bornee (dernier Mo) au lieu
+           de Get-Content -Tail (qui charge les lignes entieres) -> impossible de
+           s'etoufer, AUTO-GUERISON en local (aucune manip manuelle).
+    v2.4.4 : [FIX] Rotation du log : lecture en UTF-8 (coherent avec l'ecriture)
+           au lieu de l'ANSI par defaut de PS 5.1 -> corrige le mojibake qui se
+           COMPOSAIT a chaque cleanup (une ligne d'erreur .NET accentuee gonflait
+           a plusieurs Mo, observe 9 M caracteres). + plafond par ligne (2000) qui
+           tronque toute ligne monstrueuse et auto-guerit les logs deja pourris.
+    v2.4.3 : [SECURITE] config.psd1 lu en priorite depuis release\ (lecture seule
+           pour les postes) au lieu de la racine du share (ou les postes ont Modify)
+           -> un poste compromis ne peut plus alterer la config. Repli racine pour
+           migration. Aucun changement fonctionnel de collecte.
+    v2.4.2 : Ajout Machine.SerialNumber (Win32_BIOS.SerialNumber) - service tag
+           constructeur, pour inventaire / garantie / decommissionnement (report
+           Excel). Valeurs BIOS factices ('Default string', etc.) normalisees a
+           null. ADDITIF, SchemaVersion INCHANGEE "2.2". Necessite un
+           redeploiement pour peupler le champ sur le parc.
+           [FIX] Robustesse WMI : sur un poste au WMI incomplet (ex WMI hardware
+           casse), $os.LastBootUpTime revenait null et $kernelLastBoot.ToString()
+           faisait planter TOUTE la collecte (aucun JSON produit -> poste invisible
+           au Dashboard). Champs boot kernel rendus null-safe. Observe sur 2 postes
+           (WMI hardware absent : ni modele, ni serial).
     v2.3.2 : HOTFIX prod + backlog (SchemaVersion INCHANGEE "2.2").
            - [HOTFIX] Ecriture JSON sur le share : [System.IO.File]::Replace echoue
              sur un chemin UNC/SMB ("Le chemin d'acces n'a pas une forme conforme")
@@ -294,7 +325,17 @@ param(
 # CONSTANTES (non modifiables - structurelles)
 # ============================================================
 $SchemaVersion = '2.2'
-$ConfigFile    = Join-Path $SharePath 'config.psd1'
+# v2.4.6 : version machine-lisible de CE Collector. Sert de reference anti-downgrade
+# a l'Updater (Install-VerifiedUpdate lit ce marqueur dans le fichier SIGNE plutot que
+# de faire confiance a version.txt du share, non signe). NE PAS renommer/reformater
+# cette ligne : elle est parsee par regex ($CollectorVersion = [version]'x.y.z').
+$CollectorVersion = [version]'2.4.6'
+# v2.4.3 : config.psd1 lu en PRIORITE dans release\ (lecture seule pour les postes)
+# -> un poste compromis ne peut plus alterer la config (phrase killswitch, seuils,
+# services surveilles). Repli sur la racine pour migration douce : une fois le
+# fichier deplace dans release\ et la copie racine supprimee, la racine est ignoree.
+$ConfigFile    = Join-Path $SharePath 'release\config.psd1'
+if (-not (Test-Path $ConfigFile)) { $ConfigFile = Join-Path $SharePath 'config.psd1' }
 
 # ------------------------------------------------------------
 # Caps de protection arrays (defense en profondeur Collector)
@@ -533,22 +574,47 @@ function Invoke-LogCleanup {
         # (Get-Content -Tail lit depuis la fin sans charger le fichier entier),
         # ce qui auto-guerit un log runaway au prochain passage.
         $maxBytes     = 20MB
-        $maxTailLines = 5000
+        # v2.4.4 : plafond par LIGNE (un message d'erreur .NET accentue mal encode
+        # pouvait, via des rotations successives, gonfler UNE ligne a plusieurs Mo).
+        $maxLineLen   = 2000
         $fi = Get-Item -LiteralPath $logFile -ErrorAction Stop
         if ($fi.Length -gt $maxBytes) {
-            $tail = Get-Content -LiteralPath $logFile -Tail $maxTailLines -ErrorAction Stop
-            $txt  = if ($tail) { (($tail -join "`r`n") + "`r`n") } else { '' }
-            [System.IO.File]::WriteAllText($logFile, $txt, [System.Text.UTF8Encoding]::new($false))
+            # v2.4.5 : lecture par OCTETS (bornee), PAS par lignes. Get-Content -Tail
+            # charge des LIGNES entieres -> sur un log corrompu avec une ligne de
+            # plusieurs Mo (mojibake compose), il S'ETOUFFE/bloque AVANT la collecte
+            # (observe : ~247 postes figes hors ligne, la collecte ne demarrait jamais).
+            # Ici on ne lit que le dernier Mo (rapide, insensible a la taille des
+            # lignes), on jette la 1re ligne partielle, on tronque toute ligne
+            # monstrueuse -> auto-guerison GARANTIE, sans intervention manuelle.
+            $keepBytes = 1MB
+            $bytes = $null
+            $fs = [System.IO.File]::Open($logFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            try {
+                $start = [Math]::Max([long]0, $fs.Length - $keepBytes)
+                [void]$fs.Seek($start, [System.IO.SeekOrigin]::Begin)
+                $count = [int]($fs.Length - $start)
+                $bytes = New-Object byte[] $count
+                [void]$fs.Read($bytes, 0, $count)
+            } finally { $fs.Dispose() }
+            $txt = [System.Text.Encoding]::UTF8.GetString($bytes)
+            $firstNl = $txt.IndexOf("`n")
+            if ($firstNl -ge 0) { $txt = $txt.Substring($firstNl + 1) }   # jette la ligne partielle initiale
+            $tail = $txt -split "`r?`n" | ForEach-Object {
+                if ($_.Length -gt $maxLineLen) { $_.Substring(0, $maxLineLen) + ' [ligne tronquee]' } else { $_ }
+            }
+            $out = "[log tronque automatiquement (trop volumineux, reset)]`r`n" + (($tail -join "`r`n").Trim() + "`r`n")
+            [System.IO.File]::WriteAllText($logFile, $out, [System.Text.UTF8Encoding]::new($false))
             return
         }
         $cutoff = (Get-Date).AddDays(-$HistoriqueJours).ToString('yyyy-MM-dd')
-        $content = Get-Content -Path $logFile -Raw -ErrorAction Stop
+        $content = Get-Content -Path $logFile -Raw -Encoding UTF8 -ErrorAction Stop   # v2.4.4 : UTF8 (cf. ci-dessus)
         # Decoupe tolerante CRLF/LF puis retrait du \r residuel en bout de ligne.
         # (Avant : split sur "`n" seul -> chaque ligne gardait son \r, et le rejoin
         #  sur "`n" recollait la ligne suivante en cassant le tri par date.)
         $lignes = $content -split "`r?`n"
         $filtrees = foreach ($l in $lignes) {
             $ligne = $l.TrimEnd("`r")
+            if ($ligne.Length -gt $maxLineLen) { $ligne = $ligne.Substring(0, $maxLineLen) + ' [ligne tronquee]' }
             if (($ligne.Length -ge 10) -and ($ligne.Substring(0, 10) -ge $cutoff)) { $ligne }
         }
         # Reecriture CRLF avec newline final, UTF-8 sans BOM (coherent avec Write-Log)
@@ -1023,6 +1089,9 @@ Invoke-LogCleanup -HistoriqueJours $HistoriqueJours
 # ============================================================
 $os              = Get-CimInstance -ClassName Win32_OperatingSystem
 $kernelLastBoot  = $os.LastBootUpTime   # vrai cold boot kernel (pour info technique)
+# v2.4.2 : sur un poste au WMI incomplet, LastBootUpTime peut etre null -> on trace
+# et les champs boot kernel restent a null (garde-fou plus bas, pas de crash).
+if (-not $kernelLastBoot) { Write-Log "LastBootUpTime indisponible (WMI incomplet) - champs boot kernel laisses a null" }
 # NOTE v1.1 : on ne calcule PAS $uptimeDays ici. Le vrai uptime utilisateur
 # (= temps depuis la derniere reprise d'activite : cold boot, Fast Startup,
 # ou wake Modern Standby) est calcule plus bas a partir de $bootDurations.
@@ -1099,6 +1168,26 @@ $chassisInfo = [PSCustomObject]@{
 Write-Log "ChassisType : $chassisLabel (code=$chassisType)"
 
 # ============================================================
+# NUMERO DE SERIE MACHINE (service tag) - v2.4.2 (ADDITIF, schema 2.2 inchange)
+#   Win32_BIOS.SerialNumber = tag constructeur (service tag Dell, serial HP...).
+#   Utile inventaire / garantie / decommissionnement (report vers Excel).
+#   Certains BIOS renvoient une valeur vide ou factice -> normalisee a $null.
+# ============================================================
+$machineSerial = $null
+try {
+    $biosSerial = (Get-CimInstance -ClassName Win32_BIOS -ErrorAction Stop).SerialNumber
+    if ($biosSerial) {
+        $biosSerial = "$biosSerial".Trim()
+        $bogusSerials = @('Default string', 'System Serial Number', 'To be filled by O.E.M.',
+                          'To Be Filled By O.E.M.', 'None', '0', 'Not Applicable', 'Not Specified', 'Unknown')
+        if ($biosSerial -and ($bogusSerials -notcontains $biosSerial)) { $machineSerial = $biosSerial }
+    }
+} catch {
+    Write-Log "SerialNumber (BIOS) indisponible : $_"
+}
+Write-Log "SerialNumber machine : $(if ($machineSerial) { $machineSerial } else { '(n/a)' })"
+
+# ============================================================
 # OS PRODUCT (Windows 10 vs 11) - detection canonique par le BUILD
 #   Contexte : fin de support Windows 10 -> reperer les postes encore
 #   en 10 pour piloter la migration / le risque "non supporte".
@@ -1147,9 +1236,13 @@ $machineInfo = [PSCustomObject]@{
     OSBuild             = $osBuild
     OSDisplayVersion    = $osDisplayVersion
     OSEdition           = $osEdition
-    LastBoot            = $kernelLastBoot.ToString('yyyy-MM-dd HH:mm:ss')  # ecrase plus bas
-    UptimeDays          = [math]::Round(((Get-Date) - $kernelLastBoot).TotalDays, 1)  # ecrase plus bas
-    LastRealColdBoot    = $kernelLastBoot.ToString('yyyy-MM-dd HH:mm:ss')  # NEW v1.1
+    # v2.4.2 : NULL-SAFE. Sur un poste au WMI abime, $os.LastBootUpTime peut revenir
+    # null -> $kernelLastBoot.ToString() plantait TOUTE la collecte (methode sur null,
+    # aucun JSON produit). On garde-fou : ces 2 premiers champs sont de toute facon
+    # ecrases plus bas par les vraies valeurs utilisateur.
+    LastBoot            = if ($kernelLastBoot) { $kernelLastBoot.ToString('yyyy-MM-dd HH:mm:ss') } else { $null }  # ecrase plus bas
+    UptimeDays          = if ($kernelLastBoot) { [math]::Round(((Get-Date) - $kernelLastBoot).TotalDays, 1) } else { $null }  # ecrase plus bas
+    LastRealColdBoot    = if ($kernelLastBoot) { $kernelLastBoot.ToString('yyyy-MM-dd HH:mm:ss') } else { $null }  # NEW v1.1
     FastStartupEnabled  = $null  # rempli plus bas (registry)
     CurrentUser         = Get-CurrentInteractiveUser
     # v2.3.0 : dernier user connu (repli d'affichage quand aucune session live). ADDITIF.
@@ -1164,6 +1257,8 @@ $machineInfo = [PSCustomObject]@{
     CPUAge              = $cpu.Age
     CPUAgeCategory      = $cpu.Category
     ConnectionType      = $connectionType
+    # v2.4.2 : n° de serie machine (service tag) - inventaire / decommissionnement. ADDITIF.
+    SerialNumber        = $machineSerial
     # v5.6 : chassis info pour l'inventaire
     ChassisInfo         = $chassisInfo
 }
