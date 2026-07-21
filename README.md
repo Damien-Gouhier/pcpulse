@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.4.0-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.6-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Supervision de parc Windows zéro-dépendance.**
@@ -46,7 +46,7 @@ Si l'un de ces points résonne avec toi, n'hésite pas à ouvrir une [Issue](htt
 | 🔧 **Usure matérielle** | Santé batterie (% d'usure + cycles), SMART disque (wear, temp, erreurs), écrans secondaires âgés |
 | 💻 **OS** | Windows 10 vs 11 (dérivé du build), édition, feature update — inventaire parc / suivi de fin de support |
 | 👤 **Utilisateur** | Session en cours, ou à défaut dernier utilisateur connecté (une entrée, pas d'historique) |
-| 📊 **Inventaire** | CPU (modèle, année, ancienneté), RAM (barrettes : type, fabricant décodé JEDEC, capacité d'upgrade), disques, châssis (Laptop/Desktop/AIO), moniteurs externes (EDID ; écrans « non identifiés » signalés quand un dock/adaptateur ne relaie pas l'EDID) |
+| 📊 **Inventaire** | N° de série machine (service tag), CPU (modèle, année, ancienneté), RAM (barrettes : type, fabricant décodé JEDEC, capacité d'upgrade), disques, châssis (Laptop/Desktop/AIO), moniteurs externes (EDID ; écrans « non identifiés » signalés quand un dock/adaptateur ne relaie pas l'EDID) |
 
 ## 📸 Aperçu
 
@@ -204,6 +204,8 @@ L'outil **`Decommission-PC.ps1`** marque un poste dans un **registre séparé** 
 
 Côté Dashboard, une famille KPI **Cycle de vie** lit ce registre (chemin `DecommissionRegistryPath`) et affiche un badge par poste : *à décommissionner* (avec compte à rebours), *en retard*, *fait mais en ligne* (incohérence à vérifier), *faite (à purger)*. Un filtre par état permet de lister les postes concernés.
 
+Un panneau agrégé **« Cycle de vie du parc »** fournit aussi des stats d'audit à partir du registre complet (y compris les postes déjà purgés) : décommissionnés / à faire / en retard, **délai moyen marqué→fait**, et répartition **par technicien** et **par mois** — pratique pour un point d'avancement ou un reporting.
+
 **Limite actuelle (à faire évoluer)** : une fois un poste marqué « Fait », son `<PC>.json` n'est **pas** supprimé automatiquement — il faut l'effacer manuellement sur le partage (compte disposant de l'écriture). Le filtre *« faite (à purger) »* est justement là pour lister ce qu'il reste à nettoyer. Une purge automatique (tâche planifiée côté serveur, après un délai) est envisagée.
 
 ## 🎯 À qui ça s'adresse
@@ -234,16 +236,43 @@ La [Quick Start](#-quick-start--tester-en-3-minutes) ne suffit pas à déployer 
 
 ## 🔐 Sécurité
 
-PCPulse est conçu pour être **déployé sur du parc en production**. À ce titre, le projet prend la sécurité au sérieux.
+PCPulse est conçu pour être **déployé sur du parc en production**, avec un mécanisme
+d'auto-mise à jour *pull* (les postes tirent depuis un partage). Ce vecteur est le
+point sensible du modèle — il a donc été **durci en profondeur** :
 
-→ **Avant tout déploiement**, lis [`SECURITY.md`](SECURITY.md) qui détaille :
-- Le **trust model** (qui peut faire quoi sur le partage)
-- Les **ACLs recommandées** (et le scénario d'attaque qu'elles ferment)
-- Le **modèle de menace** du killswitch
-- La **roadmap de hardening** (code signing, sanity-checks, etc.)
-- Comment **signaler une vulnérabilité**
+- **Chaîne de mise à jour signée & épinglée.** Collecteur et Updater sont signés
+  (Authenticode). Avant d'exécuter quoi que ce soit, l'Updater vérifie la signature
+  contre un **certificat épinglé (pinned thumbprint)** : le pin est l'ancre de
+  confiance, indépendante de la confiance de chaîne de l'OS.
+- **Vérification résistante au TOCTOU.** La signature est contrôlée sur les **octets
+  réellement installés** (copie locale vérifiée → renommage atomique), pas sur le
+  fichier distant. Un accès en écriture sur le partage **ne suffit pas** à faire
+  exécuter du code arbitraire. Le SHA256 n'est plus qu'un détecteur de changement ;
+  la barrière, c'est la signature.
+- **Anti-downgrade.** Updater et Collecteur lisent leur version **dans le fichier
+  signé** et refusent toute version antérieure → pas de ré-injection d'un ancien
+  binaire pourtant signé.
+- **Installation atomique, zéro backup.** Copie → vérification → renommage : le
+  fichier vivant n'est jamais remplacé par une copie partielle, et aucun ancien
+  binaire n'est laissé sur les postes (moins de surface exploitable).
+- **Durcissement des endpoints.** Ménage à chaque cycle (aucune trace exploitable
+  laissée sur le poste), ACL du dossier runtime réduite à SYSTEM + Administrateurs,
+  journaux déportés sur le partage, et **auto-guérison** des journaux (aucun log
+  corrompu ne peut bloquer la collecte).
+- **Dashboard.** Défense XSS (échappement unique à l'embed + allowlist par champ,
+  CSP `connect-src 'none'`) et robustesse (un seul JSON corrompu ne casse plus la
+  génération complète).
+- **Surface réduite.** Config en **lecture seule** pour les postes (dans `release\`),
+  killswitch en **opt-in** (désactivé par défaut).
 
-`Setup-Server.ps1` automatise l'application des ACLs hardenées recommandées sur ton partage existant.
+→ **Avant tout déploiement**, lis [`SECURITY.md`](SECURITY.md) : trust model, ACLs
+recommandées (et le scénario d'attaque qu'elles ferment), modèle de menace du
+killswitch, et comment **signaler une vulnérabilité**. `Setup-Server.ps1` applique
+les ACLs durcies recommandées sur un partage existant.
+
+*Reste sur la feuille de route : bascule des postes en execution policy `AllSigned`
+et déploiement de la confiance de chaîne du certificat (GPO) — l'épinglage assure
+déjà l'authenticité sans elles.*
 
 ## 🛠️ Stack technique
 

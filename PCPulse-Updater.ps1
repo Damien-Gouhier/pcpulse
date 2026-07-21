@@ -9,7 +9,8 @@
       2. Self-update : si l'Updater lui-meme differe de release\ (SHA256),
          se met a jour (effectif au prochain run)
       3. Verifie s'il existe une nouvelle version du Collector sur le share
-      4. Si diff : backup, copie, verif SHA256, met a jour version locale
+      4. Si diff : verif signature + anti-downgrade, puis installation ATOMIQUE
+         verifiee (copie tmp -> SHA -> renommage), sans backup ; maj version locale
       5. Lance le Collector local avec le SharePath fourni
 
     Workflow killswitch :
@@ -33,11 +34,58 @@
     PCPulse-Updater.ps1 -SharePath "\\SRV-PCPULSE\PCPulse$"
 
 .NOTES
-    Version : 1.3
+    Version : 1.9
     Auteur  : Damien Gouhier
     Licence : MIT
 
     CHANGELOG :
+    v1.9 : [SECURITE] Suite audit. (1) TOCTOU ferme : la signature est desormais
+           verifiee sur le fichier TMP LOCAL (les octets reellement installes puis
+           executes) dans Install-VerifiedUpdate, et non plus sur le fichier du share
+           (re-lisible/permutable par un attaquant entre la verif et la copie).
+           (2) Anti-downgrade de l'UPDATER : le self-update lit la version dans le
+           fichier signe a installer (marqueur $UpdaterVersion) et refuse toute
+           version < locale -> un ancien Updater signe ne peut plus etre re-injecte.
+           (3) Anti-downgrade Collector durci : (a) une version serveur non parseable
+           en [version] est REFUSEE ; (b) la version du Collector est lue dans le
+           FICHIER SIGNE (marqueur $CollectorVersion) et non plus dans version.txt du
+           share (non signe, falsifiable) -> plus de reinjection d'un vieux Collector
+           signe via un version.txt gonfle. Fail-closed si marqueur illisible.
+    v1.8 : [FIX] Nettoyage des backups deplace HORS du bloc update -> execute a
+           CHAQUE cycle. Avant, Remove-OldBackups n'etait appele qu'en cas de MAJ
+           du Collector ; un poste "Deja a jour" sortait avant et ne purgeait
+           jamais ses backups legacy (pre-1.6) -> 0 poste nettoye observe sur le
+           parc. Desormais auto-guerison systematique, meme deja a jour.
+    v1.7 : [FIX CRITIQUE] Verification de signature RELACHEE sur le pin. L'ancien
+           check exigeait Status='Valid' (confiance de chaine OS) ; le certificat
+           DSI n'etant pas encore de confiance sur le parc, tout etait refuse
+           (UnknownError) -> parc fige. Desormais : on exige la signature par le
+           thumbprint EPINGLE + integrite (rejet si NotSigned/HashMismatch), mais
+           on TOLERE UnknownError/NotTrusted (chaine non deployee). Le pin est
+           l'ancre de confiance ; la confiance de chaine OS devient un bonus.
+    v1.6 : [DURCISSEMENT] ZERO backup local. Le schema "backup -> copie -> restaure
+           si KO" est remplace par une installation ATOMIQUE VERIFIEE
+           (Install-VerifiedUpdate : copie vers tmp -> controle SHA -> renommage
+           atomique). Le fichier vivant n'est jamais remplace par une copie
+           corrompue -> plus besoin de backup. Remove-OldBackups supprime desormais
+           le dossier backup (nettoie les backups laisses par les versions
+           anterieures sur les postes). Moins de vieux code exploitable, plus robuste.
+    v1.5 : [SECURITE] Authenticite de la chaine de mise a jour. Le SHA256 ne
+           verifiait que l'integrite (calcule sur le meme share) : write sur
+           release\ = RCE SYSTEM sur le parc. Ajout de la VERIFICATION DE
+           SIGNATURE Authenticode + thumbprint EPINGLE ($PinnedThumbprints) :
+           - appliquee d'ABORD au self-update de l'Updater (maillon critique),
+             puis au Collector, AVANT toute copie/adoption ;
+           - liste de thumbprints vide = verif DESACTIVEE (deploiement progressif
+             sans casser le parc, on active en renseignant le thumbprint) ;
+           - log du STATUT EXACT au refus (NotSigned/HashMismatch/NotTrusted...).
+           [SECURITE] ANTI-DOWNGRADE : refus d'une version serveur < locale (empeche
+           le rejeu d'un ancien Collector legitimement signe + son vieux version.txt).
+    v1.4 : [FIX] Rotation de updater.log : cap de taille. Get-Content -Raw chargeait
+           tout le fichier -> OutOfMemoryException sur un log enorme (observe 2 Go)
+           -> rotation en echec a chaque cycle, log jamais borne. Au-dela de
+           UpdaterLogMaxMB, lecture par -Tail (memoire bornee). Meme classe de bug
+           que le Collector 2.3.2, cote Updater.
     v1.3 : updater.log deplace sur le share (logs\<HOST>.updater.log) : plus aucun
            journal sur le poste agent, purge de l'ancien updater.log local. Durcissement
            ACL du dossier runtime (SYSTEM + Administrateurs, SID en dur) via Set-PCPulseAcl.
@@ -66,7 +114,7 @@
             01_Collector.ps1        (version courante)
             PCPulse-Updater.ps1     (ce script)
             version.txt             (version active)
-            backup\                 (5 derniers backups, rolling)
+            (plus de dossier backup\ depuis v1.6 : installation atomique verifiee)
             (updater.log deplace sur le share : logs\<HOST>.updater.log)
             .update.lock            (lock file temporaire)
 
@@ -91,6 +139,10 @@ param(
 $LocalDir       = "C:\ProgramData\PCPulse"
 $CollectorLocal = Join-Path $LocalDir '01_Collector.ps1'
 $UpdaterLocal   = Join-Path $LocalDir 'PCPulse-Updater.ps1'
+# v1.9 : version machine-lisible de CET Updater. Sert de plancher anti-downgrade au
+# self-update (Install-VerifiedUpdate lit ce marqueur dans le fichier a installer).
+# NE PAS renommer/reformater cette ligne : elle est parsee par regex.
+$UpdaterVersion = [version]'1.9'
 $VersionLocal   = Join-Path $LocalDir 'version.txt'
 $LockFile       = Join-Path $LocalDir '.update.lock'
 $BackupDir      = Join-Path $LocalDir 'backup'
@@ -103,16 +155,43 @@ $CollectorSrv = Join-Path $ReleaseDir '01_Collector.ps1'
 $VersionSrv   = Join-Path $ReleaseDir 'version.txt'
 $UpdaterSrv   = Join-Path $ReleaseDir 'PCPulse-Updater.ps1'
 
-$BackupRetention = 5
+# v1.6 : plus de $BackupRetention -> ZERO backup local (installation atomique verifiee).
 
 # v1.2 : nettoyage local des traces post-deploiement (housekeeping)
 $DeployLeftoverDir       = 'C:\Temp\PCPulse-deploy'   # depose par Deploy-PCPulse, inutile apres install
 $UpdaterLogRetentionDays = 7                          # borne updater.log (rotation par date)
+$UpdaterLogMaxMB         = 20                          # v1.4 : au-dela, rotation via -Tail (evite l'OOM de Get-Content -Raw sur un log enorme)
+$UpdaterLogTailLines     = 5000                        # v1.4 : lignes conservees quand le log depasse le cap
 $TempBattReportPattern   = 'battreport_*.xml'         # rapports batterie orphelins du Collector
 
+# ============================================================
+# v1.5 : SIGNATURE DE CODE (authenticite de la chaine de mise a jour)
+# ============================================================
+# Le SHA256 ne verifie que l'INTEGRITE (le fichier n'a pas ete corrompu depuis le
+# share), PAS l'AUTHENTICITE. Un attaquant avec write sur release\ peut deposer un
+# Collector/Updater malveillant + son hash => RCE SYSTEM sur le parc. La signature
+# Authenticode + thumbprint EPINGLE ferme ce trou : on n'execute QUE des fichiers
+# signes par le certificat de la DSI.
+#
+# DEPLOIEMENT PROGRESSIF (evite le "chicken-and-egg") :
+#   - Liste VIDE -> verification DESACTIVEE (log WARN, comportement inchange).
+#     On peut ainsi deployer d'abord cet Updater "qui sait verifier" sans casser
+#     le parc, PUIS signer les scripts + renseigner le thumbprint ci-dessous, PUIS
+#     redeployer -> la barriere s'active.
+#   - Renseigner le(s) thumbprint(s) SHA1 du cert de signature (SVR19RDS/ADCS).
+#     Prevoir DEUX valeurs pendant une rotation de certificat (ancien + nouveau).
+# Recuperer un thumbprint : (Get-AuthenticodeSignature .\01_Collector.ps1).SignerCertificate.Thumbprint
+$PinnedThumbprints = @(
+    # 'AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555'   # <-- cert DSI (a renseigner)
+)
+
 # Defauts killswitch (si pas surcharge dans config.psd1)
+# v1.5 : Enabled = $false par defaut (OPT-IN). Un killswitch actif par defaut avec
+# une phrase/nom PUBLICS (visibles dans le repo) = risque de DoS parc si les ACL
+# sautent. Le killswitch ne s'active QUE si config.psd1 declare explicitement
+# KillSwitch.Enabled = $true (avec une phrase + un nom PERSONNALISES, non publics).
 $KillSwitchDefaults = @{
-    Enabled  = $true
+    Enabled  = $false
     Filename = 'KILLSWITCH.txt'
     Phrase   = 'CONFIRM-UNINSTALL-PCPULSE'
 }
@@ -138,7 +217,9 @@ function Write-UpdaterLog {
 function Get-KillSwitchConfig {
     # Charge la config killswitch depuis config.psd1 si dispo, sinon defauts
     $cfg = $KillSwitchDefaults.Clone()
-    $configFile = Join-Path $SharePath 'config.psd1'
+    # v1.5 : config.psd1 en priorite dans release\ (lecture seule postes), repli racine.
+    $configFile = Join-Path $SharePath 'release\config.psd1'
+    if (-not (Test-Path $configFile)) { $configFile = Join-Path $SharePath 'config.psd1' }
 
     if (Test-Path $configFile) {
         try {
@@ -257,18 +338,127 @@ function Invoke-Collector {
 }
 
 function Remove-OldBackups {
-    if (-not (Test-Path $BackupDir)) { return }
-    # v1.2 : purge les deux familles de backups (Collector + Updater), retention chacune
-    foreach ($pattern in @('01_Collector_v*.ps1', 'PCPulse-Updater_*.ps1')) {
-        $backups = Get-ChildItem -Path $BackupDir -Filter $pattern -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending
-        if ($backups.Count -gt $BackupRetention) {
-            $toDelete = $backups | Select-Object -Skip $BackupRetention
-            foreach ($b in $toDelete) {
-                Remove-Item $b.FullName -Force -ErrorAction SilentlyContinue
-                Write-UpdaterLog "Backup ancien supprime : $($b.Name)"
+    # v1.6 : PLUS AUCUN backup local (installation atomique verifiee, cf.
+    # Install-VerifiedUpdate). On supprime le dossier backup s'il existe -> nettoie
+    # les backups laisses par les versions anterieures sur les postes deja deployes
+    # (moins de vieux code exploitable). Non-bloquant.
+    if (Test-Path $BackupDir) {
+        try {
+            Remove-Item -LiteralPath $BackupDir -Recurse -Force -ErrorAction Stop
+            Write-UpdaterLog "Backups locaux supprimes (dossier backup nettoye)"
+        } catch {
+            Write-UpdaterLog "Nettoyage backups : echec suppression dossier (non-bloquant) : $_" 'WARN'
+        }
+    }
+}
+
+function Test-PCPulseSignature {
+    # v1.5 : verifie la signature Authenticode d'un fichier contre les thumbprints
+    # EPINGLES ($PinnedThumbprints). Retourne $true si OK (ou si verification
+    # desactivee = liste vide). Logge le STATUT EXACT au refus (attaque vs cert
+    # expire vs CRL injoignable -> diagnostic en 30 s dans 6 mois).
+    param([string]$Path)
+
+    if (-not $PinnedThumbprints -or $PinnedThumbprints.Count -eq 0) {
+        Write-UpdaterLog "Signature : verification DESACTIVEE (aucun thumbprint epingle) - a activer une fois les scripts signes" 'WARN'
+        return $true
+    }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-UpdaterLog "Signature : fichier absent ($Path)" 'ERROR'
+        return $false
+    }
+    try {
+        $sig = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+    } catch {
+        Write-UpdaterLog "Signature : echec Get-AuthenticodeSignature sur $(Split-Path $Path -Leaf) : $_" 'ERROR'
+        return $false
+    }
+    # v1.7 : le PIN est l'ANCRE DE CONFIANCE. On ne depend PAS de la confiance de
+    # chaine de l'OS (Trusted Root/Publishers) ni de la CRL : sur le parc, tant que
+    # le certificat de la DSI n'est pas deploye dans les magasins (AllSigned repousse),
+    # Get-AuthenticodeSignature renvoie 'UnknownError'/'NotTrusted' pour un fichier
+    # POURTANT correctement signe -> l'ancien check 'Status -eq Valid' refusait tout
+    # et FIGEAIT le parc (plus aucune MAJ). On REJETTE seulement les etats qui prouvent
+    # une absence de signature ou une ALTERATION, puis on exige le thumbprint epingle.
+    # Securite : nul ne peut signer avec la cle privee de la DSI ; embarquer le cert
+    # public + signer avec une autre cle => HashMismatch (rejete). Le pin + hash
+    # intact suffit a garantir l'authenticite, sans confiance de chaine OS.
+    if ($sig.Status -eq 'NotSigned' -or $sig.Status -eq 'HashMismatch' -or $sig.Status -eq 'NotSupportedFileFormat') {
+        Write-UpdaterLog "Signature REFUSEE ($(Split-Path $Path -Leaf)) : statut='$($sig.Status)'" 'ERROR'
+        return $false
+    }
+    $thumb = if ($sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
+    if (-not $thumb -or ($PinnedThumbprints -notcontains $thumb)) {
+        Write-UpdaterLog "Signature REFUSEE ($(Split-Path $Path -Leaf)) : thumbprint non epingle ('$thumb') statut='$($sig.Status)'" 'ERROR'
+        return $false
+    }
+    if ($sig.Status -ne 'Valid') {
+        # Signe par le bon cert, hash intact, mais chaine non de confiance sur CE poste
+        # (cert DSI pas encore dans les magasins). Accepte sur le pin, trace en WARN.
+        Write-UpdaterLog "Signature ACCEPTEE sur pin ($(Split-Path $Path -Leaf)) : thumbprint OK, statut='$($sig.Status)' (chaine non de confiance sur ce poste)" 'WARN'
+    }
+    return $true
+}
+
+function Install-VerifiedUpdate {
+    # v1.6 : remplace le schema "backup -> copie -> re-verif -> restaure si KO" par
+    # une INSTALLATION SURE SANS BACKUP : la signature est deja verifiee sur Source
+    # en amont ; ici on copie vers un tmp, on controle que la copie est FIDELE (SHA
+    # == source), puis renommage ATOMIQUE (local, pas de piege UNC). Le fichier
+    # vivant n'est JAMAIS remplace par une copie partielle/corrompue -> aucun backup
+    # necessaire (moins de vieux code exploitable sur les postes). Retourne $true si
+    # Dest a bien ete mis a jour ; sinon Dest reste INCHANGE.
+    param([string]$Source, [string]$Dest, [string]$ExpectedSha, [version]$MinVersionInFile)
+    # v1.9 : le tmp DOIT finir en .ps1 -> Get-AuthenticodeSignature lit la signature
+    # selon l'EXTENSION (bloc de signature PowerShell) ; un .tmp n'est pas reconnu
+    # comme script signable -> SignerCertificate null -> refus a tort. (Bug attrape
+    # au test V0044 : "thumbprint non epingle ('')" sur un .tmp pourtant signe.)
+    $tmp = "$Dest.$PID.new.ps1"
+    try {
+        Copy-Item -LiteralPath $Source -Destination $tmp -Force -ErrorAction Stop
+
+        # v1.9 : VERIF SIGNATURE SUR LE TMP (les octets reellement installes puis
+        # executes), et NON sur le fichier du share. Ferme le TOCTOU : meme si le
+        # share est permute apres coup, on n'installe QUE ce qu'on a verifie ici.
+        if (-not (Test-PCPulseSignature -Path $tmp)) {
+            Write-UpdaterLog "Install : signature du fichier copie invalide -> abandon, Dest inchange" 'ERROR'
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+
+        # SHA : simple detection de copie fidele (la securite = la signature ci-dessus).
+        $tmpSha = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256 -ErrorAction Stop).Hash
+        if ($ExpectedSha -and ($tmpSha -ne $ExpectedSha)) {
+            Write-UpdaterLog "Install : SHA de la copie != source ($tmpSha vs $ExpectedSha) -> abandon, Dest inchange" 'ERROR'
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+
+        # v1.9 : ANTI-DOWNGRADE sur le tmp verifie (self-update de l'Updater). On lit
+        # la version dans le fichier signe qu'on s'apprete a installer -> un ancien
+        # Updater (meme legitimement signe) ne peut plus etre re-injecte.
+        if ($MinVersionInFile) {
+            $fileVer = $null
+            $vm = Select-String -LiteralPath $tmp -Pattern "\`$(?:Updater|Collector)Version\s*=\s*\[version\]'([0-9.]+)'" | Select-Object -First 1
+            if ($vm) { $fileVer = $vm.Matches[0].Groups[1].Value -as [version] }
+            if (-not $fileVer) {
+                Write-UpdaterLog "Install : version illisible dans le fichier signe -> abandon (anti-downgrade)" 'ERROR'
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                return $false
+            }
+            if ($fileVer -lt $MinVersionInFile) {
+                Write-UpdaterLog "Install : DOWNGRADE Updater REFUSE ($fileVer < $MinVersionInFile) -> Dest inchange" 'ERROR'
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                return $false
             }
         }
+
+        Move-Item -LiteralPath $tmp -Destination $Dest -Force -ErrorAction Stop   # renommage atomique (disque local)
+        return $true
+    } catch {
+        Write-UpdaterLog "Install : echec copie verifiee ($_) -> Dest inchange" 'ERROR'
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        return $false
     }
 }
 
@@ -303,44 +493,15 @@ function Update-Self {
 
     Write-UpdaterLog "Self-update : nouvelle version Updater detectee (local: $localHash | serveur: $srvHash)"
 
-    # Backup de l'Updater courant
-    $timestamp  = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $backupFile = Join-Path $BackupDir "PCPulse-Updater_${timestamp}.ps1"
-    if (Test-Path $UpdaterLocal) {
-        try {
-            Copy-Item -Path $UpdaterLocal -Destination $backupFile -Force -ErrorAction Stop
-            Write-UpdaterLog "Self-update : backup cree : $(Split-Path $backupFile -Leaf)"
-        } catch {
-            Write-UpdaterLog "Self-update : echec backup, abandon (non-bloquant) : $_" 'WARN'
-            return
-        }
+    # v1.9 : la verif de signature ET l'anti-downgrade se font desormais DANS
+    # Install-VerifiedUpdate, SUR LE TMP (octets reellement installes) -> ferme le
+    # TOCTOU (maillon critique : remplacer l'Updater par un binaire non verifie ferait
+    # sauter toute la barriere). -MinVersionInFile = version de CET Updater : un ancien
+    # Updater, meme legitimement signe, ne peut plus etre re-injecte via le share.
+    if (Install-VerifiedUpdate -Source $UpdaterSrv -Dest $UpdaterLocal -ExpectedSha $srvHash -MinVersionInFile $UpdaterVersion) {
+        Write-UpdaterLog "Self-update : Updater mis a jour, effectif au prochain cycle" 'SUCCESS'
     }
-
-    # Copie du nouvel Updater depuis release\
-    try {
-        Copy-Item -Path $UpdaterSrv -Destination $UpdaterLocal -Force -ErrorAction Stop
-    } catch {
-        Write-UpdaterLog "Self-update : echec copie nouvel Updater : $_" 'ERROR'
-        return
-    }
-
-    # Re-verif SHA256 apres copie (integrite)
-    try {
-        $newHash = (Get-FileHash -Path $UpdaterLocal -Algorithm SHA256 -ErrorAction Stop).Hash
-        if ($newHash -ne $srvHash) {
-            Write-UpdaterLog "Self-update : SHA256 mismatch apres copie (attendu $srvHash, obtenu $newHash)" 'ERROR'
-            if (Test-Path $backupFile) {
-                Copy-Item -Path $backupFile -Destination $UpdaterLocal -Force -ErrorAction SilentlyContinue
-                Write-UpdaterLog "Self-update : backup restaure suite au mismatch SHA256"
-            }
-            return
-        }
-    } catch {
-        Write-UpdaterLog "Self-update : echec re-verif SHA256 (non-bloquant) : $_" 'WARN'
-        return
-    }
-
-    Write-UpdaterLog "Self-update : Updater mis a jour, effectif au prochain cycle" 'SUCCESS'
+    # (echec deja logge par Install-VerifiedUpdate ; l'Updater actuel reste en place)
 }
 
 function Set-PCPulseAcl {
@@ -404,11 +565,22 @@ function Invoke-LocalCleanup {
     # 3. Rotation de updater.log : ne garder que les N derniers jours (borne la
     #    taille et limite la divulgation d'historique). Meme discipline CRLF que
     #    Invoke-LogCleanup du Collector (split tolerant, rejoin CRLF, newline final).
+    #    v1.4 : CAP DE TAILLE. Avant, Get-Content -Raw chargeait TOUT le fichier en
+    #    memoire -> OutOfMemoryException sur un log devenu enorme (observe : 2 Go) ->
+    #    la rotation echouait a chaque cycle et le log ne redescendait JAMAIS. Au-dela
+    #    du cap, on ne lit que la FIN via -Tail (memoire bornee, lecture depuis la fin
+    #    du fichier), ce qui suffit a re-borner puis purger par date. Meme classe de
+    #    correctif que le Collector 2.3.2.
     try {
         if (Test-Path -LiteralPath $UpdaterLog) {
-            $cutoff  = (Get-Date).AddDays(-$UpdaterLogRetentionDays).ToString('yyyy-MM-dd')
-            $content = Get-Content -LiteralPath $UpdaterLog -Raw -ErrorAction Stop
-            $lignes  = $content -split "`r?`n"
+            $cutoff = (Get-Date).AddDays(-$UpdaterLogRetentionDays).ToString('yyyy-MM-dd')
+            $sizeMB = ((Get-Item -LiteralPath $UpdaterLog).Length) / 1MB
+            if ($sizeMB -gt $UpdaterLogMaxMB) {
+                # Trop gros pour -Raw (OOM) : on ne recupere que les dernieres lignes.
+                $lignes = @(Get-Content -LiteralPath $UpdaterLog -Tail $UpdaterLogTailLines -ErrorAction Stop)
+            } else {
+                $lignes = (Get-Content -LiteralPath $UpdaterLog -Raw -ErrorAction Stop) -split "`r?`n"
+            }
             $gardees = foreach ($l in $lignes) {
                 $ligne = $l.TrimEnd("`r")
                 if (($ligne.Length -ge 10) -and ($ligne.Substring(0, 10) -ge $cutoff)) { $ligne }
@@ -428,7 +600,19 @@ function Invoke-LocalCleanup {
         }
     } catch { }
 
-    # 5. Durcissement ACL du dossier runtime : SYSTEM + Administrateurs uniquement
+    # 5. Sweep des fichiers .new.ps1 d'installation atomique ORPHELINS (v1.8). Install-VerifiedUpdate
+    #    ecrit "<fichier>.<PID>.new.ps1" puis le renomme ; il le nettoie sur succes ET
+    #    sur echec, mais un process TUE entre les deux peut en laisser un. Ce cleanup
+    #    tourne en DEBUT de cycle -> tout .new.ps1 present ici vient d'un cycle anterieur
+    #    = orphelin -> on le degage. Borne le bruit dans le dossier runtime.
+    try {
+        Get-ChildItem -LiteralPath $LocalDir -Filter '*.new.ps1' -File -ErrorAction SilentlyContinue | ForEach-Object {
+            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-UpdaterLog "Cleanup : tmp d'install orphelin supprime ($($_.Name))"
+        }
+    } catch { }
+
+    # 6. Durcissement ACL du dossier runtime : SYSTEM + Administrateurs uniquement
     #    (empeche un compte standard de lire les scripts = chemin share, killswitch).
     Set-PCPulseAcl -Path $LocalDir
 }
@@ -437,7 +621,8 @@ function Invoke-LocalCleanup {
 # INIT : creation du layout local si necessaire
 # ============================================================
 if (-not (Test-Path $LocalDir))  { New-Item -Path $LocalDir  -ItemType Directory -Force | Out-Null }
-if (-not (Test-Path $BackupDir)) { New-Item -Path $BackupDir -ItemType Directory -Force | Out-Null }
+# v1.6 : plus de creation de dossier backup (zero backup local). Remove-OldBackups
+# supprime meme le dossier s'il subsiste d'une version anterieure.
 
 Write-UpdaterLog "=== Debut cycle updater ==="
 Write-UpdaterLog "SharePath: $SharePath"
@@ -508,6 +693,39 @@ try {
     Write-UpdaterLog "Version locale: $localVer | Version serveur: $srvVer"
 
     # ============================================================
+    # ETAPE 3b : ANTI-DOWNGRADE (v1.5)
+    # ============================================================
+    # Un attaquant avec write sur release\ peut redeposer un ancien Collector
+    # LEGITIMEMENT signe + son vieux version.txt : la signature serait valide et le
+    # parc regresserait vers une version vulnerable. On refuse toute version serveur
+    # STRICTEMENT INFERIEURE a la locale. (Si un numero n'est pas parseable en
+    # [version], on n'applique pas la garde pour ne pas bloquer un cas legitime.)
+    $lv = $localVer -as [version]
+    $sv = $srvVer   -as [version]
+    # v1.9 : si la version LOCALE est saine mais la version SERVEUR n'est pas parseable
+    # en [version] (ex. un '0.0-x' injecte pour contourner la garde ci-dessous), c'est
+    # suspect -> on REFUSE (on ne se laisse pas downgrader via un version.txt malforme).
+    if ($lv -and -not $sv) {
+        Write-UpdaterLog "Version serveur '$srvVer' non parseable -> UPDATE REFUSE (anti-downgrade) -> on garde $localVer" 'ERROR'
+        Invoke-Collector -SharePath $SharePath
+        return
+    }
+    if ($lv -and $sv -and ($sv -lt $lv)) {
+        Write-UpdaterLog "DOWNGRADE REFUSE : version serveur $srvVer < locale $localVer -> on garde $localVer" 'ERROR'
+        Invoke-Collector -SharePath $SharePath
+        return
+    }
+
+    # ============================================================
+    # NETTOYAGE BACKUPS (v1.8) : a CHAQUE cycle, hors du bloc update.
+    # Avant, Remove-OldBackups etait dans l'ETAPE 5 -> jamais atteint quand le
+    # poste etait "Deja a jour" -> les backups legacy (pre-1.6) ne partaient
+    # jamais (0 poste nettoye observe). Ici on nettoie systematiquement ->
+    # auto-guerison sur tout le parc, meme deja a jour.
+    # ============================================================
+    Remove-OldBackups
+
+    # ============================================================
     # ETAPE 4 : COMPARAISON
     # ============================================================
     if ($localVer -eq $srvVer) {
@@ -537,57 +755,27 @@ try {
         return
     }
 
-    # 5b - Backup
-    $backupFile = $null
-    if (Test-Path $CollectorLocal) {
-        $timestamp  = Get-Date -Format 'yyyyMMdd_HHmmss'
-        $backupFile = Join-Path $BackupDir "01_Collector_v${localVer}_${timestamp}.ps1"
-        try {
-            Copy-Item -Path $CollectorLocal -Destination $backupFile -Force -ErrorAction Stop
-            Write-UpdaterLog "Backup cree : $(Split-Path $backupFile -Leaf)"
-        } catch {
-            Write-UpdaterLog "Echec backup : $_" 'ERROR'
-            Invoke-Collector -SharePath $SharePath
-            return
-        }
-    }
+    # 5a-bis - (v1.9) La verif de signature se fait desormais DANS Install-VerifiedUpdate,
+    # SUR LE TMP (les octets reellement installes/executes) et non sur le fichier du
+    # share -> ferme le TOCTOU. Plus de controle de signature sur la source ici :
+    # Install-VerifiedUpdate refuse et laisse le Collector local inchange si la copie
+    # n'est pas signee par le cert epingle.
 
-    # 5c - Copie nouveau Collector
-    try {
-        Copy-Item -Path $CollectorSrv -Destination $CollectorLocal -Force -ErrorAction Stop
-        Write-UpdaterLog "Copie du nouveau Collector OK"
-    } catch {
-        Write-UpdaterLog "Echec copie du nouveau Collector : $_" 'ERROR'
-        if ($backupFile -and (Test-Path $backupFile)) {
-            try {
-                Copy-Item -Path $backupFile -Destination $CollectorLocal -Force -ErrorAction Stop
-                Write-UpdaterLog "Backup restaure (continue sur $localVer)"
-            } catch {
-                Write-UpdaterLog "Echec restauration backup : $_" 'ERROR'
-            }
-        }
+    # 5b - Installation SURE du nouveau Collector, SANS backup (v1.6) :
+    # copie -> verif SHA (copie fidele) -> renommage atomique. Le Collector vivant
+    # n'est jamais remplace par une copie partielle/corrompue. En cas d'echec, il
+    # reste INCHANGE et on continue de tourner dessus.
+    # v1.9 : -MinVersionInFile = version LOCALE (source fiable, sur l'endpoint) comme
+    # plancher. Install-VerifiedUpdate lit la version dans le Collector SIGNE ($CollectorVersion)
+    # et refuse un downgrade -> on ne fait plus confiance a version.txt du share (non signe,
+    # qu'un attaquant pourrait gonfler pour reinjecter un vieux Collector signe). Fail-closed
+    # si le marqueur est illisible (vieux Collector sans marqueur = refuse).
+    if (-not (Install-VerifiedUpdate -Source $CollectorSrv -Dest $CollectorLocal -ExpectedSha $srvHash -MinVersionInFile $lv)) {
+        Write-UpdaterLog "Update ECHEC : Collector non remplace -> on garde $localVer" 'ERROR'
         Invoke-Collector -SharePath $SharePath
         return
     }
-
-    # 5d - Verification SHA256 apres copie
-    try {
-        $localHash = (Get-FileHash -Path $CollectorLocal -Algorithm SHA256 -ErrorAction Stop).Hash
-        if ($localHash -ne $srvHash) {
-            Write-UpdaterLog "SHA256 mismatch apres copie (attendu $srvHash, obtenu $localHash)" 'ERROR'
-            if ($backupFile -and (Test-Path $backupFile)) {
-                Copy-Item -Path $backupFile -Destination $CollectorLocal -Force
-                Write-UpdaterLog "Backup restaure suite au mismatch SHA256"
-            }
-            Invoke-Collector -SharePath $SharePath
-            return
-        }
-        Write-UpdaterLog "SHA256 valide : $localHash"
-    } catch {
-        Write-UpdaterLog "Erreur verification SHA256 : $_" 'ERROR'
-        Invoke-Collector -SharePath $SharePath
-        return
-    }
+    Write-UpdaterLog "Nouveau Collector installe (SHA verifie) : $srvHash" 'SUCCESS'
 
     # 5e - Mise a jour version.txt local
     try {
@@ -597,8 +785,7 @@ try {
         Write-UpdaterLog "Echec mise a jour version.txt local : $_" 'ERROR'
     }
 
-    # 5f - Cleanup backups
-    Remove-OldBackups
+    # (nettoyage backups : deplace en debut de cycle en v1.8, cf. ci-dessus)
 
     # ============================================================
     # ETAPE 6 : LANCER LE COLLECTOR

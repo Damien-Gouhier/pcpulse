@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse - Decommission-PC.ps1 v2.0 - marquage du cycle de vie des postes
+    PCPulse - Decommission-PC.ps1 v2.1 - marquage du cycle de vie des postes
 .DESCRIPTION
     Outil interactif (double-clic via un .bat lanceur) pour gerer la mise en
     decommission d'un poste, cote DONNEE uniquement : il ne touche JAMAIS la
@@ -11,7 +11,7 @@
     ARCHITECTURE (v2.0) : le registre vit dans un dossier ou les techs ont deja
     le droit d'ecrire avec leur COMPTE DE SESSION NORMAL (ex: un dossier metier
     sur un serveur non durci). L'outil n'accede PLUS au share durci PCPulse : pas
-    de credentials, pas d'ADMT1, pas de RunAs. Le tech lance, coche, c'est tout.
+    de credentials, pas de compte a privileges, pas de RunAs. Le tech lance, coche, c'est tout.
     Le Dashboard (genere par un poste/serveur qui a le droit de lire ce dossier)
     lit ce registre pour afficher les badges "A decommissionner / Fait / En
     retard". Le registre ne pilote qu'un badge : aucun code, aucun deploiement.
@@ -52,7 +52,7 @@
            dans le code publie. Sans motif : aucun controle.
     v2.0 : Re-architecture. Le registre vit dans un dossier ecrivable au compte
            NORMAL du tech (hors share durci) : suppression totale de la
-           machinerie de credentials (WNet / Get-Credential / ADMT1 / -SharePath
+           machinerie de credentials (WNet / Get-Credential / compte a privileges / -SharePath
            / -AskCredential). Reglages lus depuis decom-config.psd1 a cote du
            registre (DecommissionTechs / DecommissionAdmins / DecommissionGraceDays,
            rien de sensible). Anti-typo par motif (regex) au lieu d'une lecture
@@ -60,7 +60,7 @@
            Cloture/Repousse : reconstruction de l'entree (muter en place un objet
            ConvertFrom-Json pouvait echouer "propriete introuvable"). Cloture a
            un seul poste = confirmation directe o/N (pas de numero a saisir).
-    v1.0 : Version initiale (registre sur le share durci via credentials ADMT1).
+    v1.0 : Version initiale (registre sur le share durci via un compte a privileges).
 #>
 
 [CmdletBinding()]
@@ -336,4 +336,96 @@ function Invoke-Postpone {
                 PC         = $e.PC
                 Statut     = $e.Statut
                 Reason     = $e.Reason
-                AssignedTo = $e.Assig
+                AssignedTo = $e.AssignedTo
+                MarkedAt   = $e.MarkedAt
+                Operator   = $e.Operator
+                TargetDate = $newTarget
+                DoneAt     = $e.DoneAt
+                DoneBy     = $e.DoneBy
+                History    = @($e.History) + (New-HistoryEntry -Action 'Repousse' -Detail "$old -> $newTarget")
+            }
+        }
+        $new += $e
+    }
+    Save-Registry -Entries $new
+    Write-Host "  [OK] '$pc' repousse au $newTarget." -ForegroundColor Green
+}
+
+function Invoke-Remove {
+    $entries = @(Get-Registry)
+    if ($entries.Count -eq 0) { Write-Host "  Registre vide." -ForegroundColor Yellow; return }
+    for ($i = 0; $i -lt $entries.Count; $i++) {
+        Write-Host ("    [{0}] {1,-14} [{2}] assigne: {3}" -f ($i+1), $entries[$i].PC, $entries[$i].Statut, $entries[$i].AssignedTo)
+    }
+    $sel = (Read-Host "  Numero de la marque a RETIRER").Trim()
+    if (-not ($sel -match '^\d+$') -or [int]$sel -lt 1 -or [int]$sel -gt $entries.Count) { Write-Host "  Annule." -ForegroundColor Yellow; return }
+    $pc = $entries[[int]$sel - 1].PC
+    if ((Read-Host "  Retirer definitivement la marque de '$pc' ? (o/N)").Trim().ToLower() -ne 'o') { Write-Host "  Annule." -ForegroundColor Yellow; return }
+    $kept = @($entries | Where-Object { $_.PC -ne $pc })
+    Save-Registry -Entries $kept
+    Write-Host "  [OK] Marque de '$pc' retiree." -ForegroundColor Green
+}
+
+function Invoke-List {
+    $entries = @(Get-Registry)
+    if ($entries.Count -eq 0) { Write-Host "  Registre vide." -ForegroundColor Cyan; return }
+    Write-Host ("  {0,-14} {1,-8} {2,-10} {3,-12} {4}" -f 'PC','STATUT','ASSIGNE','ECHEANCE','RAISON') -ForegroundColor Cyan
+    foreach ($e in ($entries | Sort-Object Statut, TargetDate)) {
+        $late = ($e.Statut -eq 'A faire' -and $e.TargetDate -lt (Get-Date -Format 'yyyy-MM-dd'))
+        $col  = if ($e.Statut -eq 'Fait') { 'Green' } elseif ($late) { 'Red' } else { 'White' }
+        $flag = if ($late) { ' (EN RETARD)' } else { '' }
+        Write-Host ("  {0,-14} {1,-8} {2,-10} {3,-12} {4}{5}" -f $e.PC, $e.Statut, $e.AssignedTo, $e.TargetDate, $e.Reason, $flag) -ForegroundColor $col
+    }
+}
+
+# ============================================================
+# BOUCLE PRINCIPALE
+# ============================================================
+Write-Host ""
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host " PCPulse - Decommission" -ForegroundColor Cyan
+Write-Host " Registre  : $RegistryFile" -ForegroundColor Cyan
+Write-Host " Operateur : $Operator" -ForegroundColor Cyan
+Write-Host "==================================================" -ForegroundColor Cyan
+
+do {
+    Write-Host ""
+    Write-Host " [1] Marquer une machine   [2] Cloturer (Fait)"
+    if ($IsAdmin) {
+        Write-Host " [3] Repousser l'echeance  [4] Retirer une marque"
+    }
+    Write-Host " [5] Lister                [Q] Quitter"
+    $choice = (Read-Host " Choix").Trim().ToUpper()
+
+    if ($choice -eq 'Q') { break }
+    if ($choice -notin @('1','2','3','4','5')) { Write-Host " Choix invalide." -ForegroundColor Yellow; continue }
+    if (($choice -in @('3','4')) -and -not $IsAdmin) {
+        Write-Host " [!] Action reservee a l'administrateur PCPulse." -ForegroundColor Yellow; continue
+    }
+
+    # Lister ne modifie rien -> pas besoin de verrou
+    if ($choice -eq '5') {
+        try { Invoke-List } catch { Write-Host " [!] Lecture du registre impossible : $_" -ForegroundColor Red }
+        continue
+    }
+
+    if (-not (Get-RegistryLock)) {
+        Write-Host " [!] Registre verrouille par un autre operateur, reessaie dans un instant." -ForegroundColor Red
+        continue
+    }
+    try {
+        switch ($choice) {
+            '1' { Invoke-Mark }
+            '2' { Invoke-Close }
+            '3' { Invoke-Postpone }
+            '4' { Invoke-Remove }
+        }
+    } catch {
+        Write-Host " [!] Action interrompue (registre inchange) : $_" -ForegroundColor Red
+    } finally {
+        Remove-RegistryLock
+    }
+} while ($true)
+
+Write-Host ""
+Write-Host "A bientot." -ForegroundColor Cyan

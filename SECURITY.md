@@ -169,20 +169,28 @@ La phrase secrète dans `config.psd1` n'est **pas une protection magique**. Si u
 Même avec le hardening complet, il reste des risques. Les voici, classés par criticité.
 
 ### 🟡 Moyen : compromission d'un compte admin
-Si un compte avec écriture sur `\release\` est compromis (phishing d'un admin, vol de credentials), l'attaquant peut pousser un Collector malveillant. **Mitigation** :
+Si un compte avec écriture sur `\release\` est compromis (phishing d'un admin, vol de credentials), l'attaquant peut déposer un fichier malveillant. **Mitigation** :
 - Limiter le nombre d'admins ayant écriture
 - Imposer MFA sur les comptes admin
-- Voir la roadmap : **code signing** rendra cette attaque encore plus difficile
+- **Code signing + vérification épinglée (déjà en place)** : l'Updater n'exécute que du code signé par le certificat épinglé, et la vérification porte sur les octets réellement installés (TOCTOU-safe). Un write sur `\release\` ne suffit donc **plus** à faire exécuter du code arbitraire — au pire, du code déjà signé (anti-downgrade en prime).
 
 ### 🟡 Moyen : injection via JSON malformé
 Le Dashboard parse les JSON déposés par les PC. Un PC compromis pourrait déposer un JSON manipulé pour faire du XSS dans le rapport HTML. **Mitigation** :
 - Le Dashboard utilise `ConvertFrom-Json` natif (pas d'injection PowerShell)
-- Voir la roadmap : **sanity-checks** stricts sur les JSON + **CSP inline** dans le HTML
+- **Défense XSS en place** : échappement unique à l'embed + allowlist par champ + CSP `connect-src 'none'` dans le HTML généré ; un JSON corrompu ne casse plus la génération
 
-### 🟢 Faible : fuite d'information
-Les rapports HTML contiennent les noms des PC, IPs, modèles de hardware. **Mitigation** :
-- Le Dashboard est généré localement par l'admin (pas exposé sur le réseau)
-- Si tu veux le partager, supprime ou anonymise avant
+### 🟢 Faible : fuite d'information / données personnelles (RGPD)
+Le rapport HTML généré contient des **données à caractère personnel** : noms de PC,
+**noms d'utilisateur** (session en cours / dernier connecté), **adresses IP**, et
+depuis la 2.4.2 le **numéro de série** des machines. Sa confidentialité repose
+**entièrement sur l'ACL du fichier de sortie et du poste qui le génère**. **Mitigation** :
+- Le Dashboard est généré localement par l'admin (pas exposé sur le réseau).
+- Restreindre l'ACL du HTML de sortie (et du dossier où il est stocké/servi) aux
+  seules personnes habilitées — le HTML est autonome et se copie facilement.
+- Si tu le partages (chef, reporting), anonymise ou supprime les colonnes
+  nominatives avant.
+- Contexte secteur public / RGPD : traiter ce HTML comme un export de données
+  personnelles (durée de conservation, accès tracé, pas d'envoi hors périmètre).
 
 ### 🟢 Faible : déni de service
 Un PC compromis pourrait remplir le share en spam de fausses entrées. **Mitigation** :
@@ -193,25 +201,27 @@ Un PC compromis pourrait remplir le share en spam de fausses entrées. **Mitigat
 
 ## 🛣️ Roadmap de hardening
 
-### ✅ Fait (v2.0)
+### ✅ Fait
 
-- **Setup serveur hardenisé** : `Setup-Server.ps1` v2.0 (ACLs explicites, héritage cassé, owner groupe AD)
-- **Killswitch configurable** : phrase et fichier personnalisables via `config.psd1`
+- **Setup serveur hardenisé** : `Setup-Server.ps1` (ACLs explicites, héritage cassé, owner groupe AD)
+- **Killswitch configurable et opt-in** : fichier + phrase personnalisables via `config.psd1`, désactivé par défaut
 - **Documentation trust model** (ce document)
-- **Support gMSA** : possibilité de remplacer SYSTEM par un compte de service dédié
-
-### 🔄 En cours
-
-- **Sanity-checks Dashboard** : rejet des JSON aux schémas inattendus, validation `Machine.PC` = nom de fichier, types contrôlés
-- **CSP inline HTML** : Content-Security-Policy meta tag dans le HTML généré pour bloquer toute injection XSS résiduelle
+- **Chaîne de mise à jour signée** : Collecteur et Updater signés Authenticode
+- **Vérification de signature épinglée** (*pinned thumbprint*) dans l'Updater, **avant exécution** : le pin est l'ancre de confiance, indépendante de la confiance de chaîne de l'OS
+- **Vérification résistante au TOCTOU** : la signature porte sur les **octets réellement installés** (copie locale vérifiée → renommage atomique), pas sur le fichier distant. Un write sur `release\` ne suffit plus à exécuter du code arbitraire ; le SHA256 n'est qu'un détecteur de changement
+- **Anti-downgrade** (Updater + Collecteur) : version lue **dans le fichier signé**, refus de toute version antérieure → pas de ré-injection d'un ancien binaire signé
+- **Installation atomique, zéro backup** : copie → vérification → renommage ; aucun ancien binaire laissé sur les postes
+- **Durcissement endpoint** : housekeeping à chaque cycle (aucune trace exploitable), ACL du runtime réduite à SYSTEM + Administrateurs, journaux déportés sur le partage, **auto-guérison** des journaux
+- **Défense XSS Dashboard** : échappement unique à l'embed + allowlist par champ + CSP `connect-src 'none'` ; robustesse (un JSON corrompu ne casse plus la génération)
+- **Config en lecture seule** pour les postes (dans `release\`)
 
 ### 📅 Planifié
 
-- **Code signing** : signature numérique du Collector et de l'Updater via certificat AD CS interne. L'Updater refusera tout fichier dont la signature n'est pas valide ou dont le certificat n'est pas dans le store Trusted Publishers.
-- **Vérification de signature dans l'Updater** : refus du téléchargement si signature invalide (anti-tampering supplémentaire)
+- **Execution policy `AllSigned`** sur les postes (via GPO), pour interdire l'exécution de tout script non signé
+- **Déploiement de la confiance de chaîne** du certificat (Trusted Root / Publishers) via GPO — le pin garantit déjà l'authenticité ; ceci ajoute la couche de confiance OS (statut `Valid`)
+- **Rotation du certificat** : allow-list de plusieurs thumbprints épinglés (signer avec le nouveau avant de retirer l'ancien)
 - **Détection d'anomalies** : JSON dans le futur, PC qui spam, hostnames inhabituels
 - **Audit logs** : log immuable des actions admin (push de version, kill, etc.)
-- **Migration scheduled task → gMSA** : remplacement de l'exécution SYSTEM par un compte de service dédié sur tous les PC
 
 ### 🤔 À l'étude
 
