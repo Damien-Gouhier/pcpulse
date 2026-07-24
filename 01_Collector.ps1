@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v2.4.6
+    PCPulse Collector v2.4.7
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,9 +10,15 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.4.6
+    Version      : 2.4.7
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v2.4.7 : Ajout Machine.Model + Machine.Manufacturer (Win32_ComputerSystem) -
+           modele commercial ("Inspiron 7490") et fabricant, pour la recherche
+           par modele et l'inventaire au Dashboard. Valeurs OEM factices ("System
+           Product Name", "To be filled by O.E.M."...) normalisees a null. ADDITIF,
+           SchemaVersion INCHANGEE "2.2". Necessite un redeploiement pour peupler
+           le champ sur le parc (les JSON < 2.4.7 restent lus, champ vide/N-A).
     v2.4.6 : [SECURITE] Marqueur de version machine-lisible $CollectorVersion : permet
            a l'Updater de verifier la version dans le fichier SIGNE (anti-downgrade)
            au lieu de faire confiance a version.txt du share (non signe). Ferme la
@@ -329,7 +335,7 @@ $SchemaVersion = '2.2'
 # a l'Updater (Install-VerifiedUpdate lit ce marqueur dans le fichier SIGNE plutot que
 # de faire confiance a version.txt du share, non signe). NE PAS renommer/reformater
 # cette ligne : elle est parsee par regex ($CollectorVersion = [version]'x.y.z').
-$CollectorVersion = [version]'2.4.6'
+$CollectorVersion = [version]'2.4.7'
 # v2.4.3 : config.psd1 lu en PRIORITE dans release\ (lecture seule pour les postes)
 # -> un poste compromis ne peut plus alterer la config (phrase killswitch, seuils,
 # services surveilles). Repli sur la racine pour migration douce : une fois le
@@ -1188,6 +1194,33 @@ try {
 Write-Log "SerialNumber machine : $(if ($machineSerial) { $machineSerial } else { '(n/a)' })"
 
 # ============================================================
+# MODELE + FABRICANT MACHINE - v2.4.7 (ADDITIF, schema 2.2 inchange)
+#   Win32_ComputerSystem.Model = modele commercial ("Inspiron 7490",
+#   "OptiPlex 7090"...) ; .Manufacturer = OEM ("Dell Inc."). Sert a la
+#   recherche par modele et a l'inventaire cote Dashboard.
+#   Valeurs OEM factices ("System Product Name", "To be filled by O.E.M."...)
+#   normalisees a $null pour ne pas polluer l'inventaire.
+# ============================================================
+$machineModel        = $null
+$machineManufacturer = $null
+$bogusHw = @('Default string', 'System Product Name', 'To be filled by O.E.M.', 'To Be Filled By O.E.M.',
+             'None', 'Unknown', 'Not Applicable', 'Not Specified', 'System manufacturer', 'System Manufacturer')
+try {
+    $csHw = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+    if ($csHw.Model) {
+        $mdl = "$($csHw.Model)".Trim()
+        if ($mdl -and ($bogusHw -notcontains $mdl)) { $machineModel = $mdl }
+    }
+    if ($csHw.Manufacturer) {
+        $mfr = "$($csHw.Manufacturer)".Trim()
+        if ($mfr -and ($bogusHw -notcontains $mfr)) { $machineManufacturer = $mfr }
+    }
+} catch {
+    Write-Log "Modele/fabricant (ComputerSystem) indisponible : $_"
+}
+Write-Log "Modele machine : $(if ($machineModel) { $machineModel } else { '(n/a)' }) / $(if ($machineManufacturer) { $machineManufacturer } else { '(n/a)' })"
+
+# ============================================================
 # OS PRODUCT (Windows 10 vs 11) - detection canonique par le BUILD
 #   Contexte : fin de support Windows 10 -> reperer les postes encore
 #   en 10 pour piloter la migration / le risque "non supporte".
@@ -1259,6 +1292,9 @@ $machineInfo = [PSCustomObject]@{
     ConnectionType      = $connectionType
     # v2.4.2 : n° de serie machine (service tag) - inventaire / decommissionnement. ADDITIF.
     SerialNumber        = $machineSerial
+    # v2.4.7 : modele + fabricant machine (recherche par modele au Dashboard). ADDITIF.
+    Manufacturer        = $machineManufacturer
+    Model               = $machineModel
     # v5.6 : chassis info pour l'inventaire
     ChassisInfo         = $chassisInfo
 }

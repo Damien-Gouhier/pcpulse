@@ -34,11 +34,18 @@
     PCPulse-Updater.ps1 -SharePath "\\SRV-PCPULSE\PCPulse$"
 
 .NOTES
-    Version : 1.9
+    Version : 1.10
     Auteur  : Damien Gouhier
     Licence : MIT
 
     CHANGELOG :
+    v1.10 : [FIX] Rotation de updater.log par lecture d'OCTETS bornee (comme le
+           Collector 2.4.6), au lieu de Get-Content -Tail qui S'ETOUFFE/HANG sur une
+           ligne geante mojibake -> l'updater se FIGEAIT dans Invoke-LocalCleanup AVANT
+           le self-update (poste bloque sans se mettre a jour ; observe : 2K7510,
+           updater.log 44 Mo / ligne de 20 M caracteres). Lecture aussi en UTF-8
+           (avant : ANSI -> mojibake compose a chaque rotation, cause de la ligne
+           geante) + plafond par ligne. Auto-guerison.
     v1.9 : [SECURITE] Suite audit. (1) TOCTOU ferme : la signature est desormais
            verifiee sur le fichier TMP LOCAL (les octets reellement installes puis
            executes) dans Install-VerifiedUpdate, et non plus sur le fichier du share
@@ -142,7 +149,7 @@ $UpdaterLocal   = Join-Path $LocalDir 'PCPulse-Updater.ps1'
 # v1.9 : version machine-lisible de CET Updater. Sert de plancher anti-downgrade au
 # self-update (Install-VerifiedUpdate lit ce marqueur dans le fichier a installer).
 # NE PAS renommer/reformater cette ligne : elle est parsee par regex.
-$UpdaterVersion = [version]'1.9'
+$UpdaterVersion = [version]'1.10'
 $VersionLocal   = Join-Path $LocalDir 'version.txt'
 $LockFile       = Join-Path $LocalDir '.update.lock'
 $BackupDir      = Join-Path $LocalDir 'backup'
@@ -573,20 +580,44 @@ function Invoke-LocalCleanup {
     #    correctif que le Collector 2.3.2.
     try {
         if (Test-Path -LiteralPath $UpdaterLog) {
-            $cutoff = (Get-Date).AddDays(-$UpdaterLogRetentionDays).ToString('yyyy-MM-dd')
-            $sizeMB = ((Get-Item -LiteralPath $UpdaterLog).Length) / 1MB
-            if ($sizeMB -gt $UpdaterLogMaxMB) {
-                # Trop gros pour -Raw (OOM) : on ne recupere que les dernieres lignes.
-                $lignes = @(Get-Content -LiteralPath $UpdaterLog -Tail $UpdaterLogTailLines -ErrorAction Stop)
+            $cutoff     = (Get-Date).AddDays(-$UpdaterLogRetentionDays).ToString('yyyy-MM-dd')
+            $maxLineLen = 2000
+            $fi = Get-Item -LiteralPath $UpdaterLog -ErrorAction Stop
+            if ($fi.Length -gt ($UpdaterLogMaxMB * 1MB)) {
+                # v1.10 : lecture par OCTETS bornee, au lieu de Get-Content -Tail qui charge
+                # des LIGNES entieres -> s'etouffe/HANG sur une ligne geante mojibake, ce qui
+                # FIGEAIT l'updater dans le cleanup AVANT le self-update. Observe : 2K7510,
+                # updater.log a 44 Mo avec une ligne de 20 M caracteres. Meme correctif que
+                # le Collector 2.4.6 : on ne lit que le dernier Mo, insensible aux lignes.
+                $keepBytes = 1MB
+                $fs = [System.IO.File]::Open($UpdaterLog, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                try {
+                    $start = [Math]::Max([long]0, $fs.Length - $keepBytes)
+                    [void]$fs.Seek($start, [System.IO.SeekOrigin]::Begin)
+                    $count = [int]($fs.Length - $start)
+                    $bytes = New-Object byte[] $count
+                    [void]$fs.Read($bytes, 0, $count)
+                } finally { $fs.Dispose() }
+                $txt = [System.Text.Encoding]::UTF8.GetString($bytes)
+                $nl = $txt.IndexOf("`n"); if ($nl -ge 0) { $txt = $txt.Substring($nl + 1) }  # jette la ligne partielle initiale
+                $lignes = $txt -split "`r?`n" | ForEach-Object {
+                    if ($_.Length -gt $maxLineLen) { $_.Substring(0, $maxLineLen) + ' [ligne tronquee]' } else { $_ }
+                }
+                $finalText = "[log tronque automatiquement (trop volumineux, reset)]`r`n" + (($lignes -join "`r`n").TrimStart() + "`r`n")
+                [System.IO.File]::WriteAllText($UpdaterLog, $finalText, [System.Text.UTF8Encoding]::new($false))
             } else {
-                $lignes = (Get-Content -LiteralPath $UpdaterLog -Raw -ErrorAction Stop) -split "`r?`n"
+                # v1.10 : lecture UTF-8 (COHERENT avec Write-UpdaterLog qui ecrit en UTF8).
+                # Avant, Get-Content sans -Encoding lisait en ANSI -> re-encodage errone a
+                # chaque rotation = mojibake qui se COMPOSE (cause de la ligne geante).
+                $lignes = (Get-Content -LiteralPath $UpdaterLog -Raw -Encoding UTF8 -ErrorAction Stop) -split "`r?`n"
+                $gardees = foreach ($l in $lignes) {
+                    $ligne = $l.TrimEnd("`r")
+                    if ($ligne.Length -gt $maxLineLen) { $ligne = $ligne.Substring(0, $maxLineLen) + ' [ligne tronquee]' }
+                    if (($ligne.Length -ge 10) -and ($ligne.Substring(0, 10) -ge $cutoff)) { $ligne }
+                }
+                $finalText = if ($gardees) { ($gardees -join "`r`n") + "`r`n" } else { '' }
+                [System.IO.File]::WriteAllText($UpdaterLog, $finalText, [System.Text.UTF8Encoding]::new($false))
             }
-            $gardees = foreach ($l in $lignes) {
-                $ligne = $l.TrimEnd("`r")
-                if (($ligne.Length -ge 10) -and ($ligne.Substring(0, 10) -ge $cutoff)) { $ligne }
-            }
-            $finalText = if ($gardees) { ($gardees -join "`r`n") + "`r`n" } else { '' }
-            [System.IO.File]::WriteAllText($UpdaterLog, $finalText, [System.Text.UTF8Encoding]::new($false))
         }
     } catch {
         Write-UpdaterLog "Cleanup : echec rotation updater.log (non-bloquant) : $_" 'WARN'

@@ -13,6 +13,22 @@ ce fichier consolide les évolutions notables au niveau du projet.
 
 ---
 
+## [2.4.7]
+
+### Ajouté
+- **Modèle machine** : le Collecteur remonte `Machine.Model` + `Machine.Manufacturer` (`Win32_ComputerSystem`), valeurs OEM factices normalisées à `null`. Additif, SchemaVersion inchangée (2.2).
+- **Dashboard — modèle** : affichage dans le panel Matériel, recherche texte étendue (modèle + fabricant), filtre déroulant « Modèle » (masqué si < 2 modèles), panneau de répartition des modèles en bas de page (barres classées), colonnes `Fabricant`/`Modele` au CSV. Anti-XSS (`ConvertTo-HtmlSafe` + `KnownMachineKeys`). Rétro-compatible : champ vide / panneau masqué pour les JSON < 2.4.7.
+- **Dashboard — rétention** : en mode horodaté, seuls les 10 derniers HTML générés sont conservés (purge auto).
+
+### Modifié
+- **Dashboard — défauts** : démarrage en thème **clair** et fenêtre **24h** par défaut (le choix de thème reste mémorisé). Favicon « pouls » (ECG).
+
+### Corrigé
+- **Décommission** : lecture du registre forcée en **UTF-8** (`Get-Registry`) — corrige le mojibake qui se composait en boucle (écriture UTF-8 / relecture ANSI en PS 5.1), observé jusqu'à un fichier de 1,7 Mo.
+- **Décommission** : énumération explicite après `ConvertFrom-Json` — corrige le piège PS 5.1 où un tableau JSON non-énuméré rendait `Count = 1` avec les entrées empilées (symptôme « System.Object[] » à la clôture).
+- **Dashboard — décom** : le tableau « par technicien » et les barres « par mois » sont empilés verticalement (fin du chevauchement de la barre sur le texte) ; table en `table-layout:fixed`.
+- **Updater → 1.10** : rotation de `updater.log` par lecture d'octets bornée (évite le figement de `Invoke-LocalCleanup` sur un log géant, avant le self-update) — hotfix prod du 21/07, publié ici (la 2.4.6 embarquait l'Updater 1.9).
+
 ## [2.4.6]
 
 **Durcissement de la chaîne de mise à jour (suite audit) + robustesse Dashboard.**

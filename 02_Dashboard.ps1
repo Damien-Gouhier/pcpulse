@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v2.4.6
+    PCPulse Dashboard v2.4.7
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,21 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.4.6
+    Version      : 2.4.7
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.4.7 : Modele machine (Machine.Model/Manufacturer, Collector 2.4.7). Affichage
+           dans le panel Materiel (carte OS), recherche texte etendue (modele +
+           fabricant), filtre deroulant "Modele" (masque si < 2 modeles), panneau
+           de repartition des modeles en bas de page (tuiles cliquables -> filtre),
+           colonnes Fabricant/Modele au CSV. Anti-XSS : Model/Manufacturer echappes
+           a l'embed via ConvertTo-HtmlSafe + KnownMachineKeys. Retro-compatible :
+           champ vide / panneau masque pour les JSON < 2.4.7.
+           [FIX] Chevauchement decom : le tableau technicien et les barres "par mois"
+           sont empiles verticalement (fini le cote-a-cote ou la table debordait sur
+           la barre). Table en table-layout:fixed. [UX] Repartition modeles en barres
+           classees compactes (au lieu d'une tuile par modele). [MENAGE] Retention des
+           dashboards horodates : on ne garde que les 10 plus recents.
     v2.4.5 : [FIX] Double-encodage HTML corrige (un nom type "O'Brien" s'affichait
            "O&#39;Brien") : la sanitisation en place de Test-PCPulseJson est retiree,
            l'echappement se fait une SEULE fois a l'embed (ConvertTo-HtmlSafe).
@@ -1324,7 +1336,7 @@ $KnownMachineKeys = @(
     # --- recopiees dans l'embed ($embedData plus bas) ---
     'PC','IP','CurrentUser','LastLoggedUser','CollectorRunAs','LastBoot','UptimeDays','CollectedAt',
     'CPUName','CPUVendor','CPUGen','CPUYear','CPUAge','CPUAgeCategory',
-    'ConnectionType','ChassisInfo','SerialNumber',
+    'ConnectionType','ChassisInfo','SerialNumber','Manufacturer','Model',
     'OSProduct','OSBuild','OSDisplayVersion','OSEdition',
     # --- presentes dans Machine mais volontairement NON embarquees ---
     'OS','LastRealColdBoot','FastStartupEnabled'
@@ -1846,6 +1858,10 @@ foreach ($pc in $allData) {
         # v2.4.2 : n° de serie machine (service tag) - inventaire / decommissionnement.
         #          Peut etre '' si Collector < 2.4.2 ou BIOS sans serial exploitable.
         SerialNumber     = if ($pc.Machine.PSObject.Properties['SerialNumber']) { ConvertTo-HtmlSafe ([string]$pc.Machine.SerialNumber) } else { '' }
+        # v2.4.7 : modele + fabricant machine (recherche par modele). Anti-XSS via
+        #          ConvertTo-HtmlSafe (donnee collectee = non fiable). '' si Collector < 2.4.7.
+        Manufacturer     = if ($pc.Machine.PSObject.Properties['Manufacturer']) { ConvertTo-HtmlSafe ([string]$pc.Machine.Manufacturer) } else { '' }
+        Model            = if ($pc.Machine.PSObject.Properties['Model']) { ConvertTo-HtmlSafe ([string]$pc.Machine.Model) } else { '' }
         # v5.6 : chassis info (peut etre null si Collector < v5.6)
         ChassisInfo      = if ($pc.Machine.ChassisInfo) {
             [PSCustomObject]@{
@@ -1932,9 +1948,9 @@ if (-not $decomRegistryJson) { $decomRegistryJson = '[]' }
 if ($decomRegistryJson.TrimStart()[0] -ne '[') { $decomRegistryJson = '[' + $decomRegistryJson + ']' }
 $showSiteJs    = if ($showSite) { 'true' } else { 'false' }
 
-# Favicon SVG minimaliste (moniteur avec barres) encode en data URI
+# Favicon SVG "PCPulse" : ligne de pouls (ECG) sur fond violet, encode en data URI.
 $faviconSvg = @'
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="6" y="10" width="52" height="36" rx="4" fill="#6c63ff"/><rect x="10" y="14" width="44" height="28" rx="2" fill="#1a1a2e"/><rect x="14" y="30" width="4" height="8" fill="#4ecca3"/><rect x="22" y="26" width="4" height="12" fill="#ffa502"/><rect x="30" y="22" width="4" height="16" fill="#ff6b6b"/><rect x="38" y="28" width="4" height="10" fill="#4ecca3"/><rect x="46" y="24" width="4" height="14" fill="#a855f7"/><rect x="24" y="48" width="16" height="4" fill="#6c63ff"/><rect x="18" y="52" width="28" height="4" rx="1" fill="#6c63ff"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#6c63ff"/><path d="M6 34 H20 L25 20 L33 44 L39 28 L43 34 H58" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 '@
 $faviconBytes = [System.Text.Encoding]::UTF8.GetBytes($faviconSvg)
 $faviconB64   = [Convert]::ToBase64String($faviconBytes)
@@ -2001,7 +2017,7 @@ $anomalyFilterBtn = if ($anomalyJsons.Count -gt 0) {
 # ============================================================
 $html = @"
 <!DOCTYPE html>
-<html lang="fr" data-theme="dark">
+<html lang="fr" data-theme="light">
 <head>
 <meta charset="UTF-8">
 
@@ -2163,12 +2179,35 @@ $metaRefresh
     .decom-stat-tile.ok     .decom-stat-val { color: var(--green); }
     .decom-stat-tile.warn   .decom-stat-val { color: var(--orange); }
     .decom-stat-tile.danger .decom-stat-val { color: var(--red); }
-    .decom-sub-row { display: flex; flex-wrap: wrap; gap: 24px; }
-    .decom-sub { flex: 1 1 280px; min-width: 0; }
+    /* v2.4.7 : les deux sous-blocs (tableau technicien + barres par mois) sont
+       EMPILES VERTICALEMENT. En cote-a-cote, la table debordait sa colonne et
+       recouvrait la barre "par mois" (chevauchement). L'empilement rend tout
+       chevauchement horizontal structurellement impossible. */
+    .decom-sub-row { display: flex; flex-direction: column; gap: 20px; }
+    .decom-sub { min-width: 0; }
+    /* v2.4.7 : repartition modeles en barres classees compactes (vision rapide,
+       moins invasif qu'une tuile par modele). Liste scrollable, lignes cliquables. */
+    .model-dist-head { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+    .model-dist-list { display: flex; flex-direction: column; gap: 3px; max-height: 360px; overflow-y: auto; padding-right: 4px; }
+    .model-bar-row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 3px 6px; border-radius: 5px; }
+    .model-bar-name { width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .model-bar-track { flex: 1; height: 10px; background: rgba(128,128,128,0.12); border-radius: 5px; overflow: hidden; }
+    .model-bar-fill { height: 100%; background: var(--purple); border-radius: 5px; }
+    .model-bar-val { width: 78px; text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .decom-sub h5 { margin: 0 0 8px; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-    .decom-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    /* v2.4.7 : table-layout FIXED + largeurs explicites. Sans ca, une table
+       width:100% en layout AUTO se dimensionne sur son contenu et DEBORDE la
+       piste de grille (min-width:0 sur l'item ne contraint pas la table) : la
+       colonne "A faire" atterrissait hors de sa colonne, sur la barre "par mois".
+       En fixed, la table est plafonnee a 100% de sa colonne. */
+    .decom-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
     .decom-table th { text-align: left; font-size: 11px; color: var(--text-muted); border-bottom: 1px solid var(--border, rgba(128,128,128,0.2)); padding: 4px 6px; }
     .decom-table td { padding: 4px 6px; border-bottom: 1px solid var(--border, rgba(128,128,128,0.08)); }
+    /* 1re colonne (Technicien) = reste, tronquee proprement ; les 2 colonnes
+       chiffrees fixees etroites -> la table ne peut plus s'etaler vers la droite. */
+    .decom-table th:first-child, .decom-table td:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .decom-table th:nth-child(2), .decom-table td:nth-child(2),
+    .decom-table th:nth-child(3), .decom-table td:nth-child(3) { width: 88px; }
     .decom-month { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
     .decom-month-lbl { width: 62px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .decom-month-bar { flex: 1; height: 10px; background: rgba(128,128,128,0.12); border-radius: 5px; overflow: hidden; }
@@ -3735,7 +3774,7 @@ $metaRefresh
 <div class="header">
     <h1><span>$titleHtml</span> &mdash; $subtitleHtml</h1>
     <div class="header-right">
-        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Basculer clair/sombre">&#9788;</button>
+        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Basculer clair/sombre">&#9789;</button>
         <div class="timestamp">G&eacute;n&eacute;r&eacute; le : $($now.ToString('dd/MM/yyyy HH:mm'))</div>
     </div>
 </div>
@@ -3746,10 +3785,10 @@ $anomalyHtml
 
 <div class="toolbar">
     <span class="label">P&eacute;riode :</span>
-    <button class="range-btn" onclick="setDays(1, this)">24h</button>
+    <button class="range-btn active" onclick="setDays(1, this)">24h</button>
     <button class="range-btn" onclick="setDays(7, this)">7 jours</button>
     <button class="range-btn" onclick="setDays(15, this)">15 jours</button>
-    <button class="range-btn active" onclick="setDays(30, this)">30 jours</button>
+    <button class="range-btn" onclick="setDays(30, this)">30 jours</button>
 
     <div class="divider"></div>
 
@@ -3771,6 +3810,8 @@ $anomalyHtml
     </select>
     <label style="color: var(--text-muted); font-size: 12px;">OS :</label>
     <select id="osFilter" onchange="filterChanged()"><option value="">Tous</option></select>
+    <label style="color: var(--text-muted); font-size: 12px;">Mod&egrave;le :</label>
+    <select id="modelFilter" onchange="filterChanged()"><option value="">Tous</option></select>
 
     <div class="search-wrap">
         <span class="search-icon">&#128269;</span>
@@ -3840,6 +3881,12 @@ $anomalyHtml
     <div class="monitor-inventory" id="monitorInventory"></div>
 </div>
 
+<!-- v2.4.7 : repartition des modeles machine du parc -->
+<div class="global-panel" id="modelPanel" style="display:none">
+    <div class="monitor-panel-head"><h3>Mod&egrave;les de machines du parc</h3></div>
+    <div id="modelInventory"></div>
+</div>
+
 <!-- v2.1.2 : Top Crashers deplace tout en bas de page -->
 <div class="global-panel">
     <h3>Top Crashers parc global</h3>
@@ -3865,12 +3912,13 @@ var decomRegistry = $decomRegistryJson;
 
 // ===== ETAT UI =====
 var state = {
-    days: 30,
+    days: 1,
     daysBtn: null,
     maskHealthy: $maskHealthyJs,
     siteFilter: '',
     cpuFilter: '',
     osFilter: '',
+    modelFilter: '',
     kpiFilter: null,     // 'offline', 'crash', 'bsod', 'hw', 'bootLong', 'diskAlert', 'oldCpu', 'crashRecent'
     appFilter: null,     // v2.1.12 : nom d'appli (clic sur un crasher) -> filtre les PC qui l'ont en crash
     sort: { col: 'score', dir: 'desc' },
@@ -4449,6 +4497,31 @@ function initOsDropdown() {
     });
 }
 
+// ===== INIT MODELE DROPDOWN (v2.4.7) =====
+// Liste les modeles machine presents dans le parc (Machine.Model, Collector >= 2.4.7).
+function initModelDropdown() {
+    var sel = document.getElementById('modelFilter');
+    if (!sel) return;
+    var models = {};
+    pcData.forEach(function(pc) { if (pc.Model) models[pc.Model] = true; });
+    var sorted = Object.keys(models).sort();
+    // Masquer le filtre s'il n'y a pas de diversite (0 ou 1 modele connu) : inutile.
+    if (sorted.length < 2) {
+        sel.style.display = 'none';
+        var labels = document.querySelectorAll('.toolbar label');
+        for (var i = 0; i < labels.length; i++) {
+            if (labels[i].textContent.indexOf('Mod') !== -1) labels[i].style.display = 'none';
+        }
+        return;
+    }
+    sorted.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        sel.appendChild(opt);
+    });
+}
+
 // ===== THEME =====
 function toggleTheme() {
     var html = document.documentElement;
@@ -4546,10 +4619,12 @@ function clearAllFilters() {
     state.siteFilter  = '';
     state.cpuFilter   = '';
     state.osFilter    = '';
+    state.modelFilter = '';
     var mb = document.getElementById('maskHealthyBtn'); if (mb) mb.classList.remove('active');
     var sf = document.getElementById('siteFilter');     if (sf) sf.value = '';
     var cf = document.getElementById('cpuFilter');      if (cf) cf.value = '';
     var of = document.getElementById('osFilter');        if (of) of.value = '';
+    var mf = document.getElementById('modelFilter');    if (mf) mf.value = '';
     var si = document.getElementById('searchInput');    if (si) si.value = '';
     state.currentPage = 1;
     render();
@@ -4823,6 +4898,7 @@ function render() {
     state.siteFilter = document.getElementById('siteFilter').value;
     state.cpuFilter  = document.getElementById('cpuFilter').value;
     state.osFilter   = document.getElementById('osFilter').value;
+    var mfEl = document.getElementById('modelFilter'); state.modelFilter = mfEl ? mfEl.value : '';
 
     // Enrichir tous les PCs
     var allEnriched = pcData.map(function(pc) { return enrichPC(pc, cutoff); });
@@ -4833,11 +4909,14 @@ function render() {
         if (state.siteFilter && p.pc.Site !== state.siteFilter) return false;
         if (state.cpuFilter  && p.pc.CPUAgeCategory !== state.cpuFilter) return false;
         if (state.osFilter   && p.pc.OSProduct !== state.osFilter) return false;
+        if (state.modelFilter && (p.pc.Model || '') !== state.modelFilter) return false;
         if (searchTerm) {
             return p.pc.PC.toLowerCase().indexOf(searchTerm) !== -1 ||
                    (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) !== -1 ||
                    (p.pc.LastLoggedUser || '').toLowerCase().indexOf(searchTerm) !== -1 ||
-                   (p.pc.SerialNumber || '').toLowerCase().indexOf(searchTerm) !== -1;
+                   (p.pc.SerialNumber || '').toLowerCase().indexOf(searchTerm) !== -1 ||
+                   (p.pc.Model || '').toLowerCase().indexOf(searchTerm) !== -1 ||
+                   (p.pc.Manufacturer || '').toLowerCase().indexOf(searchTerm) !== -1;
         }
         return true;
     });
@@ -4881,6 +4960,7 @@ function render() {
     renderGlobalCrashers(baseFiltered);
     renderBootBreakdown(baseFiltered);
     renderMonitorInventory(baseFiltered);
+    renderModelInventory(baseFiltered);   // v2.4.7 : repartition des modeles machine
     renderDecomStats();   // v2.4.2 : audit cycle de vie (registre complet, independant des filtres)
 
     document.getElementById('pcCount').textContent = visible.length + ' / ' + allEnriched.length + ' appareil(s)';
@@ -5030,7 +5110,7 @@ function renderActiveFilters() {
     // v2.1.14 : bouton "tout effacer" des qu'un filtre quelconque est actif - y compris les
     // menus site/CPU et la recherche, qui ne generent pas de chip a eux seuls.
     var searchActive = (document.getElementById('searchInput').value || '').trim().length > 0;
-    var anyFilter = !!(state.kpiFilter || state.appFilter || state.maskHealthy || state.siteFilter || state.cpuFilter || state.osFilter || searchActive);
+    var anyFilter = !!(state.kpiFilter || state.appFilter || state.maskHealthy || state.siteFilter || state.cpuFilter || state.osFilter || state.modelFilter || searchActive);
     if (anyFilter) {
         chips.push('<button class="clear-all-filters" onclick="clearAllFilters()" title="Reinitialiser tous les filtres">&times; Tout effacer</button>');
     }
@@ -5658,6 +5738,51 @@ function renderMonitorInventory(pcs) {
     container.innerHTML = html;
 }
 
+// ===== AGREGATION PARC : REPARTITION DES MODELES (v2.4.7) =====
+// Compte les machines par Machine.Model (Collector >= 2.4.7). Vue "coup d'oeil"
+// PURE (non cliquable) : le filtrage se fait par le menu deroulant "Modele" en
+// haut. Panneau masque si aucun modele connu (parc < 2.4.7 -> retro-compat).
+function renderModelInventory(pcs) {
+    var panel = document.getElementById('modelPanel');
+    var container = document.getElementById('modelInventory');
+    if (!panel || !container) return;
+
+    var counts = {};
+    var pcWithModel = 0;
+    var unknownCount = 0;
+    pcs.forEach(function(p) {
+        var mdl = (p.pc && p.pc.Model) ? p.pc.Model : '';
+        if (mdl) { counts[mdl] = (counts[mdl] || 0) + 1; pcWithModel++; }
+        else { unknownCount++; }
+    });
+
+    var sorted = Object.keys(counts).map(function(k) { return { name: k, count: counts[k] }; })
+                        .sort(function(a, b) { return b.count - a.count || (a.name < b.name ? -1 : 1); });
+
+    // Aucun modele connu (parc pre-2.4.7) -> panneau masque.
+    if (sorted.length === 0) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+
+    // Vision rapide : recap en une ligne + barres classees (la 1re barre = 100%).
+    var maxCount = sorted[0].count;
+    var html = '<div class="model-dist-head"><strong>' + sorted.length + '</strong> mod&egrave;les distincts &middot; ' +
+               pcWithModel + ' machine(s) identifi&eacute;e(s)' +
+               (unknownCount > 0 ? ' &middot; ' + unknownCount + ' sans mod&egrave;le' : '') + '</div>';
+    html += '<div class="model-dist-list">';
+    // Vue non cliquable. m.name est deja HTML-echappe (embed), insertion sure.
+    sorted.forEach(function(m) {
+        var pct = pcWithModel > 0 ? Math.round(m.count * 100 / pcWithModel) : 0;
+        var w   = maxCount > 0 ? Math.round(m.count * 100 / maxCount) : 0;
+        html += '<div class="model-bar-row">' +
+                '<span class="model-bar-name">' + m.name + '</span>' +
+                '<div class="model-bar-track"><div class="model-bar-fill" style="width:' + w + '%"></div></div>' +
+                '<span class="model-bar-val">' + m.count + ' &middot; ' + pct + '%</span>' +
+                '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
 // ===== TABLEAU =====
 function sortArrow(col) {
     if (state.sort.col !== col) return '<span class="sort-arrow">&#9650;&#9660;</span>';
@@ -6022,9 +6147,12 @@ function renderDetailRow(p, idx, colspan) {
     if (p.pc.OSBuild) dOsMetaParts.push('build ' + p.pc.OSBuild);
     var dOsMetaStr = dOsMetaParts.join(' &middot; ');
     var dSerial = p.pc.SerialNumber || '';
+    // v2.4.7 : modele + fabricant (deja HTML-echappes a l'embed -> insertion sure).
+    var dModel = [p.pc.Manufacturer || '', p.pc.Model || ''].filter(function(x) { return x; }).join(' ');
     osHTML = '<div class="cpu-info-block">' +
                '<div style="margin-bottom:3px"><span class="os-badge ' + dOsCls + '">' + dOsProduct + '</span></div>' +
                (dOsMetaStr ? '<div class="cpu-meta"><span>' + dOsMetaStr + '</span></div>' : '') +
+               (dModel ? '<div class="cpu-meta"><span>Mod&egrave;le : <strong>' + dModel + '</strong></span></div>' : '') +
                (dSerial ? '<div class="cpu-meta"><span>N&deg; s&eacute;rie : <strong>' + dSerial + '</strong></span></div>' : '') +
              '</div>';
 
@@ -6637,7 +6765,12 @@ function renderDetailRow(p, idx, colspan) {
     // Compteurs par onglet (pour les badges)
     var cntStability = p.crashCount + p.bsodCount + p.hwCount + (p.wheaCorrected ? p.wheaCorrected.length : 0);
     var cntBoot      = p.bootLongCount + (p.bootPerfAlert ? 1 : 0);
-    var cntMaterial  = p.diskAlertCount + (p.diskSmartAlert ? p.diskSmartAlerts.length : 0) + (p.batteryAlert ? 1 : 0) + (p.oldMonitorAlert ? p.oldMonitors.length : 0);
+    // Le badge MATERIEL ne compte QUE les defauts materiels reels (disque sature,
+    // SMART, batterie). Les ecrans ages sont un signal de RENOUVELLEMENT, pas une
+    // panne : deja exclus du score (computeScore), on les exclut aussi du badge.
+    // Ils restent visibles via l'overview, le KPI Usure et le filtre 'oldMonitor'
+    // (base sur oldMonitorAlert, independant de ce compteur).
+    var cntMaterial  = p.diskAlertCount + (p.diskSmartAlert ? p.diskSmartAlerts.length : 0) + (p.batteryAlert ? 1 : 0);
     var cntSecurity  = (p.edrAlert ? 1 : 0);
     var cntOverview  = overview.length;
 
@@ -6745,11 +6878,14 @@ function exportCSV() {
         if (state.siteFilter && p.pc.Site !== state.siteFilter) return false;
         if (state.cpuFilter  && p.pc.CPUAgeCategory !== state.cpuFilter) return false;
         if (state.osFilter   && p.pc.OSProduct !== state.osFilter) return false;
+        if (state.modelFilter && (p.pc.Model || '') !== state.modelFilter) return false;
         if (searchTerm) {
             if (p.pc.PC.toLowerCase().indexOf(searchTerm) === -1 &&
                 (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) === -1 &&
                 (p.pc.LastLoggedUser || '').toLowerCase().indexOf(searchTerm) === -1 &&
-                (p.pc.SerialNumber || '').toLowerCase().indexOf(searchTerm) === -1) return false;
+                (p.pc.SerialNumber || '').toLowerCase().indexOf(searchTerm) === -1 &&
+                (p.pc.Model || '').toLowerCase().indexOf(searchTerm) === -1 &&
+                (p.pc.Manufacturer || '').toLowerCase().indexOf(searchTerm) === -1) return false;
         }
         if (!matchKpiFilter(p, state.kpiFilter)) return false;
         if (state.maskHealthy && state.kpiFilter !== 'anomaly' && p.score === 0) return false;
@@ -6759,7 +6895,7 @@ function exportCSV() {
     });
     sortPCs(visible);
 
-    var headers = ['PC', 'Site', 'IP', 'NumeroSerie', 'Utilisateur', 'CollectorRunAs', 'Statut', 'Connexion', 'CPU', 'CategorieCPU',
+    var headers = ['PC', 'Site', 'IP', 'NumeroSerie', 'Fabricant', 'Modele', 'Utilisateur', 'CollectorRunAs', 'Statut', 'Connexion', 'CPU', 'CategorieCPU',
                    'AnneeCPU', 'OS', 'OSBuild', 'OSVersion', 'OSEdition',
                    'UptimeJours', 'DerniereActivite', 'Score',
                    'Crash', 'BSOD',
@@ -6822,7 +6958,7 @@ function exportCSV() {
             ? pc.CurrentUser
             : (pc.LastLoggedUser ? pc.LastLoggedUser + ' (dernier)' : (pc.CurrentUser || ''));
         var row = [
-            pc.PC, pc.Site, pc.IP, pc.SerialNumber || '', csvUser, pc.CollectorRunAs || '',
+            pc.PC, pc.Site, pc.IP, pc.SerialNumber || '', pc.Manufacturer || '', pc.Model || '', csvUser, pc.CollectorRunAs || '',
             pc.IsOffline ? 'OFFLINE' : 'OK',
             pc.ConnectionType || '',
             pc.CPUName || '', pc.CPUAgeCategory || '', pc.CPUYear || '',
@@ -6865,7 +7001,8 @@ function exportCSV() {
 // ===== INIT =====
 initSiteDropdown();
 initOsDropdown();
-var initBtn = document.querySelectorAll('.range-btn')[3];
+initModelDropdown();
+var initBtn = document.querySelectorAll('.range-btn')[0];
 state.daysBtn = initBtn;
 initBtn.classList.add('active');
 
@@ -6935,6 +7072,23 @@ $tmpOut = "$OutputHTML.tmp"
 Set-Content -Path $tmpOut -Value $html -Encoding UTF8
 Move-Item -Path $tmpOut -Destination $OutputHTML -Force
 Write-Host "[+] Dashboard genere : $OutputHTML" -ForegroundColor Green
+
+# v2.4.7 : RETENTION des dashboards horodates. En mode interactif (sans -OutputPath),
+# chaque run cree un "PCPulse-Dashboard-<horodatage>.html" -> ils s'accumulaient (30+).
+# On ne garde que les $KeepDashboards plus recents (celui qu'on vient d'ecrire inclus).
+# En mode -OutputPath (tache/publication) il n'y a qu'un fichier fixe : rien a purger.
+if (-not $OutputPath) {
+    $KeepDashboards = 10
+    try {
+        $outDir = Split-Path -Parent $OutputHTML
+        @(Get-ChildItem -Path $outDir -Filter 'PCPulse-Dashboard-*.html' -File -ErrorAction Stop |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -Skip $KeepDashboards) |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+    } catch {
+        Write-Host "[!] Nettoyage des anciens dashboards ignore : $_" -ForegroundColor DarkYellow
+    }
+}
 
 # v2.1.3 : pas d'ouverture navigateur en mode tache (-NoLaunch). En interactif, on ouvre comme avant.
 if (-not $NoLaunch) {

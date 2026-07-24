@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.4.6-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.7-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Zero-dependency Windows fleet monitoring.**
@@ -48,7 +48,7 @@ If any of these resonate with you, feel free to open an [Issue](https://github.c
 | 🔧 **Hardware wear** | Battery health (wear % + cycles), Disk SMART (wear, temp, errors), aging secondary monitors |
 | 💻 **OS** | Windows 10 vs 11 (derived from build), edition, feature update — fleet inventory / end-of-support tracking |
 | 👤 **User** | Current session, or last logged-on user as fallback (single entry, not a history) |
-| 📊 **Inventory** | Machine serial (service tag), CPU (model, year, age category), RAM (modules: type, JEDEC-decoded vendor, upgrade headroom), disks, chassis (Laptop/Desktop/AIO), external monitors (EDID; screens flagged "unidentified" when a dock/adapter doesn't relay EDID) |
+| 📊 **Inventory** | Machine model & manufacturer (e.g. Dell Inspiron 7490 — search and filter by model, fleet breakdown), serial (service tag), CPU (model, year, age category), RAM (modules: type, JEDEC-decoded vendor, upgrade headroom), disks, chassis (Laptop/Desktop/AIO), external monitors (EDID; screens flagged "unidentified" when a dock/adapter doesn't relay EDID) |
 
 ## 📸 Preview
 

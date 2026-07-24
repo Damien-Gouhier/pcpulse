@@ -44,9 +44,18 @@
     Auteur     : Damien Gouhier
     Repository : https://github.com/Damien-Gouhier/pcpulse
     Licence    : MIT
-    Version    : 2.1
+    Version    : 2.2
     Runtime    : PowerShell 5.1+ (lance depuis le poste d'un tech, compte normal)
 .CHANGELOG
+    v2.2 : [FIX] Lecture du registre forcee en UTF-8 (Get-Registry). Save-Registry
+           ecrit en UTF-8 mais Get-Content SANS -Encoding relit en ANSI (defaut
+           PS 5.1) -> le "c cedille" de "Francois" se re-encodait a chaque cycle,
+           mojibake compose qui explosait (observe : 1 nom -> 281 751 caracteres,
+           fichier a 1,7 Mo). Force -Encoding UTF8, coherent avec l'ecriture.
+           [FIX] Enumeration explicite apres ConvertFrom-Json : en PS 5.1 un tableau
+           JSON est emis NON enumere -> "@($raw | ConvertFrom-Json)" donnait Count=1
+           avec toutes les entrees empilees dans [0] (symptome "System.Object[]" a la
+           cloture). On enumere en liste plate (aplatit aussi tout sous-tableau).
     v2.1 : Validation de nom pilotee par config (cle PcNameRegex de decom-config.psd1)
            au lieu d'un motif code en dur -> aucune nomenclature d'environnement
            dans le code publie. Sans motif : aucun controle.
@@ -160,9 +169,25 @@ function Remove-RegistryLock {
 function Get-Registry {
     if (-not (Test-Path $RegistryFile)) { return @() }
     try {
-        $raw = Get-Content -Path $RegistryFile -Raw -ErrorAction Stop
+        # PIEGE ENCODAGE PS 5.1 : Save-Registry ecrit en UTF-8 (sans BOM), mais
+        # Get-Content SANS -Encoding relit en ANSI par defaut -> le "c cedille" de
+        # "Francois" (0xC3 0xA7 en UTF-8) devient "Ã§", re-sauve en UTF-8, relu ANSI...
+        # le mojibake se COMPOSE a chaque cycle et explose (observe : 1 nom -> 281 751
+        # caracteres, fichier a 1,7 Mo). On force la lecture UTF-8 : coherent avec
+        # l'ecriture, plus aucune recomposition.
+        $raw = Get-Content -Path $RegistryFile -Raw -Encoding UTF8 -ErrorAction Stop
         if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
-        return @($raw | ConvertFrom-Json)
+        # PIEGE PowerShell 5.1 : "$raw | ConvertFrom-Json" emet un tableau JSON
+        # comme UN SEUL objet non-enumere. Un "@(...)" direct donnerait alors
+        # $entries.Count = 1 avec les N entrees empilees dans $entries[0] (tableau
+        # imbrique) -> Where-Object teste .Statut sur le tableau et fait tout passer
+        # d'un bloc (symptome "System.Object[]"). On enumere explicitement pour
+        # obtenir une liste PLATE. Le foreach aplatit aussi tout sous-tableau
+        # eventuel (auto-reparation : la prochaine sauvegarde reecrit propre).
+        $data = $raw | ConvertFrom-Json
+        $out  = @()
+        foreach ($item in $data) { $out += $item }
+        return $out
     } catch {
         Write-Host "[!] Registre illisible ($_). Repartir d'une liste vide serait DANGEREUX -> abandon." -ForegroundColor Red
         throw

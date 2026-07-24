@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.4.6-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.7-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Supervision de parc Windows zéro-dépendance.**
@@ -46,7 +46,7 @@ Si l'un de ces points résonne avec toi, n'hésite pas à ouvrir une [Issue](htt
 | 🔧 **Usure matérielle** | Santé batterie (% d'usure + cycles), SMART disque (wear, temp, erreurs), écrans secondaires âgés |
 | 💻 **OS** | Windows 10 vs 11 (dérivé du build), édition, feature update — inventaire parc / suivi de fin de support |
 | 👤 **Utilisateur** | Session en cours, ou à défaut dernier utilisateur connecté (une entrée, pas d'historique) |
-| 📊 **Inventaire** | N° de série machine (service tag), CPU (modèle, année, ancienneté), RAM (barrettes : type, fabricant décodé JEDEC, capacité d'upgrade), disques, châssis (Laptop/Desktop/AIO), moniteurs externes (EDID ; écrans « non identifiés » signalés quand un dock/adaptateur ne relaie pas l'EDID) |
+| 📊 **Inventaire** | Modèle & fabricant machine (ex. Dell Inspiron 7490 — recherche et filtre par modèle, répartition du parc), n° de série (service tag), CPU (modèle, année, ancienneté), RAM (barrettes : type, fabricant décodé JEDEC, capacité d'upgrade), disques, châssis (Laptop/Desktop/AIO), moniteurs externes (EDID ; écrans « non identifiés » signalés quand un dock/adaptateur ne relaie pas l'EDID) |
 
 ## 📸 Aperçu
 
