@@ -12,6 +12,7 @@
     "UptimeDays": 0.1,
     "CurrentUser": "camille.bernard",
     "LastLoggedUser": "camille.bernard",
+    "CollectorRunAs": "NT AUTHORITY\\SYSTEM",
     "IP": "10.10.1.58",
     "CPUName": "Intel(R) Core(TM) i7-10750H",
     "CPUVendor": "Intel",
@@ -20,6 +21,9 @@
     "CPUAge": 6,
     "CPUAgeCategory": "Vieillissant",
     "ConnectionType": "WiFi",
+    "SerialNumber": "PF2XKR91",
+    "Manufacturer": "LENOVO",
+    "Model": "ThinkPad P15v Gen 1",
     "ChassisInfo": {
       "ChassisType": 9,
       "ChassisLabel": "Laptop",
@@ -30,32 +34,45 @@
     "LastRealColdBoot": "2026-07-03 06:12:00",
     "FastStartupEnabled": false
   },
+  "Meta": {
+    "TruncatedArrays": {
+      "TopCrashers": false,
+      "BSODs": false,
+      "BootDurations": false,
+      "Events": false,
+      "ResourceWarnings": false
+    }
+  },
   "Events": [
     {
       "EventId": 41,
       "Timestamp": "2026-07-02 06:12:00",
       "Type": "BSOD",
       "Detail": "Le système a redémarré sans s'arrêter correctement. BugcheckCode=0x0000007E",
-      "CrashCause": "BSODSilent"
+      "CrashCause": "BSODSilent",
+      "Message": "Le système a redémarré sans s'être arrêté correctement au préalable."
     },
     {
       "EventId": 41,
       "Timestamp": "2026-06-29 02:12:00",
       "Type": "Freeze",
       "Detail": "Le système a redémarré sans s'arrêter correctement",
-      "CrashCause": "PowerLoss"
+      "CrashCause": "PowerLoss",
+      "Message": "Le système a redémarré sans s'être arrêté correctement au préalable."
     },
     {
       "EventId": 1074,
       "Timestamp": "2026-06-27 07:12:00",
       "Type": "Redemarrage force",
-      "Detail": "Le processus msedge.exe a lancé le redémarrage"
+      "Detail": "Le processus msedge.exe a lancé le redémarrage",
+      "Message": "Le processus C:\\Windows\\system32\\svchost.exe a lancé le redémarrage de l'ordinateur."
     },
     {
       "EventId": 6008,
       "Timestamp": "2026-07-02 06:11:00",
       "Type": "Dirty shutdown",
-      "Detail": "L'arrêt système précédent à 03:00:00 le 20/04/2026 n'était pas prévu"
+      "Detail": "L'arrêt système précédent à 03:00:00 le 20/04/2026 n'était pas prévu",
+      "Message": "L'arrêt précédent du système à 2026-07-02 06:11:00 n'était pas prévu."
     }
   ],
   "BootDurations": [
@@ -215,9 +232,8 @@
   "BSODs": [
     {
       "Date": "2026-07-02 06:12:00",
-      "Nom": "MEMORY_MANAGEMENT",
-      "BugCheckCode": "0x0000001A",
-      "Caller": "ntoskrnl.exe+0x423b10"
+      "Nom": "070226-14283-01.dmp",
+      "Taille": "1,2 MB"
     }
   ],
   "ResourceWarnings": [
@@ -229,28 +245,38 @@
     {
       "Timestamp": "2026-07-01 01:12:00",
       "Type": "Disque lent",
-      "Detail": "Le pilote a détecté une erreur de contrôleur"
+      "Detail": "Le pilote a détecté une erreur de contrôleur",
+      "Count": 37,
+      "FirstSeen": "2026-06-28 22:40:00",
+      "LastSeen": "2026-07-01 01:12:00",
+      "IsBurst": true
     }
   ],
   "TopRAM": [
     {
       "Name": "chrome",
-      "WorkingSetMB": 2150
+      "WorkingSetMB": 2150,
+      "CPUSeconds": 4820.5
     },
     {
       "Name": "OUTLOOK",
-      "WorkingSetMB": 890
+      "WorkingSetMB": 890,
+      "CPUSeconds": 1245.3
     },
     {
       "Name": "Teams",
-      "WorkingSetMB": 760
+      "WorkingSetMB": 760,
+      "CPUSeconds": 1960.8
     }
   ],
   "DiskInfo": [
     {
       "Drive": "C:",
-      "FreeGB": 85,
+      "Label": "Windows",
       "TotalGB": 512,
+      "UsedGB": 427,
+      "FreeGB": 85,
+      "PctUsed": 83,
       "PctFree": 17,
       "IsAlert": false
     }
@@ -435,6 +461,15 @@
       "HangCount": 0,
       "FaultModule": "teams.exe",
       "ExceptionCode": "0xc0000005"
+    },
+    {
+      "AppName": "SAPgui.exe",
+      "CrashCount": 14,
+      "Type": "app_failure",
+      "ErrorCount": 0,
+      "HangCount": 14,
+      "FaultModule": "",
+      "ExceptionCode": ""
     }
   ],
   "HardwareHealth": {
@@ -458,7 +493,8 @@
         "Count": 145,
         "FirstSeen": "2026-06-24 08:44:00",
         "LastSeen": "2026-06-24 16:00:00",
-        "Detail": "Processor was limited by firmware"
+        "Detail": "Processor was limited by firmware",
+        "TotalSeconds": 609
       },
       {
         "Day": "2026-06-25",
@@ -467,7 +503,8 @@
         "Count": 189,
         "FirstSeen": "2026-06-25 07:27:00",
         "LastSeen": "2026-06-25 16:14:00",
-        "Detail": "Processor was limited by firmware"
+        "Detail": "Processor was limited by firmware",
+        "TotalSeconds": 793
       },
       {
         "Day": "2026-06-26",
@@ -476,7 +513,8 @@
         "Count": 87,
         "FirstSeen": "2026-06-26 12:17:00",
         "LastSeen": "2026-06-26 14:44:00",
-        "Detail": "Thermal limit reached"
+        "Detail": "Thermal limit reached",
+        "TotalSeconds": 365
       },
       {
         "Day": "2026-06-27",
@@ -485,7 +523,8 @@
         "Count": 210,
         "FirstSeen": "2026-06-27 07:02:00",
         "LastSeen": "2026-06-27 15:27:00",
-        "Detail": "Processor was limited by firmware"
+        "Detail": "Processor was limited by firmware",
+        "TotalSeconds": 882
       },
       {
         "Day": "2026-06-28",
@@ -494,7 +533,8 @@
         "Count": 156,
         "FirstSeen": "2026-06-28 09:34:00",
         "LastSeen": "2026-06-28 16:00:00",
-        "Detail": "Thermal limit reached"
+        "Detail": "Thermal limit reached",
+        "TotalSeconds": 655
       },
       {
         "Day": "2026-06-29",
@@ -503,7 +543,8 @@
         "Count": 93,
         "FirstSeen": "2026-06-29 07:57:00",
         "LastSeen": "2026-06-29 13:42:00",
-        "Detail": "Processor was limited by firmware"
+        "Detail": "Processor was limited by firmware",
+        "TotalSeconds": 390
       },
       {
         "Day": "2026-06-30",
@@ -512,7 +553,8 @@
         "Count": 178,
         "FirstSeen": "2026-06-30 08:24:00",
         "LastSeen": "2026-06-30 16:07:00",
-        "Detail": "Processor was limited by firmware"
+        "Detail": "Processor was limited by firmware",
+        "TotalSeconds": 747
       },
       {
         "Day": "2026-07-01",
@@ -521,7 +563,8 @@
         "Count": 203,
         "FirstSeen": "2026-07-01 10:00:00",
         "LastSeen": "2026-07-01 16:32:00",
-        "Detail": "Thermal limit reached"
+        "Detail": "Thermal limit reached",
+        "TotalSeconds": 852
       },
       {
         "Day": "2026-07-02",
@@ -530,7 +573,8 @@
         "Count": 167,
         "FirstSeen": "2026-07-02 07:12:00",
         "LastSeen": "2026-07-02 15:57:00",
-        "Detail": "Processor was limited by firmware"
+        "Detail": "Processor was limited by firmware",
+        "TotalSeconds": 701
       },
       {
         "Day": "2026-07-03",
@@ -539,7 +583,8 @@
         "Count": 52,
         "FirstSeen": "2026-07-03 06:42:00",
         "LastSeen": "2026-07-03 08:42:00",
-        "Detail": "Processor was limited by firmware"
+        "Detail": "Processor was limited by firmware",
+        "TotalSeconds": 218
       }
     ]
   },
@@ -559,6 +604,8 @@
     "DiskAlerts": 0,
     "TopCrasherApp": "msedge.exe",
     "TopCrasherCount": 8,
+    "TopAppFailureApp": "SAPgui.exe",
+    "TopAppFailureCount": 14,
     "TotalWHEAFatal": 0,
     "TotalWHEACorrected": 142,
     "WHEACorrectedUnique": 1,

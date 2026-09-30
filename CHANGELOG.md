@@ -13,6 +13,282 @@ ce fichier consolide les évolutions notables au niveau du projet.
 
 ---
 
+## [2.5.0]
+
+Release **majeure « postes distants / hybride »**. Elle regroupe plusieurs
+itérations internes : **Collecteur 2.5.3** et **Dashboard 2.5.4**. Points forts :
+supervision des **postes en télétravail permanent** qui n'atteignent jamais le
+partage SMB (remontée via un endpoint cloud, en plus du SMB), **détection du
+client VPN**, **catégorie de renouvellement** configurable, et le **correctif
+uptime**. **Schéma JSON inchangé (`2.2`)** — tous les ajouts sont additifs, un
+Dashboard 2.5.x lit sans broncher un JSON produit par un Collecteur plus ancien.
+
+### Ajouté — Hybride / postes distants (fonctionnalité phare)
+
+- **Remontée cloud en complément du SMB.** Jusqu'ici un poste 100 % télétravail
+  (qui n'atteint jamais le partage interne) était un **angle mort** : invisible
+  au Dashboard. Le Collecteur sait désormais **basculer vers un endpoint HTTPS**
+  (type Azure Function ou équivalent) quand le SMB est injoignable, et y **POST**
+  son rapport. Entièrement **additif et opt-in par machine** : piloté par un
+  fichier local `C:\ProgramData\PCPulse\cloud.json` (`{ Url, Token, Mode }`).
+  **Absent → comportement strictement inchangé** (le parc du domaine ne bouge
+  pas). POST résilient (retry + TLS 1.2), buffer local conservé si le cloud
+  échoue (rattrapage au cycle suivant).
+- **Anti-usurpation par machine.** Chaque poste porte un **token qui lui est
+  propre** ; côté serveur le token est **lié à un nom de machine** et le nom du
+  fichier déposé est **imposé par le token** — un poste ne peut publier que
+  **son** rapport, jamais celui d'un autre. Aucun secret partagé n'est nécessaire
+  côté poste ; le token n'est jamais dans le config partagé.
+- **Mode `Direct`.** Pour les postes qui ne rentrent **jamais** au bureau, le
+  `cloud.json` peut demander d'**aller droit au cloud sans même tenter le SMB**
+  (évite un long timeout à chaque cycle). Le buffer local reste écrit.
+- **Dashboard : 2ᵉ source de données.** En plus du partage SMB, le Dashboard sait
+  lire un **conteneur de rapports distants** (lecture seule) et **fusionner** :
+  un poste vu des deux côtés apparaît **une seule fois**, avec la photo la **plus
+  récente** (`Machine.CollectedAt`). Gaté par config (URL non secrète) + un
+  secret de lecture passé **en paramètre** au lancement (jamais dans le config
+  lisible par les postes). Absent → le Dashboard lit le SMB seul, comme avant.
+
+### Ajouté — Inventaire & sécurité
+
+- **Détection du client VPN.** Le Collecteur remonte la **présence et la version**
+  du client VPN installé (objet top-level `VpnClient`). Additif, schéma `2.2`
+  inchangé. Le Dashboard l'affiche dans l'onglet Sécurité et propose un **filtre
+  par version de VPN** (utile pour repérer les clients à mettre à jour).
+- **Catégorie de renouvellement, pilotée par config.** Nouvelle clé
+  `RenewalCandidateMaxYear` : quand elle est présente, le Dashboard remplace le
+  tag d'âge CPU (« Récent / Vieillissant / Ancien ») par une **catégorie binaire
+  claire** — **« À renouveler »** vs **« Parc courant »** — calculée sur l'année
+  du CPU (KPI + filtre + colonne). L'**âge réel** reste visible dans l'onglet
+  Matériel du drill-down. Clé absente → ancien comportement conservé.
+
+### Ajouté / Modifié — Dashboard
+
+- **Filtre par châssis** (Tout-en-un / Fixe / Portable) via des **icônes
+  cliquables** dans la barre d'outils.
+- **Barre d'outils compactée** : sélecteur de fenêtre d'analyse (24 h / 7 j /
+  15 j / 30 j) + recherche sur une seule ligne, les boutons Masquer / Vue
+  détaillée / Anomalies passant en 2ᵉ ligne.
+
+### Corrigé
+
+- **Uptime « 0 min » sur tout le parc.** Le calcul prenait l'**Event 507 (wake
+  Modern Standby)** comme « dernière reprise » et le faisait **gagner sur le
+  dernier boot**. Sur du matériel S0ix (la majorité du parc), l'Event 507 se
+  déclenche en continu (micro-réveils de veille connectée) → `UptimeDays`
+  retombait à ~0 à chaque cycle → **« 0min » affiché partout**, alors que des
+  postes tournaient depuis des semaines (et, ironie, les postes **jamais
+  éteints** — ceux qu'on veut justement repérer — passaient sous le radar).
+  Désormais l'uptime = temps depuis le **dernier allumage réel** (cold boot ou
+  Fast Startup, via `BootDurations`) ; les réveils de veille **ne remettent plus
+  le compteur à zéro** (il court à travers les veilles). Repli sur le cold boot
+  kernel (`LastBootUpTime`) si aucun boot dans la fenêtre analysée. Schéma JSON
+  inchangé.
+
+### Modifié — Dashboard
+
+- **Filtres uptime.** Deux filtres dans la barre d'outils : **« Uptime > 7 j »**
+  (à surveiller) et **« Uptime > 30 j »** (jamais rebooté — la cible à relancer).
+  Même mécanique et même chip « filtre actif » que les autres filtres KPI. C'est
+  l'exploitation concrète du fix uptime : sans eux, la métrique corrigée ne
+  servirait à rien.
+- **Colonne « Boot » retirée du tableau principal.** La durée et la date de boot
+  restaient un détail par poste (et affichaient « 0 min » pour des boots
+  sub-minute) ; l'info reste disponible dans le **drill-down, onglet Boot
+  Performance**. Tableau principal allégé d'une colonne.
+
+## [2.4.9]
+
+Release **durcissement de l'ACL racine + résilience du réimage**. Le **Collecteur
+passe à 2.4.9** (redéploiement du parc, `version.txt` → 2.4.9). **Schéma JSON
+inchangé (`2.2`)**. Ce lot ferme le **dernier chemin d'attaque « mentir sur le
+parc »** : un poste compromis ne peut plus écraser ni forger le `<PC>.json` d'un
+autre poste.
+
+### Sécurité — ACL de la racine du partage
+
+- **Fermeture de la forge cross-machine.** Jusqu'ici la racine accordait `Modify`
+  **hérité** à « Ordinateurs du domaine » : un poste — ou un compte machine
+  compromis — pouvait **écraser ou supprimer le JSON de n'importe quel autre
+  poste**, donc vider le dashboard, masquer une machine ou mentir sur l'état du
+  parc. Le `\release\` était déjà verrouillé (anti-RCE, cf. 2.4.3/2.4.6), mais la
+  **racine** restait un vecteur d'altération des données. `Setup-Server.ps1`
+  durcit désormais la racine : « Ordinateurs du domaine » passe de `Modify` à
+  **`CreateFiles` seul, non hérité aux fichiers** (`InheritanceFlags = None`), et
+  un ACE **`CREATOR OWNER` = FullControl** est propagé aux fichiers enfants.
+  Conséquence : un poste peut **déposer son** JSON et **réécraser uniquement le
+  sien** (dont son compte machine est propriétaire via CREATOR OWNER), mais **ne
+  peut plus toucher** à celui d'un autre (ni écrire, ni supprimer, ni renommer
+  par-dessus). Validé bout-en-bout sur partage bac à sable : dépôt OK, réécriture
+  par le propriétaire OK, forge par un tiers **refusée** (écriture + suppression +
+  rename).
+
+### Ajouté — résilience du réimage (le filet)
+
+- **Fallback `pending\` (Collecteur 2.4.9).** Contrepartie du durcissement : un
+  poste **réimagé** voit son objet AD recréé, donc un **nouveau SID** — il n'est
+  plus propriétaire de son ancien `<PC>.json` et ne peut plus l'écraser ; sans
+  filet, il resterait muet au dashboard. Le Collecteur détecte l'échec d'écriture
+  à la racine et **dépose son rapport dans `pending\<PC>.json`** (fichier neuf,
+  autorisé par `CreateFiles`). **Inoffensif tant que l'ACL n'est pas durcie** : la
+  bascule racine réussit et le fallback n'est jamais atteint. Nécessite `pending\`
+  pré-créé par `Setup-Server.ps1`.
+- **`Reconcile-FleetJson.ps1` (nouveau — tâche serveur).** Réconcilie le parc sous
+  l'ACL durcie. Deux règles : (1) **promotion** — le binôme « root du même nom
+  **périmé** (en arrêt de cycle) + `pending` **frais** » est promu vers la racine
+  (le `Move-Item` **préserve le nouveau SID** → le poste réécrase son JSON
+  normalement aux cycles suivants) ; (2) **ménage** — un `<PC>.json` périmé
+  **> 30 j** et **sans** pending associé (poste définitivement parti) est déplacé
+  dans `archive\`, puis purgé 30 j plus tard. Le seuil « root périmé » (3 h) ne
+  déclenche **jamais rien seul** : il n'est évalué que **dans le binôme** de la
+  règle 1 — un poste simplement offline (sans pending) n'est jamais archivé avant
+  30 j. Idempotent, `-WhatIf` supporté.
+- **`Setup-Server.ps1` — dossiers `pending\` et `archive\`.** Création et
+  durcissement des deux nouveaux dossiers (pending : même modèle que la racine —
+  CreateFiles + CREATOR OWNER ; archive : admins/SYSTEM uniquement, aucun accès
+  poste).
+
+### Notes de déploiement
+
+- **Ordre impératif** : déployer le **Collecteur 2.4.9 sur tout le parc d'abord**
+  (auto-update) et **attendre la convergence**, **puis** durcir la racine. Un poste
+  réimagé après le durcissement mais resté en Collecteur < 2.4.9 ne saurait pas
+  basculer sur `pending\` (il n'aurait pas le fallback) et resterait invisible.
+- La tâche `Reconcile-FleetJson` tourne sous un compte serveur ayant `Modify` sur
+  racine + `pending\` + `archive\` (le même que la tâche de publication du
+  Dashboard convient). À signer si le serveur est en `AllSigned`.
+- `logs\` et `killed\` ne sont **pas** durcis dans ce lot (impact moindre — au pire
+  un poste fausse un log ou son propre rapport, pas la vue parc). À réévaluer.
+- **Dashboard inchangé** (aucun code touché) : reste en **2.4.8**, aucune
+  régénération ni redéploiement requis. Ce lot ne concerne que le Collecteur et
+  l'outillage serveur.
+
+## [2.4.8]
+
+Release **garde-fous + outillage**, issue de la revue de code de la 2.4.7. Le
+**Collecteur reste en 2.4.7** (aucun changement de code) : pas de redéploiement du
+parc, `version.txt` non touché. **Schéma JSON inchangé (`2.2`)**.
+
+### Corrigé
+
+- **Décommission → 2.3 — perte de données silencieuse (critique).** Le verrou du
+  registre pouvait être **volé** : le fichier de lock était créé puis refermé
+  aussitôt, et la détection de verrou abandonné reposait sur le seul
+  `LastWriteTime`, **jamais retouché après l'acquisition**. Un technicien resté
+  plus de 5 minutes sur un prompt (`Raison`, choix du tech — un appel téléphonique
+  suffit) se faisait donc récupérer son verrou par un second opérateur. Les deux
+  appelaient ensuite `Save-Registry`, qui réécrit le tableau **entier** : le
+  dernier à écrire **écrasait l'entrée de l'autre**, sans erreur, sans log, sans
+  trace. Deux barrières indépendantes :
+  1. le **handle du lock reste ouvert** (`FileShare::Read`) pendant toute l'action
+     → la suppression concurrente échoue **au niveau de l'OS**, quel que soit l'âge
+     du verrou. C'est Windows (et le serveur SMB, qui honore les share modes) qui
+     arbitre, plus une comparaison de dates : un opérateur lent n'est plus
+     dépossédé.
+  2. le lock porte un **GUID** ; `Save-Registry` appelle `Test-RegistryLockHeld`
+     en tout premier et **refuse d'écrire** si le token a disparu ou changé
+     (« Action interrompue (registre inchangé) »). Un refus bruyant vaut mieux
+     qu'un écrasement muet.
+
+  La détection de verrou abandonné cesse d'être temporelle pour devenir un **fait
+  constaté** : on *sonde* le fichier en `FileShare::None` : si l'ouverture réussit,
+  plus aucun handle ne le tient, donc le détenteur est mort (crash, Ctrl+C, fenêtre
+  fermée) et le résidu est récupéré **immédiatement**, sans attendre 5 minutes. Le
+  contrôle d'âge subsiste en **repli**, pour le cas où la sonde échoue sans
+  détenteur vivant (ACL NTFS refusant l'ouverture du fichier créé par un autre
+  technicien) — ce chemin est sans risque, puisque la suppression échouerait de
+  toute façon contre un détenteur vivant. La récupération rapide ne s'applique
+  qu'aux locks **portant un token** (3 champs) : un lock écrit par un v2.2 (2
+  champs, handle refermé aussitôt) retombe sur le contrôle d'âge, sinon on lui
+  volerait son verrou pendant la fenêtre de **déploiement mixte** — en
+  réintroduisant précisément le bug corrigé.
+  `Remove-RegistryLock` ne supprime plus le lock que s'il porte notre token —
+  sinon il volerait à son tour le verrou de celui qui l'a repris — et un échec de
+  libération est désormais **signalé** au lieu d'être avalé.
+- **Décommission — lock orphelin.** Si l'écriture du token échouait *après* la
+  création du fichier (share plein, session SMB coupée entre l'`Open` et le
+  `WriteLine`), le lock restait sur le disque avec un token que personne ne
+  connaissait : registre bloqué pour tout le monde, avec le message trompeur
+  « verrouillé par un autre opérateur ». Le fichier est maintenant supprimé.
+- **Décommission — `-LiteralPath` sur tous les accès fichier** (lock, registre,
+  config). Un `RegistryPath` contenant des crochets (`...\Parc [ancien]\decom`)
+  était interprété comme un **motif** par `-Path` : `Test-Path` renvoyait `$false`
+  sur un dossier existant et l'outil devenait inutilisable de façon inexplicable.
+  Asymétrie aggravante : les API .NET (`[IO.File]::Open`) sont littérales, donc le
+  fichier était bien créé mais jamais retrouvé.
+- **Décommission — fail-open sur les actions réservées (sécurité).** « config
+  **absente** » (aucune restriction — voulu : un déploiement sans config n'est pas
+  un déploiement restreint) et « config **présente et illisible** » (une panne)
+  tombaient sur le **même** test (`$Admins` vide). Une simple faute de frappe dans
+  `decom-config.psd1` — ou le bug de crochets ci-dessus — ouvrait donc **Repousser
+  [3]** et **Retirer [4]** à tout le monde. Une config présente et illisible bloque
+  désormais ces deux actions, et le message le dit.
+- **Install-Client → 2.4 — version fantaisiste.** Le défaut
+  `-InitialVersion '2.3.0'`, périmé depuis cinq releases, était utilisé **en
+  silence** si `version.txt` manquait du `SourceDir`. Or écrire une version fausse
+  sur un poste est pire qu'un refus d'installer : l'Updater compare version locale
+  et version de `release\` pour décider s'il se met à jour, donc un poste étiqueté
+  trop haut **ne se mettrait jamais à jour** — et son silence ressemblerait à
+  celui d'un poste sain. Désormais **échec propre** (`exit 1`), plus un garde-fou
+  de format sur la valeur lue.
+
+### Ajouté
+
+- **Dashboard — coverage-check complété.** Il manquait la marche la plus haute :
+  **aucun contrôle au niveau top-level du payload**. Un **bloc entier** ajouté au
+  Collecteur pouvait donc disparaître de l'embed sans un mot — le pire cas de la
+  classe de bug #3, parce que c'est aussi le plus facile à oublier : on pense aux
+  champs d'un objet existant, pas à brancher un objet neuf. Ajout de
+  `$KnownPayloadKeys` et des **18 sous-objets** encore non couverts (`Meta`,
+  `Events`, `BSODs`, `ResourceWarnings`, `TopRAM`, `GPUInventory`, `BatteryInfo`,
+  `ServicesHealth[.Monitored]`, `BootPerformance[.LastBoot/.History/.Stats]`,
+  `MemoryInventory`, `HardwareHealth[.GPU_TDR/.Thermal/.CPUThrottling]`, `Stats`).
+  La couverture est **totale** : la revue a montré que tous les blocs de l'embed
+  sont remappés champ par champ, donc la classe de bug s'appliquait partout.
+  Le garde-fou a fait son travail dès l'installation : il a mis au jour
+  `BootPerformance.*.BootStartTime`, émis par le Collecteur et lu par personne
+  (second cas après `BSODs.Taille`). Les deux sont déclarés comme ignorés
+  volontairement, pas retirés — retirer un champ du payload coûte un
+  redéploiement de parc.
+- **Dashboard — signal de schéma déprécié.** Les postes encore en schéma `2.1`
+  sont **nommés en console** à chaque génération. C'est le prérequis *mesuré* au
+  resserrage de `$AcceptedSchemaVersions` sur `@('2.2')` : s'il en reste, ce sont
+  des postes dont le Collecteur n'a pas pris **cinq** mises à jour d'affilée, donc
+  un problème d'auto-update à traiter **avant** de resserrer — sinon on ne corrige
+  rien, on rend juste ces postes invisibles au dashboard.
+
+### Modifié
+
+- **Jeu de démo (`examples/demo/`) régénéré au schéma courant.** Il était resté à
+  un schéma antérieur, avec une conséquence directe sur la vitrine publique : le
+  **panneau de répartition des modèles**, feature phare de la 2.4.7, était
+  **masqué** dans la démo (règle « masqué si < 2 modèles ») — quiconque clonait le
+  dépôt ne voyait pas la nouveauté.
+  - Ajout de `Machine.Manufacturer` / `Model` / `SerialNumber` / `CollectorRunAs`,
+    du bloc `Meta.TruncatedArrays`, de `DiskInfo.Label` / `UsedGB` / `PctUsed`
+    (`PctUsed`/`PctFree` recalculés avec la formule **exacte** du Collecteur), de
+    `Events.Message`, `TopRAM.CPUSeconds`, `CPUThrottling.TotalSeconds` et
+    `Stats.TopAppFailureApp` / `TopAppFailureCount`.
+  - **4 modèles distincts** sur 3 fabricants → le panneau s'affiche. `OFFLINE-005`
+    garde volontairement des valeurs `null` (BIOS renvoyant des chaînes factices,
+    normalisées par le Collecteur) pour montrer la dégradation propre, et un
+    `CollectorRunAs` en gMSA pour illustrer l'audit d'exécution.
+  - **L'onglet Matériel n'était pas démontré du tout** : `WHEA_Fatal`, `GPU_TDR` et
+    `Thermal` étaient à zéro sur les cinq postes, alors que cette détection est
+    précisément ce qui remplace l'outil commercial. `DESKTOP-003` (i5-8500 de 2018,
+    SSD à 21 500 h, disque à 91 %) porte maintenant un profil matériel cohérent :
+    WHEA fatales, TDR GPU, arrêt thermique, throttling — avec les `Stats`
+    **réconciliées** avec les tableaux, sinon le dashboard afficherait des
+    compteurs qui contredisent ses propres drill-downs.
+  - `LAPTOP-002` exerce deux chemins de code jamais atteints par la démo : le
+    clustering de l'Event 51 (`Count`/`FirstSeen`/`LastSeen`/`IsBurst`) et un
+    crasher de type `app_failure`, distinct du `crash` (2.1.3).
+  - **Corrigé — la démo montrait une capacité inexistante** : son entrée BSOD
+    portait `Nom = "MEMORY_MANAGEMENT"` plus des champs `BugCheckCode` et `Caller`
+    qu'**aucune** version du Collecteur n'émet et que le Dashboard ne lit pas. Le
+    Collecteur liste `C:\Windows\Minidump` : `Nom` est le **nom de fichier** du
+    `.dmp`. Rétabli.
+
 ## [2.4.7]
 
 ### Ajouté

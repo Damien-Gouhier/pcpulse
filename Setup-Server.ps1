@@ -215,9 +215,11 @@ Write-OK "Share trouve : $sharePath"
 $releaseDir = Join-Path $sharePath 'release'
 $killedDir  = Join-Path $sharePath 'killed'
 $logsDir    = Join-Path $sharePath 'logs'
+$pendingDir = Join-Path $sharePath 'pending'   # depot des JSON de postes reimages (root non ecrasable) -> promus par Reconcile-FleetJson
+$archiveDir = Join-Path $sharePath 'archive'   # JSON perimes deplaces ici par Reconcile-FleetJson (ADMIN only)
 
 # Inventaire actuel
-foreach ($d in @($releaseDir, $killedDir, $logsDir)) {
+foreach ($d in @($releaseDir, $killedDir, $logsDir, $pendingDir, $archiveDir)) {
     if (Test-Path $d) {
         $count = @(Get-ChildItem $d -Force -ErrorAction SilentlyContinue).Count
         Write-Info "  $d : existe ($count elements)"
@@ -237,7 +239,7 @@ if ($PSCmdlet.ShouldProcess($backupDir, "Creer dossier backup ACLs")) {
 }
 
 $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-foreach ($d in @($sharePath, $releaseDir, $killedDir, $logsDir)) {
+foreach ($d in @($sharePath, $releaseDir, $killedDir, $logsDir, $pendingDir, $archiveDir)) {
     if (Test-Path $d) {
         $name = if ($d -eq $sharePath) { 'root' } else { Split-Path $d -Leaf }
         $backupFile = Join-Path $backupDir "acl-$name-$timestamp.txt"
@@ -267,7 +269,7 @@ $((Get-Acl $d).Access | Format-Table IdentityReference, FileSystemRights, Access
 # ============================================================
 Write-Step "4/6 Creation des sous-dossiers"
 
-foreach ($d in @($releaseDir, $killedDir, $logsDir)) {
+foreach ($d in @($releaseDir, $killedDir, $logsDir, $pendingDir, $archiveDir)) {
     if (-not (Test-Path $d)) {
         if ($PSCmdlet.ShouldProcess($d, "Creer dossier")) {
             New-Item -Path $d -ItemType Directory -Force | Out-Null
@@ -323,9 +325,14 @@ function Set-HardenedAcl {
     $propagation  = [System.Security.AccessControl.PropagationFlags]::None
 
     foreach ($r in $Rules) {
+        # Heritage : par defaut ContainerInherit|ObjectInherit ; une regle peut
+        # forcer le sien via la cle 'Inherit' (ex: Domain Computers sur la racine
+        # = InheritanceFlags::None -> peut CREER un fichier dans le dossier mais
+        # l'ACE ne descend PAS sur les fichiers existants -> ne peut pas ecraser
+        # le JSON d'un autre poste).
+        $iflags = if ($r.ContainsKey('Inherit')) { $r.Inherit } else { $inheritFlags }
         # CREATOR OWNER ne doit s'appliquer qu'aux objets enfants (pas au dossier
         # lui-meme, sinon on cree une boucle bizarre)
-        $iflags = $inheritFlags
         $pflags = $propagation
         if ($r.Identity.Value -eq 'S-1-3-0') {
             # CREATOR OWNER : InheritOnly + ContainerInherit + ObjectInherit
@@ -372,11 +379,16 @@ $rulesRoot = @(
     @{ Identity = $sidSystem;        Right = 'FullControl' }
     @{ Identity = $sidBuiltinAdmins; Right = 'FullControl' }
     @{ Identity = $grpAdmins.Sid;    Right = 'FullControl' }
-    @{ Identity = $grpComputers.Sid; Right = 'Modify' }     # depose JSON
-    @{ Identity = $sidCreatorOwner;  Right = 'FullControl' } # owner sur ses fichiers
+    # v2.x DURCISSEMENT : CreateFiles + lecture, en InheritanceFlags::None ->
+    # un poste peut DEPOSER son <PC>.json dans la racine mais l'ACE ne descend
+    # PAS sur les fichiers existants (ObjectInherit retire) : il ne peut donc
+    # plus ECRASER/forger/supprimer le JSON d'un AUTRE poste. La mise a jour de
+    # SON PROPRE fichier repose sur CREATOR OWNER ci-dessous.
+    @{ Identity = $grpComputers.Sid; Right = 'CreateFiles, ReadAndExecute, Synchronize'; Inherit = [System.Security.AccessControl.InheritanceFlags]::None }
+    @{ Identity = $sidCreatorOwner;  Right = 'FullControl' } # owner sur SES fichiers -> peut ecraser/renommer SON propre JSON a chaque cycle
 )
 if ($gmsaResolved) {
-    $rulesRoot += @{ Identity = $gmsaResolved.Sid; Right = 'Modify' }  # gMSA depose JSON
+    $rulesRoot += @{ Identity = $gmsaResolved.Sid; Right = 'CreateFiles, ReadAndExecute, Synchronize'; Inherit = [System.Security.AccessControl.InheritanceFlags]::None }  # gMSA depose son JSON, sans ecraser les autres
 }
 foreach ($grp in $extraGroupsResolved) {
     $rulesRoot += @{ Identity = $grp.Sid; Right = 'ReadAndExecute' }
@@ -429,6 +441,35 @@ foreach ($grp in $extraGroupsResolved) {
     $rulesLogs += @{ Identity = $grp.Sid; Right = 'ReadAndExecute' }
 }
 Set-HardenedAcl -Path $logsDir -Rules $rulesLogs -OwnerSid $grpAdmins.Sid.Value
+
+# ----- ACLs pending\ (MEME modele que la racine durcie) -----
+# Depot des JSON de postes reimages qui ne peuvent plus ecraser leur ancien root.
+# Domain Computers : CreateFiles seulement (pas d'ecrasement croise) ; le poste
+# possede son propre pending via CREATOR OWNER (il le reecrit a chaque cycle).
+$rulesPending = @(
+    @{ Identity = $sidSystem;        Right = 'FullControl' }
+    @{ Identity = $sidBuiltinAdmins; Right = 'FullControl' }
+    @{ Identity = $grpAdmins.Sid;    Right = 'FullControl' }
+    @{ Identity = $grpComputers.Sid; Right = 'CreateFiles, ReadAndExecute, Synchronize'; Inherit = [System.Security.AccessControl.InheritanceFlags]::None }
+    @{ Identity = $sidCreatorOwner;  Right = 'FullControl' }
+)
+if ($gmsaResolved) {
+    $rulesPending += @{ Identity = $gmsaResolved.Sid; Right = 'CreateFiles, ReadAndExecute, Synchronize'; Inherit = [System.Security.AccessControl.InheritanceFlags]::None }
+}
+Set-HardenedAcl -Path $pendingDir -Rules $rulesPending -OwnerSid $grpAdmins.Sid.Value
+
+# ----- ACLs archive\ (ADMIN uniquement) -----
+# Les postes n'y touchent JAMAIS (pas de Domain Computers). La tache serveur
+# Reconcile-FleetJson y deplace les JSON perimes puis les purge. Le compte qui
+# fait tourner Reconcile (ex: le compte de la tache dashboard) doit recevoir
+# Modify sur racine + pending + archive SEPAREMENT (via icacls) - non gere ici
+# pour garder ce script generique.
+$rulesArchive = @(
+    @{ Identity = $sidSystem;        Right = 'FullControl' }
+    @{ Identity = $sidBuiltinAdmins; Right = 'FullControl' }
+    @{ Identity = $grpAdmins.Sid;    Right = 'FullControl' }
+)
+Set-HardenedAcl -Path $archiveDir -Rules $rulesArchive -OwnerSid $grpAdmins.Sid.Value
 
 # ============================================================
 # ETAPE 6 : Verification post-application

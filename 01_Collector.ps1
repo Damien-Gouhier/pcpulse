@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse Collector v2.4.7
+    PCPulse Collector v2.5.3
 .DESCRIPTION
     Collecte les evenements systeme (boot, crash, freeze, BSOD, hardware)
     et les exporte en JSON vers un dossier partage.
@@ -10,9 +10,51 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.4.7
+    Version      : 2.5.3
     Runtime      : PowerShell 5.1+ (compatible parc Windows 10/11 natif)
 .CHANGELOG
+    v2.5.3 : [HYBRIDE] Mode 'Direct' du cloud.json : le poste va DROIT au cloud sans
+           tenter le SMB (share + pending). Pour les permanents-maison, evite le long
+           timeout SMB sur un share injoignable a chaque cycle. Le buffer local reste
+           ecrit (resilience) ; si le cloud echoue, retry au prochain cycle. Aucune
+           tentative reseau vers le share (pas de New-Item SharePath). Mode 'Fallback'
+           (defaut) inchange. cloud.json absent -> parc domaine strictement inchange.
+    v2.5.2 : [HYBRIDE] Repli CLOUD pour les postes 100% distants. ADDITIF, gate par
+           un fichier LOCAL par machine C:\ProgramData\PCPulse\cloud.json
+           { Url, Token, Mode }. Si l'ecriture SMB (share + pending) echoue et que
+           cloud.json est present, le rapport est envoye a une Function Azure
+           (POST HTTPS, en-tete x-pcpulse-token, retry + TLS 1.2). ABSENT -> aucun
+           changement pour le parc du domaine. Token PAR MACHINE (jamais dans le
+           config.psd1 partage), livre par Intune. SchemaVersion INCHANGEE (2.2) :
+           meme rapport, autre tuyau. Mode 'Direct' (sauter le SMB) prevu, a venir.
+    v2.5.1 : [SECURITE/INVENTAIRE] Detection du client VPN (FortiClient) - ADDITIF,
+           SchemaVersion 2.2 INCHANGEE. Nouvel objet top-level VpnClient
+           { Present, Product, Version }. Source de verite : cle de
+           desinstallation (DisplayName ~ FortiClient -> DisplayVersion),
+           repli sur la FileVersion de FortiClient.exe si l'entree manque.
+           La cle HKLM\SOFTWARE\Fortinet ne porte aucune version -> ecartee.
+           Presence + version seulement (pas d'alerte / pas de score : c'est
+           de l'inventaire). Necessite un redeploiement pour peupler le champ.
+    v2.5.0 : [FIX] Uptime remis d'aplomb. Le calcul prenait l'Event 507 (wake
+           Modern Standby) comme "derniere reprise" et le faisait GAGNER sur le
+           boot -> sur du materiel S0ix (pulse des 507 en continu), l'uptime
+           retombait a ~0 en permanence ("0min partout") alors que la machine
+           tournait depuis des semaines. Desormais UptimeDays = depuis le dernier
+           ALLUMAGE REEL (cold boot ou Fast Startup, via BootDurations) ; les
+           reveils de veille ne remettent PLUS le compteur a zero (il court a
+           travers les veilles) = "depuis combien de temps la machine tourne sans
+           etre eteinte". Repli cold boot kernel si aucun boot dans la fenetre.
+           Schema JSON INCHANGE (2.2).
+    v2.4.9 : [SECURITE/RESILIENCE] Fallback pending\ a l'ecriture du JSON. Prepare le
+           durcissement de l'ACL racine du share (Domain Computers ne pourra plus
+           ECRASER les JSON des autres postes -> ferme la forge cross-machine). Sous
+           cette ACL, un poste REIMAGE (nouveau SID AD) n'est plus proprietaire de son
+           ancien <PC>.json et ne peut plus l'ecraser : il depose alors son rapport
+           dans <SharePath>\pending\<PC>.json (fichier neuf autorise). Une tache
+           serveur (Reconcile-FleetJson) promeut le binome "root perime + pending
+           frais". INOFFENSIF tant que l'ACL n'est pas durcie (la bascule root reussit,
+           on ne tombe jamais dans le fallback). Necessite pending\ pre-cree par
+           Setup-Server.ps1. Schema JSON INCHANGE (2.2).
     v2.4.7 : Ajout Machine.Model + Machine.Manufacturer (Win32_ComputerSystem) -
            modele commercial ("Inspiron 7490") et fabricant, pour la recherche
            par modele et l'inventaire au Dashboard. Valeurs OEM factices ("System
@@ -335,7 +377,7 @@ $SchemaVersion = '2.2'
 # a l'Updater (Install-VerifiedUpdate lit ce marqueur dans le fichier SIGNE plutot que
 # de faire confiance a version.txt du share, non signe). NE PAS renommer/reformater
 # cette ligne : elle est parsee par regex ($CollectorVersion = [version]'x.y.z').
-$CollectorVersion = [version]'2.4.7'
+$CollectorVersion = [version]'2.5.3'
 # v2.4.3 : config.psd1 lu en PRIORITE dans release\ (lecture seule pour les postes)
 # -> un poste compromis ne peut plus alterer la config (phrase killswitch, seuils,
 # services surveilles). Repli sur la racine pour migration douce : une fois le
@@ -1669,61 +1711,35 @@ Write-Log ("Boots par type : ColdBoot={0} FastStartup={1} Resume={2} Unknown={3}
     $bootsByType.ColdBoot, $bootsByType.FastStartup, $bootsByType.Resume, $bootsByType.Unknown)
 
 # ============================================================
-# v1.2 : RECALCUL DE LastBoot ET UptimeDays
+# v2.5.0 : RECALCUL DE LastBoot ET UptimeDays
 #
-# Algorithme corrige apres analyse terrain (v1.1 etait incomplete).
+# Uptime = "depuis combien de temps la machine tourne sans etre eteinte/rebootee"
+# (but : reperer les postes jamais eteints). On prend le DERNIER ALLUMAGE REEL =
+# derniere entree de $bootDurations (couples Event 12 + 27 : couvre cold boot ET
+# Fast Startup).
 #
-# Le probleme de v1.1 : $bootDurations capture les couples Event 12 + 27
-# (Kernel-General + Kernel-Boot). Ces events sont emis pour les vrais
-# boots et les Fast Startup, MAIS PAS pour les wakes Modern Standby.
+# On NE compte PLUS les wakes Modern Standby (Event 507). v1.1/v1.2 les prenait
+# et les faisait GAGNER sur le boot -> sur du materiel S0ix, l'Event 507 pulse en
+# continu (micro-reveils de veille connectee), donc $userLastBoot ~= maintenant a
+# chaque cycle -> UptimeDays ~= 0 en permanence ("0min partout", alors que la
+# machine tourne depuis des semaines). Une reprise de veille N'EST PAS une
+# extinction : l'uptime doit courir A TRAVERS les veilles. On revient donc a la
+# seule source "allumage" (BootDurations).
 #
-# Sur un laptop moderne avec Fast Startup + Modern Standby, l'utilisateur
-# clique "Arreter" le soir -> Event 42 (veille), et allume le matin ->
-# Event 507 (wake Modern Standby), sans aucun Event 12.
-#
-# Solution : combiner les 2 sources
-#   LastUserOn = MAX(
-#     derniere entree de $bootDurations,  # couvre cold boot et Fast Startup
-#     dernier Event 507                   # couvre wake Modern Standby
-#   )
+# Repli : si aucun boot dans la fenetre analysee, on garde la valeur KERNEL
+# (LastBootUpTime) deja affectee plus haut = uptime depuis le dernier cold boot.
 # ============================================================
 
-# Recuperer le dernier Event 507 (wake Modern Standby)
-$lastWakeModernStandby = $null
-try {
-    $wakeEvent = Get-WinEvent -FilterHashtable @{
-        LogName      = 'System'
-        ProviderName = 'Microsoft-Windows-Kernel-Power'
-        Id           = 507
-        StartTime    = $dateDebut
-    } -MaxEvents 1 -ErrorAction SilentlyContinue
-
-    if ($wakeEvent) {
-        $lastWakeModernStandby = $wakeEvent.TimeCreated
-        Write-Log "Wake Modern Standby detecte : $($lastWakeModernStandby.ToString('yyyy-MM-dd HH:mm:ss'))"
-    } else {
-        Write-Log "Wake Modern Standby : aucun Event 507 trouve (normal sur desktop)"
-    }
-} catch {
-    Write-Log "Wake Modern Standby : erreur de lecture ($_)"
-}
-
-# Calculer la derniere reprise d'activite
-$userLastBoot = $null
+# Derniere reprise d'activite = dernier allumage reel (cold boot ou Fast Startup)
+$userLastBoot  = $null
 $bootTypeLabel = 'none'
 
 if ($bootDurations.Count -gt 0) {
     $mostRecentBoot = $bootDurations |
         Sort-Object -Property @{ Expression = { [datetime]$_.DateBoot } } -Descending |
         Select-Object -First 1
-    $userLastBoot = [datetime]$mostRecentBoot.DateBoot
+    $userLastBoot  = [datetime]$mostRecentBoot.DateBoot
     $bootTypeLabel = "BootDurations($($mostRecentBoot.BootType))"
-}
-
-# Si Event 507 plus recent que la derniere entree BootDurations, il gagne
-if ($lastWakeModernStandby -and ($null -eq $userLastBoot -or $lastWakeModernStandby -gt $userLastBoot)) {
-    $userLastBoot = $lastWakeModernStandby
-    $bootTypeLabel = 'ModernStandbyWake(Event 507)'
 }
 
 # Appliquer le resultat
@@ -1732,10 +1748,10 @@ if ($userLastBoot) {
     $machineInfo.LastBoot   = $userLastBoot.ToString('yyyy-MM-dd HH:mm:ss')
     $machineInfo.UptimeDays = $userUptimeDays
 
-    Write-Log ("v1.2 Uptime corrige : LastBoot user = {0} (source: {1}) | UptimeDays = {2} | Kernel cold boot = {3}" -f `
+    Write-Log ("Uptime : LastBoot = {0} (source: {1}) | UptimeDays = {2} | Cold boot kernel = {3}" -f `
         $machineInfo.LastBoot, $bootTypeLabel, $userUptimeDays, $machineInfo.LastRealColdBoot)
 } else {
-    Write-Log "v1.2 Uptime : aucune source trouvee, conservation des valeurs kernel"
+    Write-Log "Uptime : aucun boot dans la fenetre -> conservation du cold boot kernel ($($machineInfo.LastRealColdBoot))"
 }
 
 # ============================================================
@@ -2165,6 +2181,59 @@ foreach ($svcDef in @($cfg.MonitoredServices)) {
 # objet unique code en dur (un seul service).
 $servicesHealth = [PSCustomObject]@{
     Monitored = @($monitoredList)
+}
+
+# ============================================================
+# 10-bis. CLIENT VPN (FortiClient) - v2.5.1 (ADDITIF, schema 2.2 inchange)
+#    But : savoir si un client VPN est present + sa version. Lecture seule.
+#    Source de verite : cle de desinstallation (DisplayName ~ 'FortiClient'
+#    -> DisplayVersion). Cross-check confirme : tous les binaires FortiClient
+#    portent la meme version que l'entree Uninstall. Repli si l'entree manque :
+#    FileVersion de FortiClient.exe. La cle HKLM\SOFTWARE\Fortinet ne porte
+#    AUCUNE version exploitable -> ecartee comme source.
+#    NB : un service VPN peut deja etre suivi via MonitoredServices (statut du
+#    service), mais ca ne donne PAS la version -> d'ou ce bloc dedie.
+#    Match large sur 'FortiClient' : couvre le client complet (DisplayName
+#    'FortiClient') comme le standalone gratuit ('FortiClient VPN').
+# ============================================================
+$vpnClient = [PSCustomObject]@{
+    Present = $false
+    Product = ''
+    Version = ''
+}
+try {
+    $fortiEntry = $null
+    $uninstallRoots = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+    foreach ($root in $uninstallRoots) {
+        if (-not (Test-Path $root)) { continue }
+        $fortiEntry = Get-ChildItem $root -ErrorAction SilentlyContinue |
+            ForEach-Object { Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue } |
+            Where-Object { $_.DisplayName -match 'FortiClient' } |
+            Select-Object -First 1
+        if ($fortiEntry) { break }
+    }
+
+    if ($fortiEntry) {
+        $vpnClient.Present = $true
+        $vpnClient.Product = [string]$fortiEntry.DisplayName
+        $vpnClient.Version = [string]$fortiEntry.DisplayVersion
+    } else {
+        # Repli : version du binaire principal si l'entree Uninstall est absente.
+        $fortiExe = Join-Path $env:ProgramFiles 'Fortinet\FortiClient\FortiClient.exe'
+        if (Test-Path $fortiExe) {
+            $vpnClient.Present = $true
+            $vpnClient.Product = 'FortiClient'
+            $vpnClient.Version = [string]((Get-Item $fortiExe).VersionInfo.FileVersion)
+        }
+    }
+
+    Write-Log ("Client VPN : Present={0} Produit='{1}' Version='{2}'" -f `
+        $vpnClient.Present, $vpnClient.Product, $vpnClient.Version)
+} catch {
+    Write-Log ("Erreur detection client VPN : {0}" -f $_)
 }
 
 # ============================================================
@@ -3164,6 +3233,8 @@ $payload = [PSCustomObject]@{
     DiskInfo         = @($diskInfo)
     BatteryInfo      = $batteryInfo
     ServicesHealth   = $servicesHealth
+    # v2.5.1 : client VPN (present + version). ADDITIF, schema 2.2 inchange.
+    VpnClient        = $vpnClient
     BootPerformance  = $bootPerformance
     DiskHealth       = @($diskHealth)
     Monitors         = @($monitors)
@@ -3252,9 +3323,62 @@ $payload = [PSCustomObject]@{
     }
 }
 
+# ============================================================
+# 15-bis. HYBRIDE CLOUD (v2.5.2) - repli vers la Function Azure
+# ------------------------------------------------------------
+# ADDITIF, gate par un fichier LOCAL par machine : C:\ProgramData\PCPulse\cloud.json
+#   { "Url": "https://func-.../api/ingest?code=...", "Token": "<token machine>", "Mode": "Fallback" }
+# ABSENT  -> ce bloc ne fait RIEN (le parc du domaine reste STRICTEMENT inchange).
+# PRESENT -> si l'ecriture SMB (share + pending) echoue - cas d'un poste 100%
+#            distant qui n'atteint jamais le share interne -, on envoie le rapport
+#            a la Function Azure. Le token est PAR MACHINE (jamais dans le
+#            config.psd1 partage) et livre par Intune. Resilient (retry + timeout).
+# Mode 'Direct' (v2.5.3) : le poste va DROIT au cloud, sans AUCUNE tentative SMB
+#            (ni creation de dossier share, ni ecriture root/pending). Pour les
+#            permanents-maison : evite le long timeout SMB a chaque cycle. Le buffer
+#            local est quand meme ecrit (resilience). 'Fallback' (defaut) = SMB
+#            d'abord, cloud en secours (comportement historique).
+# Schema JSON INCHANGE (2.2) : c'est le meme rapport, autre tuyau.
+# ============================================================
+function Read-CloudConfig {
+    $f = Join-Path $env:ProgramData 'PCPulse\cloud.json'
+    if (-not (Test-Path -LiteralPath $f)) { return $null }
+    try {
+        $c = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $c.Url -or -not $c.Token) { Write-Log 'cloud.json incomplet (Url/Token manquant) - ignore'; return $null }
+        $mode = if ($c.Mode) { [string]$c.Mode } else { 'Fallback' }
+        return [PSCustomObject]@{ Url = [string]$c.Url; Token = [string]$c.Token; Mode = $mode }
+    } catch { Write-Log ("cloud.json illisible : {0}" -f $_); return $null }
+}
+function Send-ToCloud {
+    param([string]$Url, [string]$Token, [string]$JsonContent)
+    # PS 5.1 : forcer TLS 1.2 (Azure refuse TLS 1.0/1.1).
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
+    for ($i = 1; $i -le 3; $i++) {
+        try {
+            $null = Invoke-RestMethod -Method Post -Uri $Url -Headers @{ 'x-pcpulse-token' = $Token } `
+                -Body $JsonContent -ContentType 'application/json; charset=utf-8' -TimeoutSec 30 -ErrorAction Stop
+            return $true
+        } catch {
+            Write-Log ("Cloud POST tentative {0}/3 KO : {1}" -f $i, $_)
+            Start-Sleep -Seconds (2 * $i)
+        }
+    }
+    return $false
+}
+$cloud = Read-CloudConfig
+$cloudWritten = $false
+# Mode 'Direct' : on saute TOUT le SMB (share + pending) et on va droit au cloud.
+# Gate par le cloud.json de la machine (Mode='Direct'). Absent/Fallback -> SMB d'abord.
+$directCloud = ($cloud -and $cloud.Mode -eq 'Direct')
+if ($directCloud) { Write-Log "Mode cloud DIRECT : le SMB est ignore (pas de tentative share/pending)" }
+
 $outputFile  = Join-Path $SharePath "$($env:COMPUTERNAME).json"
 $localBuffer = Join-Path $env:ProgramData "PCPulse\$($env:COMPUTERNAME).json"
-$null = New-Item $SharePath -ItemType Directory -Force -ErrorAction SilentlyContinue
+# En Direct, NE PAS toucher au share (New-Item sur un share injoignable = long timeout).
+if (-not $directCloud) {
+    $null = New-Item $SharePath -ItemType Directory -Force -ErrorAction SilentlyContinue
+}
 $null = New-Item (Split-Path $localBuffer) -ItemType Directory -Force -ErrorAction SilentlyContinue
 
 # Serialisation en memoire (une seule fois)
@@ -3289,6 +3413,8 @@ try {
 # UNIQUE dans le meme dossier, puis on bascule sur le nom final par un
 # renommage atomique. Un lecteur voit soit l'ancien complet, soit le nouveau
 # complet, jamais un tronque. Le buffer local (etape 1) reste la resilience.
+# >>> BLOC SMB (share + pending) : entierement SAUTE en mode Direct <<<
+if (-not $directCloud) {
 $shareTmp = "$outputFile.$PID.$([guid]::NewGuid().ToString('N')).tmp"
 $tmpReady = $false
 
@@ -3344,8 +3470,70 @@ if (Test-Path -LiteralPath $shareTmp) {
     try { Remove-Item -LiteralPath $shareTmp -Force -ErrorAction SilentlyContinue } catch {}
 }
 
+# (2bis) v2.4.9 : FALLBACK pending\ si l'ecriture du root a echoue.
+# Cas vise : sous l'ACL durcie de la racine (Domain Computers ne peut plus
+# ECRASER les fichiers des autres), un poste REIMAGE porte un nouveau SID et
+# n'est donc plus proprietaire (CREATOR OWNER) de son ancien <PC>.json -> la
+# bascule ci-dessus echoue en "acces refuse". On depose alors le rapport dans
+# <SharePath>\pending\<PC>.json (fichier NEUF, autorise par CreateFiles). La
+# tache Reconcile cote serveur detecte le binome "root perime + pending frais"
+# et promeut (supprime l'ancien root, renomme le pending). Le renommage cote
+# serveur preserve le proprietaire (nouveau SID) -> les cycles suivants
+# ecrasent le root normalement.
+# INOFFENSIF AVANT DURCISSEMENT : tant que Domain Computers a Modify herite, la
+# bascule root reussit et on ne tombe JAMAIS ici. Le dossier pending\ est
+# pre-cree par Setup-Server.ps1 (la racine durcie n'autorise pas la creation de
+# sous-dossier par un poste) : si absent, le fallback loggue et passe.
+if (-not $shareWritten) {
+    $pendingDir  = Join-Path $SharePath 'pending'
+    $pendingFile = Join-Path $pendingDir "$($env:COMPUTERNAME).json"
+    $pendingTmp  = "$pendingFile.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        if (-not (Test-Path -LiteralPath $pendingDir)) {
+            $null = New-Item -Path $pendingDir -ItemType Directory -Force -ErrorAction Stop
+        }
+        [System.IO.File]::WriteAllText($pendingTmp, $jsonContent, $utf8NoBom)
+        if (Test-Path -LiteralPath $pendingFile) {
+            try { [System.IO.File]::Replace($pendingTmp, $pendingFile, $null, $true) }
+            catch { Move-Item -LiteralPath $pendingTmp -Destination $pendingFile -Force -ErrorAction Stop }
+        } else {
+            Move-Item -LiteralPath $pendingTmp -Destination $pendingFile -Force -ErrorAction Stop
+        }
+        $shareWritten = $true
+        Write-Log "Root non inscriptible -> rapport depose dans pending\ (poste probablement reimage, en attente de promotion serveur) : $pendingFile"
+    } catch {
+        Write-Log "Erreur ecriture fallback pending\ (pending\ pre-cree par Setup-Server ?) : $_"
+    } finally {
+        if (Test-Path -LiteralPath $pendingTmp) { try { Remove-Item -LiteralPath $pendingTmp -Force -ErrorAction SilentlyContinue } catch {} }
+    }
+}
+} # <<< fin du BLOC SMB (share + pending) - saute entierement si $directCloud
+
+# (2ter) v2.5.2/2.5.3 : ENVOI CLOUD (Function Azure).
+# - Mode 'Direct'   : on arrive ici SANS avoir touche au SMB -> POST direct.
+# - Mode 'Fallback' : on arrive ici seulement si le SMB (share + pending) a echoue
+#                     (poste 100% distant qui n'atteint jamais le share interne).
+# Config locale cloud.json (par machine, livree par Intune). Si le cloud echoue,
+# le buffer local reste et le prochain cycle reessaiera. cloud.json absent -> saute.
+if ($cloud -and ($directCloud -or (-not $shareWritten))) {
+    if (Send-ToCloud -Url $cloud.Url -Token $cloud.Token -JsonContent $jsonContent) {
+        $cloudWritten = $true
+        if ($directCloud) {
+            Write-Log "Mode Direct -> rapport envoye au CLOUD (Function Azure) OK"
+        } else {
+            Write-Log "Share injoignable -> rapport envoye au CLOUD (Function Azure) OK"
+        }
+    } else {
+        if ($directCloud) {
+            Write-Log "Mode Direct : cloud KO -> buffer local conserve, retry au prochain cycle"
+        } else {
+            Write-Log "Share injoignable ET cloud KO -> buffer local conserve, retry au prochain cycle"
+        }
+    }
+}
+
 # --- Bilan final ---
-if ($shareWritten) {
+if ($shareWritten -or $cloudWritten) {
     Write-Log ("Export OK - RealBoots:{0} (CB:{1}/FS:{2}/R:{3}) Crash:{4} BSOD:{5} Uptime:{6}j WHEA_Fatal:{7} WHEA_Corr:{8} Batt:{9}% SvcAlertes:{10} BootPerf:{11}ms Disk:{12} Monitors:{13}" -f `
         $payload.Stats.TotalRealBoots,
         $payload.Stats.BootsByType.ColdBoot,
@@ -3368,5 +3556,5 @@ if ($shareWritten) {
         Write-Log ("WARN | Arrays tronques dans ce JSON : {0}" -f ($truncatedNames -join ', '))
     }
 } else {
-    Write-Log "=== EXPORT ECHEC : ni buffer local ni share n'ont pu etre ecrits ==="
+    Write-Log "=== EXPORT ECHEC : ni share/pending, ni cloud (si configure) n'ont abouti - buffer local conserve, retry au prochain cycle ==="
 }

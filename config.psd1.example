@@ -25,6 +25,29 @@
     MaskHealthyByDefault = $false  # masquer les PC sains au chargement
     CsvRanges            = 'ip-ranges.csv'   # mapping IP -> site (cf. ip-ranges.example.csv)
 
+    # ---- Tag de renouvellement (lu par le Dashboard) ----
+    # Remplace le tag CPU Recent/Vieillissant/Ancien (tableau + filtre + KPI) par une
+    # categorie binaire : "A renouveler" (candidat) vs "Parc courant", calculee depuis
+    # l'ANNEE du CPU. Un poste dont l'annee CPU est <= a ce seuil est candidat.
+    # Reperes : 2019 = Intel Core <= 9e gen (8e=2017, 9e=2018 ; le 10e gen commence
+    # a 2020) et AMD Ryzen <= 3000. L'age reel (annee + "N ans") reste visible dans
+    # l'onglet Materiel du drill-down.
+    # Laisser cette cle ABSENTE / commentee => on garde l'ancien tag d'age.
+    # RenewalCandidateMaxYear = 2019
+
+    # ---- Source CLOUD (hybride, postes 100% distants) - lu par le Dashboard ----
+    # Pour les postes qui n'atteignent jamais le share SMB (teletravail permanent),
+    # le Collecteur peut deposer son rapport dans un conteneur Azure via une Function
+    # (voir cloud.json local cote poste). Le Dashboard lit AUSSI ce conteneur et
+    # fusionne avec le share (par machine, le rapport le plus recent gagne).
+    # Renseigner ces 2 cles active la 2e source. Vides => share seul (inchange).
+    # Le SAS doit etre en LECTURE + LISTE seulement (sp=rl), portee au conteneur, expirable.
+    # CloudDepotBaseUrl = 'https://<compte>.blob.core.windows.net/depot'
+    # IMPORTANT : le SAS (secret de LECTURE) NE se met PAS ici - ce fichier est
+    # lisible par les postes. Il se passe en PARAMETRE du Dashboard :
+    #   .\02_Dashboard.ps1 ... -CloudDepotSas 'sv=...&sp=rl&...&sig=...'
+    # (dans la commande de la tache planifiee cote serveur = admin-only).
+
     # ---- Services critiques surveilles (lu par le Collector, schema 2.2) ----
     # Le Collector releve l'etat de chaque service et le remonte dans le JSON.
     # Le Dashboard repere l'entree Role='EDR' pour le score et le badge securite.

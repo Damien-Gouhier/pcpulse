@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.4.7-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.0-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Supervision de parc Windows zéro-dépendance.**
@@ -40,13 +40,13 @@ Si l'un de ces points résonne avec toi, n'hésite pas à ouvrir une [Issue](htt
 
 | Famille | Métriques |
 |---|---|
-| 🔒 **Sécurité** | Statut de l'EDR (défini dans config.psd1) : arrêté / absent ; OS en fin de support |
+| 🔒 **Sécurité** | Statut de l'EDR (défini dans config.psd1) : arrêté / absent ; client VPN (présence + version) ; OS en fin de support |
 | ⚠️ **Stabilité** | Crashs applicatifs, freezes, BSOD, WHEA fatal/corrected, GPU TDR, throttling thermique |
 | ⚡ **Performance** | Durée des boots, Boot Performance détaillée (MainPath, PostBoot, UserProfile, Explorer init) |
 | 🔧 **Usure matérielle** | Santé batterie (% d'usure + cycles), SMART disque (wear, temp, erreurs), écrans secondaires âgés |
 | 💻 **OS** | Windows 10 vs 11 (dérivé du build), édition, feature update — inventaire parc / suivi de fin de support |
 | 👤 **Utilisateur** | Session en cours, ou à défaut dernier utilisateur connecté (une entrée, pas d'historique) |
-| 📊 **Inventaire** | Modèle & fabricant machine (ex. Dell Inspiron 7490 — recherche et filtre par modèle, répartition du parc), n° de série (service tag), CPU (modèle, année, ancienneté), RAM (barrettes : type, fabricant décodé JEDEC, capacité d'upgrade), disques, châssis (Laptop/Desktop/AIO), moniteurs externes (EDID ; écrans « non identifiés » signalés quand un dock/adaptateur ne relaie pas l'EDID) |
+| 📊 **Inventaire** | Modèle & fabricant machine (ex. Dell Inspiron 7490 — recherche et filtre par modèle, répartition du parc), n° de série (service tag), CPU (modèle, année, ancienneté, **catégorie de renouvellement** configurable — « À renouveler » vs « Parc courant »), RAM (barrettes : type, fabricant décodé JEDEC, capacité d'upgrade), disques, châssis (Laptop/Desktop/AIO), moniteurs externes (EDID ; écrans « non identifiés » signalés quand un dock/adaptateur ne relaie pas l'EDID) |
 
 ## 📸 Aperçu
 
@@ -131,7 +131,9 @@ Le HTML s'ouvre automatiquement dans ton navigateur. Tu peux explorer les 5 scé
             │   │   └─ KILLSWITCH.txt (optionnel)
             │   ├─ killed\         │
             │   ├─ logs\           │
-            │   ├─ PC1.json        │
+            │   ├─ pending\        │ ◄── dépôt si racine non inscriptible (poste réimagé)
+            │   ├─ archive\        │ ◄── JSON de postes partis (>30j), purgé ensuite
+            │   ├─ PC1.json        │ ◄── un poste ne peut écraser QUE le sien
             │   ├─ PC2.json        │
             │   └─ ...             │
             └──────────┬───────────┘
@@ -156,6 +158,27 @@ Le HTML s'ouvre automatiquement dans ton navigateur. Tu peux explorer les 5 scé
 - **Rétrocompatible** : le Dashboard accepte les schémas JSON 2.1 et 2.2 (le temps du rollout poste-par-poste).
 - **Auto-update** : `PCPulse-Updater.ps1` télécharge automatiquement les nouvelles versions du Collector depuis `\release\` avec vérification SHA256.
 - **Killswitch** : auto-désinstallation à distance via fichier sentinelle (voir plus bas).
+
+### 🌩️ Hybride — postes en télétravail permanent (optionnel)
+
+Un poste qui n'atteint **jamais** le partage SMB (télétravail 100 %) était un
+angle mort. En option, le Collector peut **basculer vers un endpoint HTTPS**
+(type Azure Function ou équivalent) quand le SMB est injoignable — ou aller
+**droit au cloud** (mode `Direct`) pour les postes qui ne rentrent jamais au
+bureau. Le Dashboard lit alors **deux sources** (partage SMB + dépôt distant) et
+les **fusionne** en gardant, par machine, la remontée la plus récente.
+
+- **100 % opt-in et additif** : piloté par un fichier local `cloud.json`
+  (`{ Url, Token, Mode }`). Absent → comportement strictement inchangé.
+- **Anti-usurpation** : chaque poste a un **token propre**, lié côté serveur à un
+  nom de machine ; un poste ne peut publier que **son** rapport. Aucun secret
+  partagé côté poste.
+- **Schéma JSON inchangé** : c'est le même rapport, un autre tuyau.
+
+> Le repo fournit la logique côté Collector/Dashboard. La brique serveur
+> (endpoint d'ingestion + stockage des rapports) est à héberger de votre côté
+> (une Azure Function + un conteneur blob, ou tout équivalent qui accepte un POST
+> et expose les rapports en lecture).
 
 ## ⚙️ Configuration
 
@@ -264,6 +287,13 @@ point sensible du modèle — il a donc été **durci en profondeur** :
   génération complète).
 - **Surface réduite.** Config en **lecture seule** pour les postes (dans `release\`),
   killswitch en **opt-in** (désactivé par défaut).
+- **Racine durcie contre la forge.** La racine du partage n'accorde aux postes que
+  la **création** de fichiers (`CreateFiles`), pas la modification de ceux des
+  autres : via un ACE `CREATOR OWNER`, un poste ne peut réécraser **que son propre**
+  `<PC>.json`. Un poste compromis peut donc déposer son rapport mais **ne peut plus
+  écraser ni forger** celui d'un autre (fin du « mentir sur le parc / vider le
+  dashboard »). Un poste réimagé (nouveau SID) bascule proprement sur `pending\`,
+  réconcilié côté serveur par `Reconcile-FleetJson.ps1`.
 
 → **Avant tout déploiement**, lis [`SECURITY.md`](SECURITY.md) : trust model, ACLs
 recommandées (et le scénario d'attaque qu'elles ferment), modèle de menace du

@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    PCPulse - Decommission-PC.ps1 v2.1 - marquage du cycle de vie des postes
+    PCPulse - Decommission-PC.ps1 v2.3 - marquage du cycle de vie des postes
 .DESCRIPTION
     Outil interactif (double-clic via un .bat lanceur) pour gerer la mise en
     decommission d'un poste, cote DONNEE uniquement : il ne touche JAMAIS la
@@ -30,9 +30,14 @@
     est choisi dans la liste DecommissionTechs.
 
     Multi-ecriture : plusieurs techs peuvent modifier le registre en meme temps
-    -> verrou par fichier lock + retry (recuperation auto d'un lock abandonne),
-    et ecriture ATOMIQUE SMB-safe (fichier tmp puis Move-Item -Force ; JAMAIS
-    [IO.File]::Replace qui echoue sur un chemin UNC).
+    -> verrou par fichier lock + retry, et ecriture ATOMIQUE SMB-safe (fichier tmp
+    puis Move-Item -Force ; JAMAIS [IO.File]::Replace qui echoue sur un chemin UNC).
+    Le verrou est tenu par un HANDLE OUVERT pendant toute l'action : un technicien
+    qui reste longtemps sur un prompt ne peut pas se le faire voler (c'est l'OS qui
+    refuse la suppression, pas une comparaison de dates), et un verrou reellement
+    orphelin reste recuperable puisqu'un processus mort libere ses handles. Le lock
+    porte en plus un GUID que Save-Registry revalide avant toute ecriture : si le
+    verrou a disparu, l'ecriture est REFUSEE au lieu d'ecraser le registre.
 .PARAMETER RegistryPath
     Dossier OU vivent le registre (decommissioning.json), le lock et le fichier
     de reglages (decom-config.psd1). C'est l'emplacement ou les techs ont le
@@ -44,9 +49,60 @@
     Auteur     : Damien Gouhier
     Repository : https://github.com/Damien-Gouhier/pcpulse
     Licence    : MIT
-    Version    : 2.2
+    Version    : 2.3
     Runtime    : PowerShell 5.1+ (lance depuis le poste d'un tech, compte normal)
 .CHANGELOG
+    v2.3 : [FIX CRITIQUE] Vol de verrou -> perte de donnee SILENCIEUSE. Le lock
+           etait cree puis referme aussitot, et la detection d'abandon reposait sur
+           le seul LastWriteTime, jamais retouche apres l'acquisition : un tech
+           reste plus de 5 min sur un prompt (Raison, Select-Tech) se faisait
+           RECUPERER son verrou. Les deux operateurs appelaient alors Save-Registry,
+           qui reecrit le tableau ENTIER -> le dernier ecrasait l'entree de l'autre,
+           sans erreur ni trace. Deux barrieres independantes :
+           (1) le handle du lock reste OUVERT en FileShare::Read pendant toute
+               l'action -> la suppression concurrente echoue au niveau de l'OS
+               (Read n'accorde pas FILE_SHARE_DELETE), quel que soit l'age du
+               verrou. Un operateur lent n'est plus depossede.
+           (2) le lock porte un GUID ; Save-Registry appelle Test-RegistryLockHeld
+               en tout premier et THROW si le token a disparu ou change -> refus
+               d'ecrire bruyant au lieu d'un ecrasement muet.
+           La detection de verrou abandonne n'est plus temporelle : on SONDE le
+           fichier en FileShare::None ; si l'ouverture reussit, plus aucun handle ne
+           le tient donc le detenteur est mort (crash, Ctrl+C, fenetre fermee) et le
+           residu est recupere IMMEDIATEMENT, sans attendre 5 min. Le controle d'age
+           subsiste en repli pour le cas ou la sonde echoue sans detenteur vivant
+           (ACL NTFS refusant l'ouverture du fichier cree par un autre technicien).
+           Remove-RegistryLock ne supprime plus le lock que s'il porte notre token
+           (sinon il volerait a son tour le verrou de celui qui l'a re-pris), et un
+           echec de liberation est desormais SIGNALE au lieu d'etre avale.
+           [FIX] Lock orphelin si l'ecriture du token echouait apres CreateNew
+           (share plein, session SMB coupee) : le fichier restait avec un token
+           inconnu de tous -> registre bloque, message trompeur "verrouille par un
+           autre operateur". Le fichier est maintenant supprime dans ce cas.
+           La recuperation rapide ne s'applique qu'aux locks PORTANT UN TOKEN (3 champs) :
+           un lock ecrit par un v2.2 (2 champs, handle referme) retombe sur le controle
+           d'age, sinon on lui volerait son verrou pendant la fenetre de deploiement
+           mixte -- en reintroduisant le bug qu'on corrige.
+           [FIX] -LiteralPath sur tous les acces fichier (lock, registre, config) :
+           un RegistryPath contenant des crochets ("...\Parc [ancien]\decom") etait
+           interprete comme un MOTIF par -Path -> Test-Path $false sur un dossier
+           existant, et l'outil devenait inutilisable de facon inexplicable.
+           [SECURITE] Fail-open sur les actions reservees. "config ABSENTE" (aucune
+           restriction, voulu) et "config PRESENTE ET ILLISIBLE" (panne) tombaient sur
+           le MEME test ($Admins vide) : une faute de frappe dans decom-config.psd1 --
+           ou le bug de crochets ci-dessus -- ouvrait Repousser [3] et Retirer [4] a
+           tout le monde. Une config presente et illisible bloque desormais [3]/[4].
+           Et toute cle INCONNUE du .psd1 est nommee en console : une cle mal
+           orthographiee (DecomissionAdmins, un M) parse sans erreur et etait ignoree
+           en silence, avec le meme fail-open a la clef.
+           [FIX] Chemin relatif : -RegistryPath est resolu en ABSOLU au demarrage. Le
+           script melange cmdlets PowerShell et API .NET (pour la litteralite et le
+           controle des share modes), et les deux ne resolvent PAS les chemins relatifs
+           pareil (emplacement PowerShell vs [Environment]::CurrentDirectory) -> on
+           aurait lu un dossier et ecrit dans un autre.
+           [FIX] Move-Item -Destination echappe : la destination n'a pas de variante
+           litterale et etait traitee comme un motif -> sur un chemin a crochets,
+           CHAQUE sauvegarde echouait (le .tmp restait sur le share).
     v2.2 : [FIX] Lecture du registre forcee en UTF-8 (Get-Registry). Save-Registry
            ecrit en UTF-8 mais Get-Content SANS -Encoding relit en ANSI (defaut
            PS 5.1) -> le "c cedille" de "Francois" se re-encodait a chaque cycle,
@@ -82,6 +138,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Normalisation du chemin en ABSOLU avant tout Join-Path.
+# Ce script melange volontairement cmdlets PowerShell (Test-Path, Remove-Item) et API
+# .NET (File::Open, File::WriteAllText, Directory::CreateDirectory) -- les .NET pour
+# leur litteralite et pour le controle des share modes du verrou. Or les deux ne
+# resolvent PAS les chemins relatifs de la meme facon : les cmdlets partent de
+# l'emplacement PowerShell courant, les API .NET de [Environment]::CurrentDirectory,
+# qui n'est pas synchronise avec lui. Un -RegistryPath relatif (rien ne l'interdit)
+# ferait donc lire un dossier et ecrire dans un autre : la sonde d'ecriture passerait,
+# Get-Registry lirait un dossier vide, et Save-Registry ecrirait le .tmp ailleurs avant
+# d'echouer sur le Move-Item. GetUnresolvedProviderPathFromPSPath resout sans exiger
+# que la cible existe (le dossier peut etre a creer) et sans developper les jokers.
+$RegistryPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RegistryPath)
+
 $RegistryFile = Join-Path $RegistryPath 'decommissioning.json'
 $LockFile     = Join-Path $RegistryPath 'decommissioning.lock'
 $ConfigFile   = Join-Path $RegistryPath 'decom-config.psd1'
@@ -92,7 +161,14 @@ $Operator     = $env:USERNAME
 # SONDE D'ECRITURE : echec ici = probleme de DROITS, pas de verrou.
 # ============================================================
 try {
-    if (-not (Test-Path $RegistryPath)) { New-Item -ItemType Directory -Path $RegistryPath -Force | Out-Null }
+    # -LiteralPath partout sur les chemins de config : un RegistryPath contenant des
+    # crochets (ex. "\\SRV\SHARE\Parc [ancien]\decom") est interprete comme un MOTIF
+    # par -Path -> Test-Path renvoie $false sur un dossier qui existe. Meme classe de
+    # bug que l'encodage : silencieux, et il ne se manifeste que chez le client qui a
+    # un chemin exotique.
+    # [System.IO.Directory]::CreateDirectory et non New-Item : New-Item n'a pas de
+    # -LiteralPath, son -Path resout les jokers. Les API .NET sont litterales.
+    if (-not (Test-Path -LiteralPath $RegistryPath)) { [void][System.IO.Directory]::CreateDirectory($RegistryPath) }
     $probe = Join-Path $RegistryPath (".pcpulse.write.test.$PID.tmp")
     [System.IO.File]::WriteAllText($probe, 'ok', $Utf8NoBom)
     Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
@@ -111,47 +187,196 @@ $Techs       = @()
 $Admins      = @()
 $graceCfg    = 30
 $PcNameRegex = ''
-if (Test-Path $ConfigFile) {
+$configBroken = $false
+if (Test-Path -LiteralPath $ConfigFile) {
     try {
-        $cfg = Import-PowerShellDataFile -Path $ConfigFile -ErrorAction Stop
+        # -LiteralPath : Import-PowerShellDataFile resout les jokers sur -Path. Avec un
+        # RegistryPath a crochets, l'import echouait -> $Admins vide -> voir plus bas,
+        # c'etait un fail-OPEN sur les actions reservees.
+        $cfg = Import-PowerShellDataFile -LiteralPath $ConfigFile -ErrorAction Stop
         if ($cfg.DecommissionTechs)      { $Techs       = @($cfg.DecommissionTechs) }
         if ($cfg.DecommissionAdmins)     { $Admins      = @($cfg.DecommissionAdmins) }
         if ($cfg.DecommissionGraceDays)  { $graceCfg    = [int]$cfg.DecommissionGraceDays }
         if ($cfg.PcNameRegex)            { $PcNameRegex = [string]$cfg.PcNameRegex }
+        # Meme esprit que le coverage-check du Dashboard : une cle mal orthographiee
+        # (DecomissionAdmins, un M) parse SANS erreur et est ignoree en silence. Sur
+        # DecommissionAdmins la consequence est un fail-open (liste vide = tout le monde
+        # admin), donc on nomme toute cle inconnue au lieu de la laisser passer.
+        $knownCfgKeys = @('DecommissionTechs','DecommissionAdmins','DecommissionGraceDays','PcNameRegex')
+        $unknownCfg   = @($cfg.Keys | Where-Object { $_ -notin $knownCfgKeys })
+        if ($unknownCfg.Count -gt 0) {
+            Write-Host "[!] decom-config.psd1 : cle(s) INCONNUE(S) ignoree(s) -> $($unknownCfg -join ', ')" -ForegroundColor Yellow
+            Write-Host "    Faute de frappe ? Cles attendues : $($knownCfgKeys -join ', ')" -ForegroundColor Yellow
+        }
     } catch {
-        Write-Host "[!] decom-config.psd1 illisible ($_). Liste techs vide, saisie libre." -ForegroundColor Yellow
+        $configBroken = $true
+        Write-Host "[!] decom-config.psd1 PRESENT mais illisible ($_)." -ForegroundColor Red
+        Write-Host "    Liste techs vide (saisie libre) et actions [3]/[4] BLOQUEES par precaution." -ForegroundColor Yellow
     }
 }
 if ($GraceDays -le 0) { $GraceDays = $graceCfg }
 
 # Repousser [3] / Retirer [4] reserves aux comptes listes dans DecommissionAdmins
 # (comparaison sur le compte de SESSION $env:USERNAME). Liste vide/absente =>
-# aucune restriction (tout le monde a acces).
-$IsAdmin = ($Admins.Count -eq 0) -or ($Admins -contains $env:USERNAME)
+# aucune restriction (tout le monde a acces) : c'est VOULU, un deploiement sans
+# config n'est pas un deploiement restreint.
+# v2.3 : mais "config ABSENTE" et "config PRESENTE ET ILLISIBLE" ne sont pas la meme
+# chose. Le second cas est une PANNE, et il tombait sur le meme test ($Admins vide)
+# -> une simple faute de frappe dans le .psd1, ou un chemin a crochets, ouvrait [3]
+# et [4] a tout le monde. Fail-open sur un controle d'acces : on ferme.
+$IsAdmin = (-not $configBroken) -and (($Admins.Count -eq 0) -or ($Admins -contains $env:USERNAME))
 
 # ============================================================
 # VERROU (multi-ecriture) : lock-file + retry + recuperation auto
 # ============================================================
+# PIEGE CORRIGE EN v2.3 -- "VOL DE VERROU" ET PERTE DE DONNEE SILENCIEUSE.
+#
+# Jusqu'en v2.2, le lock etait un fichier cree puis IMMEDIATEMENT REFERME, et la
+# detection de verrou abandonne reposait sur le seul LastWriteTime, qui n'etait
+# jamais retouche apres l'acquisition. Consequence : un technicien reste plus de
+# StaleMinutes sur un prompt (Read-NonEmpty "Raison", Select-Tech -- un appel
+# telephonique suffit) voyait son verrou juge "abandonne" et RECUPERE par un
+# second operateur. Les deux detenaient alors leur propre copie de $entries en
+# memoire, les deux appelaient Save-Registry -- qui reecrit le tableau ENTIER --
+# et le dernier a ecrire ECRASAIT l'entree de l'autre. Sans aucune trace : aucune
+# erreur, aucun log, l'entree disparaissait simplement du registre.
+#
+# Le correctif tient sur deux barrieres independantes :
+#
+#  1. EMPECHER LE VOL (barriere OS, pas barriere horloge). Le handle du lock reste
+#     OUVERT pendant toute la duree de l'action, en FileShare::Read : les autres
+#     peuvent LIRE le fichier (afficher qui tient le verrou, verifier le token)
+#     mais ni l'ecrire ni le SUPPRIMER -- la suppression exige que tous les
+#     handles ouverts aient concede FILE_SHARE_DELETE, ce qui n'est pas le cas.
+#     Un Remove-Item concurrent ECHOUE donc, quel que soit l'age du verrou. C'est
+#     Windows (et le serveur SMB, qui honore les share modes) qui arbitre, plus
+#     une comparaison de dates : un operateur lent n'est plus jamais depossede.
+#     Corollaire : un verrou REELLEMENT abandonne reste recuperable, car un
+#     processus mort libere ses handles -- la recuperation cesse d'etre une
+#     heuristique temporelle pour devenir un fait ("plus personne ne le tient").
+#     Le controle d'age est CONSERVE, mais il ne peut plus faire de degat : si un
+#     vivant tient le handle, la suppression echoue de toute facon. Il ne sert
+#     plus qu'au cas residuel du handle SMB orphelin (crash machine brutal /
+#     coupure reseau : le serveur garde le handle jusqu'au timeout de session).
+#
+#  2. EMPECHER LA CORRUPTION SI LE VERROU DISPARAIT QUAND MEME (defense en
+#     profondeur : suppression manuelle du .lock, share remonte, timeout SMB).
+#     Le lock porte un GUID, memorise dans $Script:LockToken. Save-Registry
+#     appelle Test-RegistryLockHeld en TOUT PREMIER et throw si le token a
+#     disparu ou change. Le catch du menu affiche alors "Action interrompue
+#     (registre inchange)" : on refuse d'ecrire au lieu d'ecraser en silence.
+#     Un refus bruyant vaut infiniment mieux qu'une perte de donnee muette.
+$Script:LockToken  = $null   # GUID de NOTRE verrou (null = on ne tient rien)
+$Script:LockHandle = $null   # handle maintenu ouvert = barriere anti-suppression
+
 function Get-RegistryLock {
     param([int]$TimeoutSec = 20, [int]$StaleMinutes = 5)
+    # Re-entrance : si on tient DEJA le verrou, ne pas retenter un CreateNew -- il
+    # echouerait sur notre propre fichier et la sonde d'orphelin buterait sur notre
+    # propre handle (les regles de partage sont par handle, pas par processus), pour
+    # finir sur un faux "verrouille par un autre operateur" apres 20 s d'attente.
+    # Le flux actuel ne peut pas y tomber (le finally du menu libere a chaque tour) ;
+    # c'est un garde-fou pour un futur appel imbrique.
+    if ($Script:LockHandle) { return $true }
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ((Get-Date) -lt $deadline) {
         try {
-            # CreateNew echoue si le fichier existe deja = verrou tenu par un autre
-            $fs = [System.IO.File]::Open($LockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-            $w = New-Object System.IO.StreamWriter($fs)
-            $w.WriteLine("$Operator | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
-            $w.Flush(); $w.Dispose(); $fs.Dispose()
+            # CreateNew echoue si le fichier existe deja = verrou tenu par un autre.
+            # FileShare::Read (et NON None) : les autres processus doivent pouvoir
+            # RELIRE le token pour verifier qu'ils ne tiennent pas un verrou perime.
+            # Read n'inclut pas Delete -> le fichier reste indestructible tant que
+            # ce handle vit.
+            $token = [guid]::NewGuid().ToString('N')
+            $fs = [System.IO.File]::Open($LockFile, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+            try {
+                $w = New-Object System.IO.StreamWriter($fs, $Utf8NoBom)
+                $w.WriteLine("$Operator | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | $token")
+                # INVARIANT A NE PAS RETIRER : ce Flush() est le seul chose qui pousse
+                # le token sur le disque. On ne dispose PAS $w/$fs (le handle ouvert EST
+                # le verrou) et StreamWriter n'a pas de finaliseur en .NET Framework :
+                # sans ce Flush, le fichier de lock resterait VIDE, Test-RegistryLockHeld
+                # echouerait toujours et Save-Registry refuserait toute ecriture.
+                $w.Flush()
+            } catch {
+                # L'ecriture du token a echoue APRES que CreateNew ait cree le fichier
+                # (share plein, session SMB coupee entre l'Open et le WriteLine). Sans
+                # ce Remove-Item on laisserait un lock ORPHELIN portant un token que
+                # personne ne connait : registre bloque pour tout le monde, avec le
+                # message trompeur "verrouille par un autre operateur".
+                # Dispose SOUS try/catch : dans le scenario meme qu'on traite (share
+                # plein), Dispose re-flushe le buffer du FileStream et releve la MEME
+                # IOException -> sans ce garde, l'exception sortirait avant le
+                # Remove-Item et le lock orphelin survivrait quand meme.
+                try { $fs.Dispose() } catch {}
+                Remove-Item -LiteralPath $LockFile -Force -ErrorAction SilentlyContinue
+                throw
+            }
+            $Script:LockHandle = $fs
+            $Script:LockToken  = $token
             return $true
         } catch {
-            # Verrou tenu. S'il est plus vieux que StaleMinutes, c'est un verrou
-            # ABANDONNE (fenetre restee ouverte / run interrompu) -> on le recupere.
+            # Verrou tenu par un autre, OU residu orphelin. On distingue les deux par
+            # une SONDE DETERMINISTE plutot que par une heuristique de date.
+            #
+            # Ouvrir le lock en exclusivite TOTALE (FileShare::None) : si ca REUSSIT,
+            # c'est qu'aucun autre handle ne le tient -> le detenteur est mort (crash,
+            # Ctrl+C, fenetre fermee) et le fichier n'est qu'un residu, quel que soit
+            # son age. Si un detenteur est VIVANT, son acces Write n'est pas autorise
+            # par le FileShare::None qu'on demande -> la sonde echoue et on boucle.
+            # C'est l'OS qui repond "est-ce que quelqu'un le tient", au lieu de deduire
+            # l'abandon du temps ecoule : plus de fenetre de 5 min a attendre apres un
+            # Ctrl+C, et plus jamais de vol d'un verrou legitimement tenu.
+            $orphan = $false
             try {
-                $lockAge = (Get-Date) - (Get-Item $LockFile -ErrorAction Stop).LastWriteTime
-                if ($lockAge.TotalMinutes -ge $StaleMinutes) {
-                    Write-Host ("  [i] Verrou abandonne ({0:N0} min) -> recupere." -f $lockAge.TotalMinutes) -ForegroundColor Yellow
-                    Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
+                $lockProbe = [System.IO.File]::Open($LockFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+                try {
+                    # COMPATIBILITE v2.2 -> v2.3 (fenetre de deploiement mixte).
+                    # La sonde ne prouve "personne ne le tient" que face a un pair qui
+                    # TIENT un handle, c'est-a-dire un pair v2.3. Un lock ecrit par un
+                    # Decommission-PC.ps1 v2.2 (fenetre restee ouverte pendant la mise a
+                    # jour de l'outil) etait cree puis REFERME aussitot : la sonde
+                    # reussirait et on lui volerait son verrou -- en reintroduisant
+                    # exactement la perte de donnee qu'on corrige.
+                    # On distingue les deux par la FORME du lock : v2.3 ecrit trois
+                    # champs ("operateur | date | token"), v2.2 en ecrivait deux. Sans
+                    # token, on ne se croit pas autorise a recuperer vite : on retombe
+                    # sur le controle d'age, qui est le contrat de la v2.2.
+                    $sr        = New-Object System.IO.StreamReader($lockProbe, [System.Text.Encoding]::UTF8)
+                    $lockLine  = $sr.ReadLine()
+                    $orphan    = (($lockLine -split '\|').Count -ge 3)
+                } finally { $lockProbe.Dispose() }
+            } catch {}
+
+            if ($orphan) {
+                try {
+                    # -ErrorAction Stop : un echec silencieux ici relancerait la boucle
+                    # sans temporisation (sonde OK -> Remove KO -> continue -> ...), soit
+                    # une boucle serree a 100 % de CPU pendant tout le TimeoutSec, en
+                    # affichant des milliers de "verrou recupere" mensongers. Cas reel :
+                    # ACL du dossier partage accordant l'ecriture mais pas la SUPPRESSION
+                    # d'un fichier cree par un autre technicien.
+                    Remove-Item -LiteralPath $LockFile -Force -ErrorAction Stop
+                    Write-Host "  [i] Verrou orphelin (plus aucun detenteur) -> recupere." -ForegroundColor Yellow
+                    continue    # retente CreateNew immediatement
+                } catch {
+                    Write-Host "  [!] Residu de verrou impossible a supprimer ($_)." -ForegroundColor Red
+                    Start-Sleep -Milliseconds 400
                     continue
+                }
+            }
+
+            # REPLI sur l'age : la sonde peut echouer pour une raison qui n'est PAS un
+            # detenteur vivant -- typiquement une ACL NTFS qui nous refuse l'ouverture
+            # en ecriture du fichier cree par un autre technicien (les techs ecrivent
+            # avec leur compte de session dans un dossier partage). Sans ce repli, un
+            # tel residu bloquerait le registre indefiniment. Ce chemin est sans risque :
+            # si un detenteur est vivant, le Remove-Item echoue de toute facon (son
+            # FileShare::Read n'accorde pas DELETE).
+            try {
+                $lockAge = (Get-Date) - (Get-Item -LiteralPath $LockFile -ErrorAction Stop).LastWriteTime
+                if ($lockAge.TotalMinutes -ge $StaleMinutes) {
+                    Remove-Item -LiteralPath $LockFile -Force -ErrorAction Stop
+                    Write-Host ("  [i] Verrou residuel ({0:N0} min) -> recupere." -f $lockAge.TotalMinutes) -ForegroundColor Yellow
                 }
             } catch {}
             Start-Sleep -Milliseconds 400
@@ -159,15 +384,58 @@ function Get-RegistryLock {
     }
     return $false
 }
+
+function Test-RegistryLockHeld {
+    # Retourne $true seulement si le lock existe ENCORE et porte NOTRE token.
+    if (-not $Script:LockToken) { return $false }
+    try {
+        if (-not (Test-Path -LiteralPath $LockFile)) { return $false }
+        # PIEGE PARTAGE DE FICHIER : on ne peut PAS relire avec Get-Content ici.
+        # Notre propre handle de verrou est ouvert en FileAccess::Write ; un
+        # lecteur classique (Get-Content, File::ReadAllText, StreamReader) demande
+        # implicitement FileShare::Read, ce qui INTERDIT l'acces Write deja detenu
+        # -> violation de partage, meme depuis notre processus (les regles de
+        # partage s'appliquent par HANDLE, pas par processus). Il faut donc ouvrir
+        # explicitement en concedant FileShare::ReadWrite.
+        $rs = [System.IO.File]::Open($LockFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            $sr   = New-Object System.IO.StreamReader($rs, [System.Text.Encoding]::UTF8)
+            $line = $sr.ReadLine()
+        } finally { $rs.Dispose() }
+        return ($line -like "*$($Script:LockToken)*")
+    } catch {
+        # Lock illisible : on ne peut pas PROUVER qu'on le tient -> on considere
+        # que non. Cote Save-Registry cela produit un refus d'ecrire, jamais un
+        # ecrasement : c'est le sens de la faute qu'on veut.
+        return $false
+    }
+}
+
 function Remove-RegistryLock {
-    try { if (Test-Path $LockFile) { Remove-Item $LockFile -Force -ErrorAction SilentlyContinue } } catch {}
+    # Liberer le handle AVANT de supprimer, sinon notre propre barriere nous bloque.
+    try { if ($Script:LockHandle) { $Script:LockHandle.Dispose() } } catch {}
+    $Script:LockHandle = $null
+    # Ne supprimer que si le fichier est bien LE NOTRE : si notre verrou a ete
+    # perdu et re-pris par un autre operateur entre-temps, supprimer ici lui
+    # volerait son verrou a son tour (propagation du bug qu'on corrige).
+    try {
+        if ((Test-Path -LiteralPath $LockFile) -and (Test-RegistryLockHeld)) {
+            # Pas de -ErrorAction SilentlyContinue muet : un echec de suppression
+            # laisse notre lock sur le disque sans detenteur, ce qui bloque les autres
+            # techniciens jusqu'au chemin de recuperation. Autant le dire tout de suite.
+            Remove-Item -LiteralPath $LockFile -Force -ErrorAction Stop
+        }
+    } catch {
+        Write-Host "  [!] Le verrou n'a pas pu etre libere ($_). Il sera recupere automatiquement au prochain lancement." -ForegroundColor Yellow
+    }
+    $Script:LockToken = $null
 }
 
 # ============================================================
 # LECTURE / ECRITURE du registre
 # ============================================================
 function Get-Registry {
-    if (-not (Test-Path $RegistryFile)) { return @() }
+    if (-not (Test-Path -LiteralPath $RegistryFile)) { return @() }
     try {
         # PIEGE ENCODAGE PS 5.1 : Save-Registry ecrit en UTF-8 (sans BOM), mais
         # Get-Content SANS -Encoding relit en ANSI par defaut -> le "c cedille" de
@@ -175,7 +443,7 @@ function Get-Registry {
         # le mojibake se COMPOSE a chaque cycle et explose (observe : 1 nom -> 281 751
         # caracteres, fichier a 1,7 Mo). On force la lecture UTF-8 : coherent avec
         # l'ecriture, plus aucune recomposition.
-        $raw = Get-Content -Path $RegistryFile -Raw -Encoding UTF8 -ErrorAction Stop
+        $raw = Get-Content -LiteralPath $RegistryFile -Raw -Encoding UTF8 -ErrorAction Stop
         if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
         # PIEGE PowerShell 5.1 : "$raw | ConvertFrom-Json" emet un tableau JSON
         # comme UN SEUL objet non-enumere. Un "@(...)" direct donnerait alors
@@ -195,6 +463,16 @@ function Get-Registry {
 }
 function Save-Registry {
     param([object[]]$Entries)
+    # GARDE-FOU EN TOUT PREMIER (v2.3) : ne JAMAIS reecrire le registre sans la
+    # preuve qu'on tient toujours le verrou. Save-Registry reecrit le tableau
+    # ENTIER a partir d'un $entries lu en memoire il y a peut-etre plusieurs
+    # minutes : ecrire sans verrou, c'est ecraser en silence tout ce qu'un autre
+    # operateur a fait entre-temps. Le throw remonte au catch du menu, qui affiche
+    # "Action interrompue (registre inchange)" -- message exact, l'action est
+    # perdue mais AUCUNE donnee d'autrui ne l'est.
+    if (-not (Test-RegistryLockHeld)) {
+        throw "verrou perdu (lock absent, expire ou repris par un autre operateur) - ecriture refusee pour ne pas ecraser le travail d'un autre. Relance l'action."
+    }
     # Ecriture ATOMIQUE SMB-safe : tmp unique -> Move-Item -Force (rename cote
     # serveur). Pas de [IO.File]::Replace (throw sur UNC).
     # Piege PS 5.1 : ConvertTo-Json d'un tableau a 1 element emet un OBJET, pas un
@@ -205,7 +483,12 @@ function Save-Registry {
     else                      { $json = $arr | ConvertTo-Json -Depth 6 }
     $tmp = "$RegistryFile.$PID.$([guid]::NewGuid().ToString('N')).tmp"
     [System.IO.File]::WriteAllText($tmp, $json, $Utf8NoBom)
-    Move-Item -LiteralPath $tmp -Destination $RegistryFile -Force
+    # -Destination n'a pas de variante litterale et est traite comme un MOTIF par le
+    # provider FileSystem : sur un chemin a crochets, la destination ne se resout pas
+    # et CHAQUE sauvegarde echoue (le .tmp reste sur le share, action perdue). On
+    # echappe les metacaracteres de joker ; sans effet sur un chemin normal.
+    Move-Item -LiteralPath $tmp -Force `
+        -Destination ([System.Management.Automation.WildcardPattern]::Escape($RegistryFile))
 }
 
 # ============================================================

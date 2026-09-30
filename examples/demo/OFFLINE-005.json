@@ -12,6 +12,7 @@
     "UptimeDays": 0.1,
     "CurrentUser": "(aucune session)",
     "LastLoggedUser": "thomas.bernard",
+    "CollectorRunAs": "DEMO\\gmsa-pcpulse$",
     "IP": "192.168.50.73",
     "CPUName": "AMD Ryzen 7 PRO 6850U",
     "CPUVendor": "AMD",
@@ -20,6 +21,9 @@
     "CPUAge": 4,
     "CPUAgeCategory": "Vieillissant",
     "ConnectionType": "WiFi",
+    "SerialNumber": null,
+    "Manufacturer": null,
+    "Model": null,
     "ChassisInfo": {
       "ChassisType": 10,
       "ChassisLabel": "Laptop",
@@ -29,6 +33,15 @@
     },
     "LastRealColdBoot": "2026-06-19 10:30:00",
     "FastStartupEnabled": true
+  },
+  "Meta": {
+    "TruncatedArrays": {
+      "TopCrashers": false,
+      "BSODs": false,
+      "BootDurations": false,
+      "Events": false,
+      "ResourceWarnings": false
+    }
   },
   "Events": [],
   "BootDurations": [
@@ -159,9 +172,12 @@
   "DiskInfo": [
     {
       "Drive": "C:",
-      "FreeGB": 290,
+      "Label": "Windows",
       "TotalGB": 512,
-      "PctFree": 56,
+      "UsedGB": 222,
+      "FreeGB": 290,
+      "PctUsed": 43,
+      "PctFree": 57,
       "IsAlert": false
     }
   ],
@@ -276,6 +292,8 @@
     "DiskAlerts": 0,
     "TopCrasherApp": "",
     "TopCrasherCount": 0,
+    "TopAppFailureApp": "",
+    "TopAppFailureCount": 0,
     "TotalWHEAFatal": 0,
     "TotalWHEACorrected": 0,
     "WHEACorrectedUnique": 0,

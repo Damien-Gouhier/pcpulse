@@ -12,6 +12,7 @@
     "UptimeDays": 8.0,
     "CurrentUser": "thomas.petit",
     "LastLoggedUser": "thomas.petit",
+    "CollectorRunAs": "NT AUTHORITY\\SYSTEM",
     "IP": "10.20.0.101",
     "CPUName": "Intel(R) Core(TM) i5-8500",
     "CPUVendor": "Intel",
@@ -20,6 +21,9 @@
     "CPUAge": 8,
     "CPUAgeCategory": "Ancien",
     "ConnectionType": "Ethernet",
+    "SerialNumber": "5CD8410XYZ",
+    "Manufacturer": "HP",
+    "Model": "EliteDesk 800 G4 SFF",
     "ChassisInfo": {
       "ChassisType": 3,
       "ChassisLabel": "Desktop",
@@ -29,6 +33,15 @@
     },
     "LastRealColdBoot": "2026-06-25 09:22:00",
     "FastStartupEnabled": false
+  },
+  "Meta": {
+    "TruncatedArrays": {
+      "TopCrashers": false,
+      "BSODs": false,
+      "BootDurations": false,
+      "Events": false,
+      "ResourceWarnings": false
+    }
   },
   "Events": [],
   "BootDurations": [
@@ -46,14 +59,18 @@
   "TopRAM": [
     {
       "Name": "OUTLOOK",
-      "WorkingSetMB": 450
+      "WorkingSetMB": 450,
+      "CPUSeconds": 1245.3
     }
   ],
   "DiskInfo": [
     {
       "Drive": "C:",
-      "FreeGB": 24,
+      "Label": "Windows",
       "TotalGB": 256,
+      "UsedGB": 232,
+      "FreeGB": 24,
+      "PctUsed": 91,
       "PctFree": 9,
       "IsAlert": true
     }
@@ -174,11 +191,81 @@
   ],
   "TopCrashers": [],
   "HardwareHealth": {
-    "WHEA_Fatal": [],
-    "WHEA_Corrected": [],
-    "GPU_TDR": [],
-    "Thermal": [],
-    "CPUThrottling": []
+    "WHEA_Fatal": [
+      {
+        "Timestamp": "2026-07-01 14:22:00",
+        "EventId": 18,
+        "Severity": 1,
+        "Component": "Memory",
+        "ErrorSource": "Machine Check Exception",
+        "BDF": "",
+        "Detail": "A fatal hardware error has occurred. Reported by component: Memory"
+      },
+      {
+        "Timestamp": "2026-06-24 10:05:00",
+        "EventId": 18,
+        "Severity": 1,
+        "Component": "Processor Core",
+        "ErrorSource": "Machine Check Exception",
+        "BDF": "",
+        "Detail": "A fatal hardware error has occurred. Reported by component: Processor Core"
+      }
+    ],
+    "WHEA_Corrected": [
+      {
+        "Component": "Memory",
+        "EventId": 47,
+        "ErrorSource": "Corrected Machine Check",
+        "BDF": "",
+        "Count": 63,
+        "FirstSeen": "2026-06-11 08:30:00",
+        "LastSeen": "2026-07-02 17:41:00",
+        "Detail": "A corrected hardware error has occurred. Reported by component: Memory"
+      }
+    ],
+    "GPU_TDR": [
+      {
+        "Timestamp": "2026-07-02 11:47:00",
+        "Driver": "igdkmd64.sys",
+        "Detail": "Display driver igdkmd64 stopped responding and has successfully recovered."
+      },
+      {
+        "Timestamp": "2026-06-26 15:12:00",
+        "Driver": "igdkmd64.sys",
+        "Detail": "Display driver igdkmd64 stopped responding and has successfully recovered."
+      }
+    ],
+    "Thermal": [
+      {
+        "Timestamp": "2026-06-30 16:38:00",
+        "AlertType": "Arret thermique critique",
+        "Temperature": 105,
+        "Zone": "\\_TZ.TZ01",
+        "Detail": "The system has been shut down because of a thermal event."
+      }
+    ],
+    "CPUThrottling": [
+      {
+        "Day": "2026-06-30",
+        "EventId": 37,
+        "Type": "Thermal throttle",
+        "Count": 212,
+        "TotalSeconds": 1840,
+        "FirstSeen": "2026-06-30 09:15:00",
+        "LastSeen": "2026-06-30 16:37:00",
+        "Detail": "The speed of processor 0 is being limited by system firmware."
+      },
+      {
+        "Day": "2026-06-27",
+        "EventId": 37,
+        "Type": "Thermal throttle",
+        "Count": 88,
+        "TotalSeconds": 720,
+        "FirstSeen": "2026-06-27 13:02:00",
+        "LastSeen": "2026-06-27 15:44:00",
+        "Detail": "The speed of processor 0 is being limited by system firmware."
+      }
+    ]
   },
   "Stats": {
     "TotalBoots": 1,
@@ -196,12 +283,14 @@
     "DiskAlerts": 1,
     "TopCrasherApp": "",
     "TopCrasherCount": 0,
-    "TotalWHEAFatal": 0,
-    "TotalWHEACorrected": 0,
-    "WHEACorrectedUnique": 0,
-    "TotalGPU": 0,
-    "TotalThermal": 0,
-    "TotalHardware": 0,
+    "TopAppFailureApp": "",
+    "TopAppFailureCount": 0,
+    "TotalWHEAFatal": 2,
+    "TotalWHEACorrected": 63,
+    "WHEACorrectedUnique": 1,
+    "TotalGPU": 2,
+    "TotalThermal": 1,
+    "TotalHardware": 5,
     "DerniereActivite": "2026-07-03 09:00:00",
     "Event12Trouve": 1,
     "Event27Trouve": 1,
@@ -214,7 +303,7 @@
     "DiskHealthAlert": false,
     "MonitorsCount": 2,
     "TotalHardCrash": 0,
-    "TotalCPUThrottling": 0
+    "TotalCPUThrottling": 2
   },
   "MemoryInventory": {
     "TotalInstalledGB": 8,

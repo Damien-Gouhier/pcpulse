@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)](https://learn.microsoft.com/powershell/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](.)
-[![Version](https://img.shields.io/badge/version-2.4.7-brightgreen)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.5.0-brightgreen)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-pilot-orange)](.)
 
 > **Zero-dependency Windows fleet monitoring.**
@@ -42,13 +42,13 @@ If any of these resonate with you, feel free to open an [Issue](https://github.c
 
 | Category | Metrics |
 |---|---|
-| 🔒 **Security** | EDR status (defined in config.psd1): stopped / absent; OS end-of-support |
+| 🔒 **Security** | EDR status (defined in config.psd1): stopped / absent; VPN client (presence + version); OS end-of-support |
 | ⚠️ **Stability** | Application crashes, freezes, BSODs, WHEA fatal/corrected, GPU TDR, thermal throttling |
 | ⚡ **Performance** | Boot duration, detailed Boot Performance (MainPath, PostBoot, UserProfile, Explorer init) |
 | 🔧 **Hardware wear** | Battery health (wear % + cycles), Disk SMART (wear, temp, errors), aging secondary monitors |
 | 💻 **OS** | Windows 10 vs 11 (derived from build), edition, feature update — fleet inventory / end-of-support tracking |
 | 👤 **User** | Current session, or last logged-on user as fallback (single entry, not a history) |
-| 📊 **Inventory** | Machine model & manufacturer (e.g. Dell Inspiron 7490 — search and filter by model, fleet breakdown), serial (service tag), CPU (model, year, age category), RAM (modules: type, JEDEC-decoded vendor, upgrade headroom), disks, chassis (Laptop/Desktop/AIO), external monitors (EDID; screens flagged "unidentified" when a dock/adapter doesn't relay EDID) |
+| 📊 **Inventory** | Machine model & manufacturer (e.g. Dell Inspiron 7490 — search and filter by model, fleet breakdown), serial (service tag), CPU (model, year, age, **configurable renewal category** — "To renew" vs "Current fleet"), RAM (modules: type, JEDEC-decoded vendor, upgrade headroom), disks, chassis (Laptop/Desktop/AIO), external monitors (EDID; screens flagged "unidentified" when a dock/adapter doesn't relay EDID) |
 
 ## 📸 Preview
 
@@ -158,6 +158,25 @@ The HTML opens automatically in your browser. Explore the 5 example scenarios:
 - **Backward compatible**: the Dashboard accepts JSON schemas 2.1 and 2.2 (during the gradual per-machine rollout).
 - **Auto-update**: `PCPulse-Updater.ps1` automatically pulls the latest Collector from `\release\` with SHA256 verification.
 - **Killswitch**: remote uninstall via a sentinel file (see below).
+
+### 🌩️ Hybrid — permanent remote workers (optional)
+
+A PC that **never** reaches the SMB share (100% remote work) used to be a blind
+spot. Optionally, the Collector can **fall back to an HTTPS endpoint** (Azure
+Function or equivalent) when SMB is unreachable — or go **straight to the cloud**
+(`Direct` mode) for PCs that never come back on-site. The Dashboard then reads
+**two sources** (SMB share + remote depot) and **merges** them, keeping the most
+recent report per machine.
+
+- **Fully opt-in and additive**: driven by a local `cloud.json`
+  (`{ Url, Token, Mode }`). Absent → behavior strictly unchanged.
+- **Anti-spoofing**: each PC has its **own token**, bound server-side to a machine
+  name; a PC can only publish **its own** report. No shared secret on the client.
+- **JSON schema unchanged**: same report, different pipe.
+
+> The repo ships the Collector/Dashboard logic. The server brick (ingestion
+> endpoint + report storage) is yours to host (an Azure Function + a blob
+> container, or any equivalent that accepts a POST and serves the reports).
 
 ## ⚙️ Configuration
 

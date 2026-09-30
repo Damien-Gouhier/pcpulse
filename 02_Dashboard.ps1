@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-    PCPulse Dashboard v2.4.7
+    PCPulse Dashboard v2.5.4
 .DESCRIPTION
     Lit les JSON produits par le Collector sur tous les PC du parc et
     genere un tableau de bord HTML autonome avec KPIs, filtres, tri,
@@ -10,9 +10,89 @@
     Auteur       : Damien Gouhier
     Repository   : https://github.com/Damien-Gouhier/pcpulse
     Licence      : MIT
-    Version      : 2.4.7
+    Version      : 2.5.4
     Runtime      : PowerShell 7+ (pwsh.exe)
 .CHANGELOG
+    v2.5.4 : [HYBRIDE] 2e source de donnees : conteneur Azure "depot" (postes 100%
+           distants qui deposent via la Function). Le Dashboard lit AUSSI le cloud
+           (SAS read+list, REST, zero dependance) et FUSIONNE avec le share en
+           gardant, par machine, le rapport le plus recent (Machine.CollectedAt).
+           Gate par config (CloudDepotBaseUrl + CloudDepotSas) ; vides => share seul
+           (inchange). Lecture SEULE. SchemaVersion inchangee (2.2).
+    v2.5.3 : [UI] Tag CPU d'age (Recent/Vieillissant/Ancien) remplacable par une
+           categorie de RENOUVELLEMENT binaire, pilotee par config (nouvelle cle
+           RenewalCandidateMaxYear, lue par le Dashboard). Annee CPU <= seuil =>
+           "A renouveler", sinon "Parc courant". Repere 2019 = Intel Core <= 9e gen
+           / AMD Ryzen <= 3000. Impacte le badge du tableau, le filtre (renomme
+           "Renouvellement"), le KPI (ex "CPU anciens") et l'export CSV (colonne
+           CandidatRenouvellement). L'onglet Materiel garde TOUJOURS l'annee + l'age
+           reel. Cle absente/nulle => fallback sur l'ancien tag d'age (retrocompat).
+           Calcule cote Dashboard depuis CPUYear (deja collecte) : AUCUN changement
+           collecteur, aucun redeploy. En mode renouvellement, PLUS AUCUN libelle
+           d'age (Ancien/Vieillissant) affiche : les raisons de verdict basees sur
+           l'age CPU sont supprimees (l'axe renouvellement vit dans badge/filtre/KPI,
+           l'age chiffre reste dans Materiel). En fallback (cle absente), le verdict
+           et le tag d'age historiques sont conserves.
+    v2.5.2 : [UI] Filtre par version de client VPN dans la barre d'outils (menu
+           "VPN :", sur le modele des filtres OS/Modele). Peuple les versions
+           distinctes de VpnClient.Version (tri decroissant : 7.x en haut, 6.x
+           regroupees en bas), masque si moins de 2 versions. But : traquer les
+           vieilles versions FortiClient (6.x) sur le parc heterogene ; selectionner
+           une version filtre le tableau (= liste des postes concernes) et l'export
+           CSV suit. Ajoute a clearAllFilters et anyFilter. Dashboard-only,
+           SchemaVersion inchangee (2.2). Lit le champ peuple par le Collector 2.5.1.
+           [UI] Barre d'outils compactee pour tenir Periode + tous les filtres +
+           recherche + CSV sur UNE ligne (libelles periode courts 24h/7j/15j/30j,
+           gap et padding reduits, recherche elastique). Masquer sains / Vue
+           detaillee / Anomalies restent en 2e ligne (toolbar-break inchange).
+           [UI] Filtre chassis par ICONES (Portable/Fixe/AIO) dans la barre d'outils,
+           en toggle (clic = filtre, re-clic = enleve) plutot qu'un menu deroulant -
+           reutilise les glyphes du tableau et le champ Machine.ChassisInfo
+           (IsLaptop/IsDesktop/IsAIO). Ajoute a clearAllFilters, anyFilter et
+           l'export CSV. Aucun changement collecteur (donnee deja collectee >= v5.6).
+    v2.5.1 : [INVENTAIRE] Client VPN (FortiClient) : lecture de l'objet VpnClient
+           (Collector 2.5.1) - coverage-check + remap embed + ligne "Client VPN"
+           dans l'onglet Securite du drill-down + 3 colonnes CSV
+           (VpnPresent/VpnProduct/VpnVersion). Present + version seulement, PAS
+           cable au score (inventaire). Vide tant que le Collector 2.5.1 n'a pas
+           redeploye (affiche "non collecte").
+           [UI] "Silencieux / hors ligne" RETIRE de la file d'actions : un poste
+           eteint n'est pas une action a traiter (parc a moitie eteint l'ete). Le
+           compte reste dans la tuile "En ligne 24h" et le filtre 'offline' existe
+           toujours -> on retire l'incitation a agir, pas la visibilite.
+           Dashboard-only : Collector non impacte par ces deux points cote UI,
+           SchemaVersion inchangee (2.2).
+    v2.5.0 : [UI] Colonne "Boot" retiree du tableau principal (la duree/date de
+           boot reste dans le drill-down, onglet Boot Performance). Ajout de deux
+           filtres uptime dans la barre d'outils : "Uptime > 7j" (a surveiller) et
+           "Uptime > 30j" (jamais reboote), memes mecanique/chip que les autres
+           filtres KPI. Va de pair avec le fix uptime du Collector 2.5.0.
+           [UI/cockpit UI] Habillage "cockpit" : rail de
+           navigation a gauche + file d'actions a droite du tableau. Reskin +
+           couche de navigation only ; aucune donnee ni fonction modifiee.
+    v2.4.8 : [GARDE-FOU] Coverage-check COMPLETE. Il manquait la marche la plus
+           haute : aucun controle au niveau TOP-LEVEL du payload, donc un BLOC
+           entier ajoute au Collector pouvait disparaitre de l'embed sans un mot
+           (le pire cas de la classe #3 : on pense aux champs d'un objet existant,
+           pas a brancher un objet neuf). Ajout de $KnownPayloadKeys + 18 checks
+           de sous-objets restants (Meta, Events, BSODs, ResourceWarnings, TopRAM,
+           GPUInventory, BatteryInfo, ServicesHealth[.Monitored], BootPerformance
+           [.LastBoot/.History/.Stats], MemoryInventory, HardwareHealth[.GPU_TDR/
+           .Thermal/.CPUThrottling], Stats). La couverture est desormais totale :
+           tous les blocs de l'embed sont remappes champ par champ, la classe de
+           bug s'appliquait donc partout, pas seulement aux quelques sous-objets
+           gardes depuis la 2.3.1.
+           Deux champs emis-mais-non-lus mis au jour et declares : BSODs.Taille
+           (deja connu) et BootPerformance.LastBoot/History.BootStartTime (trouve
+           EN AJOUTANT le garde-fou -- il fait son travail des l'installation).
+           [DIAGNOSTIC] Signal de schema deprecie : les postes encore en schema
+           2.1 sont nommes en console a chaque generation. C'est le prerequis
+           mesure au resserrage de $AcceptedSchemaVersions sur @('2.2') : s'il en
+           reste, ce sont des postes dont le Collector n'a pas pris cinq mises a
+           jour d'affilee -> probleme d'auto-update a traiter AVANT de resserrer,
+           sinon on ne corrige rien, on les rend juste invisibles.
+           Dashboard-only : Collector INCHANGE en 2.4.7, version.txt non touche,
+           aucun redeploiement parc. SchemaVersion inchangee (2.2).
     v2.4.7 : Modele machine (Machine.Model/Manufacturer, Collector 2.4.7). Affichage
            dans le panel Materiel (carte OS), recherche texte etendue (modele +
            fabricant), filtre deroulant "Modele" (masque si < 2 modeles), panneau
@@ -435,7 +515,12 @@ param(
     [string]$SharePath  = 'C:\PCPulse',
     [string]$FiltrePC   = '*',
     [string]$OutputPath = '',
-    [switch]$NoLaunch
+    [switch]$NoLaunch,
+    # v2.5.4 : 2e source cloud. Le SAS (secret de LECTURE) se passe en PARAMETRE
+    # (commande de la tache planifiee, admin-only) et JAMAIS dans release\config.psd1
+    # (lisible par les postes). CloudDepotBaseUrl (non secret) peut venir du param ou du config.
+    [string]$CloudDepotBaseUrl = '',
+    [string]$CloudDepotSas     = ''
 )
 
 # ============================================================
@@ -528,6 +613,18 @@ $DefaultConfig = @{
     DashboardSubtitle    = 'Supervision du parc'
     CsvRanges            = 'ip-ranges.csv'
     MaskHealthyByDefault = $false
+
+    # v2.5.3 : seuil de renouvellement (annee CPU <= seuil => "Candidat au
+    # renouvellement", sinon "Parc courant"). $null (defaut) => on garde l'ancien
+    # tag Recent/Vieillissant/Ancien (retrocompat). Voir config.psd1.example.
+    RenewalCandidateMaxYear = $null
+
+    # v2.5.4 : 2e source CLOUD (postes 100% distants). Le Dashboard lit AUSSI le
+    # conteneur Azure "depot" (via SAS read+list) et fusionne avec le share en
+    # gardant, par machine, le rapport le plus recent. Vides => cloud desactive.
+    CloudDepotBaseUrl = ''   # ex: https://<compte>.blob.core.windows.net/depot
+    # NB : le SAS de lecture ne vit PAS dans la config (lisible par les postes) ->
+    # il se passe en PARAMETRE -CloudDepotSas au Dashboard (tache planifiee, admin-only).
 
     # v2.4.0 : dossier ou vit le registre de decommission (ecrit par
     # Decommission-PC.ps1 dans un dossier ecrivable par les techs, hors share
@@ -699,6 +796,9 @@ $DashboardSubtitle    = [string]$cfg.DashboardSubtitle
 $MaskHealthyByDefault = [bool]$cfg.MaskHealthyByDefault
 $ScoreWeights         = $cfg.ScoreWeights
 $priorityApps         = @($cfg.PriorityApps)
+# v2.5.3 : seuil de renouvellement (annee CPU <= seuil => "Candidat au renouvellement").
+# $null => mode desactive, on garde l'ancien tag Recent/Vieillissant/Ancien.
+$renewalMaxYear       = if ($null -ne $cfg.RenewalCandidateMaxYear) { [int]$cfg.RenewalCandidateMaxYear } else { $null }
 
 # Resolution du chemin CSV
 $csvRel = [string]$cfg.CsvRanges
@@ -1275,6 +1375,62 @@ foreach ($file in $jsonFiles) {
     }
 }
 
+# ============================================================
+# v2.5.4 : 2e SOURCE - conteneur Azure "depot" (postes 100% distants)
+# ------------------------------------------------------------
+# Lit les <PC>.json deposes dans le cloud par la Function, les valide via le MEME
+# Test-PCPulseJson, et FUSIONNE avec le share : par machine, on garde le rapport
+# le PLUS RECENT (Machine.CollectedAt). Un poste baladeur (SMB parfois, cloud
+# parfois) affiche donc toujours son dernier etat, quelle que soit la source.
+# Gate par config (CloudDepotBaseUrl + CloudDepotSas). Vides -> ignore (share seul).
+# Lecture SEULE (SAS read+list), zero dependance (REST via Invoke-RestMethod).
+# ============================================================
+# Base URL : param prioritaire, sinon config (non secret). SAS : PARAMETRE UNIQUEMENT
+# (secret -> jamais dans release\config.psd1 qui est lisible par les postes).
+$cloudBase = if ($CloudDepotBaseUrl) { $CloudDepotBaseUrl } else { [string]$cfg.CloudDepotBaseUrl }
+$cloudSas  = ([string]$CloudDepotSas).TrimStart('?')
+if ($cloudBase -and $cloudSas) {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        # NB : la reponse "list blobs" d'Azure commence par un BOM UTF-8 -> Invoke-RestMethod
+        # ne la parse PAS en XML (il rend une chaine) et .EnumerationResults serait $null.
+        # On lit le brut, on retire le BOM, puis on cast en [xml].
+        $listResp = Invoke-WebRequest -Uri ("{0}?restype=container&comp=list&{1}" -f $cloudBase, $cloudSas) -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        $listTxt  = [string]$listResp.Content
+        if ($listTxt.Length -gt 0 -and $listTxt[0] -eq [char]0xFEFF) { $listTxt = $listTxt.Substring(1) }
+        $listXml  = [xml]$listTxt
+        $cloudBlobs = @($listXml.EnumerationResults.Blobs.Blob | Where-Object { $_.Name -like '*.json' })
+        Write-Host ("[Cloud] {0} JSON dans le conteneur depot" -f $cloudBlobs.Count) -ForegroundColor Cyan
+        $cloudTmp = Join-Path $env:TEMP ("pcpulse-cloud-" + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $cloudTmp -Force
+        $cloudMerged = 0; $cloudAdded = 0
+        foreach ($b in $cloudBlobs) {
+            $pcName = [IO.Path]::GetFileNameWithoutExtension([string]$b.Name)
+            if ($FiltrePC -ne '*' -and $pcName -ne $FiltrePC) { continue }
+            $tmpF = Join-Path $cloudTmp ([string]$b.Name)
+            try { Invoke-RestMethod -Uri ("{0}/{1}?{2}" -f $cloudBase, $b.Name, $cloudSas) -OutFile $tmpF -TimeoutSec 30 -ErrorAction Stop }
+            catch { Write-Host "[Cloud] telechargement KO $($b.Name) : $_" -ForegroundColor Yellow; continue }
+            $cc = Test-PCPulseJson -FilePath $tmpF
+            if (-not $cc.Valid) { $rejectedJsons.Add($cc); continue }
+            $cloudPcName = [string]$cc.Data.Machine.PC
+            $cloudTs     = $cc.Data.Machine.CollectedAt -as [datetime]
+            # Machine deja presente cote share ?
+            $idx = -1
+            for ($k = 0; $k -lt $allData.Count; $k++) { if ([string]$allData[$k].Machine.PC -eq $cloudPcName) { $idx = $k; break } }
+            if ($idx -lt 0) {
+                $allData.Add($cc.Data); $cloudAdded++            # machine vue SEULEMENT dans le cloud
+            } else {
+                $shareTs = $allData[$idx].Machine.CollectedAt -as [datetime]
+                if ($cloudTs -and (-not $shareTs -or $cloudTs -gt $shareTs)) { $allData[$idx] = $cc.Data; $cloudMerged++ }  # cloud plus recent -> il gagne
+            }
+        }
+        Write-Host ("[Cloud] fusion : {0} ajoutes (cloud seul), {1} remplaces (cloud plus recent)" -f $cloudAdded, $cloudMerged) -ForegroundColor Cyan
+        try { Remove-Item -LiteralPath $cloudTmp -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+    } catch {
+        Write-Host "[Cloud] source Azure ignoree (erreur lecture, on continue en share seul) : $_" -ForegroundColor Yellow
+    }
+}
+
 # v2.1.9 : la detection "SimilarHostname" (ANOMALIE #4, similarite Levenshtein <= 1) a
 # ete RETIREE. Inadaptee a une nomenclature de parc SEQUENTIELLE : deux machines qui se
 # suivent (ex. PC-001 / PC-002) ont une distance de 1 -> un faux positif a
@@ -1320,6 +1476,29 @@ if ($allData.Count -eq 0) {
     exit 1
 }
 Write-Host "[+] $($allData.Count) PC(s) charge(s)" -ForegroundColor Green
+
+# ============================================================
+# v2.4.8 : SIGNAL DE SCHEMA DEPRECIE (prerequis au resserrage de la whitelist)
+# ============================================================
+# $AcceptedSchemaVersions tolere encore le schema 2.1, tolerance ouverte le temps
+# du rollout du rename EDR -- rollout termine depuis cinq redeploiements. La
+# tolerance ne se retire pas a l'aveugle pour autant : s'il reste des JSON en 2.1,
+# ce sont des postes dont le Collector n'a pas pris CINQ mises a jour d'affilee,
+# c'est-a-dire un probleme d'auto-update a traiter AVANT de resserrer -- sinon on
+# ne corrige rien, on rend juste ces postes invisibles au dashboard, ce qui est
+# exactement le contraire du but.
+# Ce bloc transforme donc ce prerequis en mesure : il nomme les postes concernes a
+# chaque generation. Console uniquement, aucun impact sur le rendu.
+# Quand ce warning ne sort plus sur une generation du parc complet :
+# passer $AcceptedSchemaVersions a @('2.2') et vider $DeprecatedSchemaVersions.
+$DeprecatedSchemaVersions = @('2.1')
+$deprecatedPCs = @($allData | Where-Object { [string]$_.SchemaVersion -in $DeprecatedSchemaVersions } |
+    ForEach-Object { "$($_.Machine.PC) (schema $($_.SchemaVersion))" } | Sort-Object)
+if ($deprecatedPCs.Count -gt 0) {
+    Write-Host "[!] SCHEMA DEPRECIE : $($deprecatedPCs.Count) poste(s) encore en schema $($DeprecatedSchemaVersions -join '/') alors que le parc devrait etre en 2.2 :" -ForegroundColor Yellow
+    foreach ($p in $deprecatedPCs) { Write-Host "      - $p" -ForegroundColor Yellow }
+    Write-Host "      -> Collector pas a jour sur ces postes : verifier leur auto-update (PCPulse-Updater) AVANT de resserrer la whitelist." -ForegroundColor Yellow
+}
 
 # ============================================================
 # COVERAGE-CHECK du re-mapping Machine -> embed (anti-recidive #3)
@@ -1388,6 +1567,140 @@ Test-EmbedCoverage -Label 'BootDurations' -Items (@($allData | ForEach-Object { 
     'DateBoot','DurationMin','EstBootLong','PrecedentType','Method','BootType')
 
 # ============================================================
+# v2.4.8 : COVERAGE-CHECK COMPLETE - NIVEAU PAYLOAD + SOUS-OBJETS RESTANTS
+# ============================================================
+# Il manquait la marche la plus haute : AUCUN controle au niveau TOP-LEVEL du
+# payload. Un bloc ENTIER ajoute au Collector (comme MemoryInventory ou
+# BatteryInfo en leur temps) pouvait donc disparaitre sans un mot -- le pire cas
+# de la classe de bug #3, puisque c'est aussi le plus facile a oublier : on pense
+# aux champs d'un objet existant, pas a brancher un objet neuf.
+#
+# Les sous-objets restants sont ajoutes dans le meme mouvement. La revue a montre
+# que TOUS les blocs de l'embed sont remappes champ par champ (aucun ne passe en
+# bloc) : la classe de bug s'applique donc PARTOUT, pas seulement aux quelques
+# sous-objets deja gardes depuis la 2.3.1. Couverture desormais complete.
+#
+# Rappel du contrat de $KnownKeys : la liste = cles RECOPIEES + cles IGNOREES
+# VOLONTAIREMENT. Une cle absente de la liste declenche un warning. C'est
+# volontairement une liste a tenir a jour a la main : le cout est une ligne par
+# champ ajoute, le gain est qu'aucun champ ne peut se perdre en silence.
+$KnownPayloadKeys = @(
+    'SchemaVersion','Machine','Meta','Events','BootDurations','BSODs','ResourceWarnings',
+    'TopRAM','DiskInfo','BatteryInfo','ServicesHealth','BootPerformance','DiskHealth',
+    'Monitors','MemoryInventory','GPUInventory','TopCrashers','HardwareHealth','Stats',
+    # v2.5.1 : client VPN (present + version). $null sur les JSON de Collector < 2.5.1.
+    'VpnClient'
+)
+Test-EmbedCoverage -Label 'PAYLOAD (top-level)' -Items (@($allData)) -KnownKeys $KnownPayloadKeys
+
+# v2.5.1 : VpnClient (Collector 2.5.1). Absent des JSON plus anciens (guard $_.VpnClient).
+Test-EmbedCoverage -Label 'VpnClient' -Items (@($allData | ForEach-Object { $_.VpnClient })) -KnownKeys @(
+    'Present','Product','Version')
+
+# Meta : lu par la detection d'anomalies (Meta.TruncatedArrays), pas par l'embed.
+Test-EmbedCoverage -Label 'Meta' -Items (@($allData | ForEach-Object { $_.Meta })) -KnownKeys @(
+    'TruncatedArrays')
+
+Test-EmbedCoverage -Label 'Events' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.Events })) -KnownKeys @(
+    # EventId n'est pas recopie dans l'embed : il sert de FILTRE (Id=41) a la
+    # construction de $crashList, l'info est donc implicite cote JS.
+    'Timestamp','EventId','Type','Detail','CrashCause','Message')
+
+Test-EmbedCoverage -Label 'BSODs' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.BSODs })) -KnownKeys @(
+    'Date','Nom',
+    # 'Taille' : EMIS par le Collector (taille du fichier .dmp) et volontairement
+    # NON embarque -- le drill-down BSOD n'affiche que date + nom de dump. Declare
+    # ici plutot que retire du Collector : retirer un champ du payload coute un
+    # redeploiement de parc, pour un champ purement cosmetique. Si un jour on veut
+    # l'afficher, l'info est deja dans les JSON.
+    'Taille')
+
+Test-EmbedCoverage -Label 'ResourceWarnings' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.ResourceWarnings })) -KnownKeys @(
+    # Count/FirstSeen/LastSeen/IsBurst : presents seulement sur les entrees
+    # "disque lent" (clustering Event 51), absents des entrees RAM -> normal.
+    'Timestamp','Type','Detail','Count','FirstSeen','LastSeen','IsBurst')
+
+Test-EmbedCoverage -Label 'TopRAM' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.TopRAM })) -KnownKeys @(
+    'Name','WorkingSetMB','CPUSeconds')
+
+Test-EmbedCoverage -Label 'GPUInventory' -Items (@($allData | ForEach-Object { ConvertTo-Array $_.GPUInventory })) -KnownKeys @(
+    'Name','DriverVersion','DriverDate')
+
+Test-EmbedCoverage -Label 'BatteryInfo' -Items (@($allData | ForEach-Object { $_.BatteryInfo })) -KnownKeys @(
+    'HasBattery','Manufacturer','Chemistry','DesignCapacity','FullChargeCapacity',
+    'HealthPercent','HealthCategory','CycleCount','CurrentChargePct','Status','IsAlert')
+
+Test-EmbedCoverage -Label 'ServicesHealth' -Items (@($allData | ForEach-Object { $_.ServicesHealth })) -KnownKeys @(
+    'Monitored')
+Test-EmbedCoverage -Label 'ServicesHealth.Monitored' -Items (@($allData | ForEach-Object { if ($_.ServicesHealth) { ConvertTo-Array $_.ServicesHealth.Monitored } })) -KnownKeys @(
+    'Id','DisplayName','ServiceName','Role','Installed','Status','StartType','IsAlert')
+
+Test-EmbedCoverage -Label 'BootPerformance' -Items (@($allData | ForEach-Object { $_.BootPerformance })) -KnownKeys @(
+    'LastBoot','History','Stats','IsAlert')
+# LastBoot et History partagent la MEME forme (LastBoot = History[0]) : les deux
+# listes de cles doivent rester identiques, d'ou la variable partagee.
+$KnownBootPerfEventKeys = @(
+    'Timestamp','Level','BootTimeMs','MainPathBootTimeMs','BootPostBootTimeMs',
+    'UserProfileProcessingTimeMs','ExplorerInitTimeMs','NumStartupApps',
+    'IsRebootAfterInstall','IsSlow',
+    # 'BootStartTime' : EMIS par le Collector (ConvertFrom-BootPerfEvent) et NON
+    # embarque -- deuxieme instance vivante de la classe de bug, trouvee en
+    # ajoutant ce garde-fou. Ignore volontairement : le champ est redondant avec
+    # Timestamp (heure de l'Event 100) pour tout ce que le drill-down affiche.
+    'BootStartTime'
+)
+Test-EmbedCoverage -Label 'BootPerformance.LastBoot' -Items (@($allData | ForEach-Object { if ($_.BootPerformance) { $_.BootPerformance.LastBoot } })) -KnownKeys $KnownBootPerfEventKeys
+Test-EmbedCoverage -Label 'BootPerformance.History' -Items (@($allData | ForEach-Object { if ($_.BootPerformance) { ConvertTo-Array $_.BootPerformance.History } })) -KnownKeys $KnownBootPerfEventKeys
+Test-EmbedCoverage -Label 'BootPerformance.Stats' -Items (@($allData | ForEach-Object { if ($_.BootPerformance) { $_.BootPerformance.Stats } })) -KnownKeys @(
+    'BootsAnalyzed','AvgBootTimeMs','AvgMainPathMs','AvgPostBootMs','MaxBootTimeMs','SlowBootsCount')
+
+Test-EmbedCoverage -Label 'MemoryInventory' -Items (@($allData | ForEach-Object { $_.MemoryInventory })) -KnownKeys @(
+    'TotalInstalledGB','MaxCapacityGB','TotalSlots','OccupiedSlots','FreeSlots','CanUpgrade','Modules')
+
+Test-EmbedCoverage -Label 'HardwareHealth' -Items (@($allData | ForEach-Object { $_.HardwareHealth })) -KnownKeys @(
+    'WHEA_Fatal','WHEA_Corrected','GPU_TDR','Thermal','CPUThrottling',
+    # Schema v5.0 legacy : converti en WHEA_Fatal par le bloc de compatibilite
+    # plus bas. Ne devrait plus apparaitre (whitelist SchemaVersion), declare pour
+    # ne pas polluer la console si un JSON antique traine encore sur le share.
+    'WHEA_CPU','WHEA_RAM','WHEA_PCIe')
+Test-EmbedCoverage -Label 'HardwareHealth.GPU_TDR' -Items (@($allData | ForEach-Object { if ($_.HardwareHealth) { ConvertTo-Array $_.HardwareHealth.GPU_TDR } })) -KnownKeys @(
+    'Timestamp','Driver','Detail')
+Test-EmbedCoverage -Label 'HardwareHealth.Thermal' -Items (@($allData | ForEach-Object { if ($_.HardwareHealth) { ConvertTo-Array $_.HardwareHealth.Thermal } })) -KnownKeys @(
+    'Timestamp','AlertType','Temperature','Zone','Detail')
+Test-EmbedCoverage -Label 'HardwareHealth.CPUThrottling' -Items (@($allData | ForEach-Object { if ($_.HardwareHealth) { ConvertTo-Array $_.HardwareHealth.CPUThrottling } })) -KnownKeys @(
+    'Day','EventId','Type','Count','TotalSeconds','FirstSeen','LastSeen','Detail')
+
+# Stats : cas particulier, a lire avant de "corriger" un warning ici.
+# L'embed n'expose PAS d'objet Stats ; il en aplatit une POIGNEE de champs
+# (BootsByType, TotalWHEAFatal, TotalWHEACorr, TotalGPU, TotalThermal,
+# TotalHardware, TotalHardCrash) et recalcule le reste cote JS a partir des
+# tableaux embarques. Tous les autres champs sont donc IGNORES VOLONTAIREMENT --
+# mais voir la note de volumetrie ci-dessous, ce choix n'est pas neutre.
+Test-EmbedCoverage -Label 'Stats' -Items (@($allData | ForEach-Object { $_.Stats })) -KnownKeys @(
+    # --- aplatis dans l'embed ---
+    'BootsByType','TotalWHEAFatal','TotalWHEACorrected','TotalGPU','TotalThermal',
+    'TotalHardware','TotalHardCrash',
+    # --- ignores : recalcules cote JS depuis les tableaux embarques ---
+    # ATTENTION (a arbitrer) : le Collector calcule ces compteurs AVANT le cap des
+    # tableaux (Invoke-ArrayCap), precisement pour rester fideles a la volumetrie
+    # reelle du poste. Les recalculer cote JS depuis des tableaux potentiellement
+    # TRONQUES les fait SOUS-ESTIMER sur les postes bavards -- exactement les
+    # postes qui interessent. Meta.TruncatedArrays dit quels tableaux sont
+    # concernes. Pas corrige ici : cela changerait des KPI affiches, ce qui se
+    # decide en regardant le dashboard, pas en lisant le code.
+    'TotalBoots','TotalCrashFreeze','TotalBSOD','TotalRealBoots','BootsLongs',
+    'ResourceWarnings','DiskAlerts',
+    'TopCrasherApp','TopCrasherCount','TopAppFailureApp','TopAppFailureCount',
+    'WHEACorrectedUnique','TotalCPUThrottling',
+    'DerniereActivite','Event12Trouve','Event27Trouve',
+    # --- ignores : redondants avec un bloc deja embarque ---
+    'BatteryHealthPct','BatteryAlert',          # -> BatteryInfo
+    'LastBootTimeMs','LastPostBootTimeMs','BootPerfAlert',  # -> BootPerformance
+    'DiskWorstWear','DiskHealthAlert',          # -> DiskHealth
+    'MonitorsCount'                             # -> Monitors.Count
+)
+
+# ============================================================
 # CONSTRUCTION DU PAYLOAD JS
 # ============================================================
 $now       = Get-Date
@@ -1418,6 +1731,18 @@ foreach ($pc in $allData) {
                 Detail     = ConvertTo-HtmlSafe $_.Detail
                 CrashCause = ConvertTo-HtmlSafe $_.CrashCause
                 Message    = ConvertTo-HtmlSafe $_.Message
+            }
+        })
+
+    # v2.5.0 : redemarrages planifies (Event 1074). Sert a distinguer, dans
+    # l'onglet Demarrage, un cycle de MAJ Windows (initie par TrustedInstaller /
+    # servicing / Windows Update) d'un vrai cold boot utilisateur. On ne garde que
+    # l'horodatage + un flag IsUpdate (aucune donnee sensible, Message non embarque).
+    $rebootList = @($pc.Events | Where-Object { $_.EventId -eq 1074 } |
+        Sort-Object Timestamp -Descending | ForEach-Object {
+            [PSCustomObject]@{
+                Timestamp = ConvertTo-HtmlSafe $_.Timestamp
+                IsUpdate  = [bool]([string]$_.Message -match 'TrustedInstaller|servicing|Windows Update|wuauclt|MoUso|mise . jour')
             }
         })
 
@@ -1874,6 +2199,7 @@ foreach ($pc in $allData) {
         } else { $null }
         Crashes          = $crashList
         Boots            = $bootList
+        Reboots          = $rebootList
         BSODs            = $bsodList
         ResourceWarnings = $warningList
         TopRAM           = $topRAMList
@@ -1892,6 +2218,15 @@ foreach ($pc in $allData) {
         # v5.3 / v5.4 additions (peuvent etre $null selon le schema du JSON source)
         BatteryInfo      = $batteryEmbed
         ServicesHealth   = $servicesEmbed
+        # v2.5.1 : client VPN (present + version). Recopie EXPLICITE (classe de bug #3 :
+        # sans ces lignes le champ serait droppe en silence). $null si Collector < 2.5.1.
+        VpnClient        = if ($pc.VpnClient) {
+            [PSCustomObject]@{
+                Present = [bool]$pc.VpnClient.Present
+                Product = ConvertTo-HtmlSafe ([string]$pc.VpnClient.Product)
+                Version = ConvertTo-HtmlSafe ([string]$pc.VpnClient.Version)
+            }
+        } else { $null }
         BootPerformance  = $bootPerfEmbed
         DiskHealth       = $diskHealthEmbed
         # v5.5 additions
@@ -1933,10 +2268,33 @@ $weightsEmbed = ConvertTo-Json -InputObject $ScoreWeights -Compress
 
 $titleHtml    = ConvertTo-HtmlSafe $DashboardTitle
 $subtitleHtml = ConvertTo-HtmlSafe $DashboardSubtitle
-# v2.1.3 : meta-refresh UNIQUEMENT en mode publie (-OutputPath). En interactif, vide : un refresh
-# rechargerait un fichier statique et reinitialiserait filtres/scroll de l'utilisateur.
-$metaRefresh  = if ($OutputPath) { '<meta http-equiv="refresh" content="600">' } else { '' }
+# v2.5.0 : plus de meta-refresh navigateur. La page ne se recharge plus jamais
+# d'elle-meme (l'ancien refresh 600s reinitialisait filtres / recherche / scroll /
+# fiche ouverte en plein travail). La republication du HTML par le collecteur
+# (~15 min) suffit : l'utilisateur recharge quand il le decide.
+$metaRefresh  = ''
 $maskHealthyJs = if ($MaskHealthyByDefault) { 'true' } else { 'false' }
+
+# v2.5.3 : mode "Renouvellement". Si RenewalCandidateMaxYear est configure, le tag
+# CPU Recent/Vieillissant/Ancien est remplace (tableau + filtre + KPI) par une
+# categorie binaire Candidat/Parc courant. Sinon on garde l'historique (fallback).
+$renewalMaxYearJs  = if ($null -ne $renewalMaxYear) { [string]$renewalMaxYear } else { 'null' }
+$cpuFilterLabelTxt = if ($null -ne $renewalMaxYear) { 'Renouvellement :' } else { 'CPU :' }
+$cpuFilterOptions  = if ($null -ne $renewalMaxYear) {
+@'
+        <option value="">Tous</option>
+        <option value="renew">A renouveler</option>
+        <option value="keep">Parc courant</option>
+'@
+} else {
+@'
+        <option value="">Tous</option>
+        <option value="Recent">Recent</option>
+        <option value="Vieillissant">Vieillissant</option>
+        <option value="Ancien">Ancien</option>
+        <option value="Inconnu">Inconnu</option>
+'@
+}
 
 # v2.1.12 : liste des applis suivies serialisee en minuscules pour le rapprochement JS.
 $priorityAppsJson = @($priorityApps | ForEach-Object { ([string]$_).ToLowerInvariant() }) | ConvertTo-Json -Compress
@@ -2134,7 +2492,7 @@ $metaRefresh
     .toolbar {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         padding: 10px 20px;
         background: var(--bg-panel);
         border-radius: 10px 10px 0 0;
@@ -2142,7 +2500,7 @@ $metaRefresh
     }
     .toolbar .label { color: var(--text-muted); font-size: 12px; margin-right: 6px; }
     .range-btn, .filter-btn {
-        padding: 5px 14px;
+        padding: 5px 10px;
         border-radius: 20px;
         border: 1px solid var(--border);
         background: transparent;
@@ -2154,6 +2512,21 @@ $metaRefresh
     .range-btn:hover, .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
     .range-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
     .filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+    /* v2.5.2 : filtre chassis par icones (Laptop/Desktop/AIO) - toggle, pas un menu.
+       Reutilise les glyphes du tableau. Inactif = attenue, actif = anneau accent. */
+    .chassis-filter-btn {
+        padding: 4px 9px;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: transparent;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
+        opacity: 0.6;
+        transition: all 0.15s ease;
+    }
+    .chassis-filter-btn:hover { border-color: var(--accent); opacity: 1; }
+    .chassis-filter-btn.active { border-color: var(--accent); background: var(--accent); opacity: 1; }
 
     /* v2.1.11 : badge anomalie sur la ligne PC (donnee a verifier) + bouton-filtre associe.
        Registre orange (--orange) pour rester distinct de l'axe sante (score/pastilles). */
@@ -2238,11 +2611,13 @@ $metaRefresh
         border-color: var(--accent);
     }
 
-    .search-wrap { margin-left: auto; position: relative; }
+    /* v2.5.2 : recherche elastique (flex-shrink) pour tenir sur la ligne 1 avec
+       tous les filtres ; margin-left:auto la garde collee a droite avec le CSV. */
+    .search-wrap { margin-left: auto; position: relative; flex: 0 1 200px; min-width: 150px; }
     .search-input {
-        padding: 6px 12px 6px 32px !important;
+        padding: 6px 30px 6px 32px !important;
         border-radius: 20px !important;
-        width: 220px;
+        width: 100%;
     }
     .search-icon {
         position: absolute;
@@ -2267,25 +2642,24 @@ $metaRefresh
     }
     .export-btn:hover { transform: translateY(-1px); opacity: 0.9; }
 
-    /* ===== BOOT TYPE CHIPS (v5.2) ===== */
-    .boot-type-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 2px 8px;
-        border-radius: 10px;
-        font-size: 10px;
-        font-weight: 600;
-        white-space: nowrap;
+    .toolbar-break { flex-basis: 100%; height: 0; margin: 0; }
+    .search-clear {
+        position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+        color: var(--text-faint); font-size: 15px; cursor: pointer; line-height: 1; user-select: none;
     }
-    .boot-cold    { background: #1a2a3d; color: #66aaff; }
-    .boot-fast    { background: #3d3d1a; color: var(--yellow); }
-    .boot-resume  { background: #2a1a3d; color: var(--purple); }
-    .boot-unknown { background: #2a2a3a; color: var(--text-muted); }
-    [data-theme="light"] .boot-cold    { background: #dde6f7; color: #3a6cbf; }
-    [data-theme="light"] .boot-fast    { background: #fdf3dc; color: var(--yellow); }
-    [data-theme="light"] .boot-resume  { background: #f3e9fb; color: var(--purple); }
-    [data-theme="light"] .boot-unknown { background: #e6e9f2; color: var(--text-muted); }
+    .search-clear:hover { color: var(--text-main); }
+    .search-input:placeholder-shown ~ .search-clear { display: none; }
+    .filter-btn:disabled, .filter-btn:disabled:hover {
+        opacity: 0.4; cursor: default; border-color: var(--border); color: var(--text-faint);
+    }
+    #backToTop {
+        position: fixed; right: 24px; bottom: 24px; width: 42px; height: 42px;
+        border-radius: 50%; border: 1px solid var(--border); background: var(--bg-panel);
+        color: var(--text-main); font-size: 20px; cursor: pointer; display: none;
+        align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,0.25); z-index: 50;
+    }
+    #backToTop:hover { border-color: var(--accent); color: var(--accent); }
+
 
     /* ===== KPI CARDS ===== */
     .kpi-grid {
@@ -2340,29 +2714,29 @@ $metaRefresh
         background: var(--bg-panel);
         border: 1px solid var(--border);
         border-radius: 10px;
-        padding: 14px 18px;
+        padding: 9px 16px;
         display: flex;
         align-items: center;
-        gap: 14px;
+        gap: 12px;
     }
     /* v2.3.3 : tuile cliquable (ex : "En ligne" -> filtre les hors ligne) */
     .summary-tile.clickable { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
     .summary-tile.clickable:hover { border-color: var(--accent); }
     .summary-tile.clickable.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
     .summary-icon {
-        width: 42px; height: 42px;
-        border-radius: 10px;
+        width: 34px; height: 34px;
+        border-radius: 9px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 20px;
+        font-size: 16px;
         flex-shrink: 0;
     }
     .summary-icon.blue   { background: rgba(108, 99, 255, 0.15); color: var(--accent); }
     .summary-icon.green  { background: rgba(78, 204, 163, 0.15); color: var(--green); }
     .summary-icon.red    { background: rgba(255, 107, 107, 0.15); color: var(--red); }
     .summary-content { flex: 1; min-width: 0; }
-    .summary-value { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.1; }
+    .summary-value { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.1; }
     /* v5.6 : label summary plus contraste aussi */
     .summary-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; font-weight: 600; }
     .summary-sub   { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
@@ -2752,39 +3126,39 @@ $metaRefresh
 
     tbody tr.row-main    { border-bottom: 1px solid var(--border); transition: background 0.1s; }
     tbody tr.row-main:hover { background: var(--bg-main); }
-    tbody tr.row-danger   { background: var(--bg-danger) !important; }
-    tbody tr.row-hardware { background: var(--bg-hw) !important; }
-    tbody tr.row-warning  { background: var(--bg-warning) !important; }
+    /* v2.5.0-color : teinte de fond de ligne retiree. La severite ne vit plus que
+       dans le badge de score (1 seul signal couleur par ligne). Les lignes restent
+       neutres pour tous les etats ; seul le survol change le fond. */
 
     .badge {
-        padding: 2px 10px;
+        padding: 1px 8px;
         border-radius: 12px;
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 600;
         display: inline-block;
+        white-space: nowrap;
     }
-    .badge-online  { background: #1a3d1a; color: var(--green); }
-    .badge-offline { background: #3d1a1a; color: var(--red); }
-    [data-theme="light"] .badge-online  { background: #d5f2e9; color: var(--green); }
-    [data-theme="light"] .badge-offline { background: #fcdfe3; color: var(--red); }
+    .badge-online  { background: var(--bg-elevated); color: var(--text-dim); }
+    .badge-offline { background: var(--bg-elevated); color: var(--text-dim); }
 
     .site-badge {
-        padding: 2px 8px;
+        padding: 1px 7px;
         border-radius: 4px;
-        font-size: 11px;
+        font-size: 10px;
         background: var(--border);
         color: var(--text-dim);
+        white-space: nowrap;
     }
     .site-badge.inconnu { opacity: 0.5; font-style: italic; }
 
     /* ===== SCORE BADGE ===== */
     .score-badge {
         display: inline-block;
-        padding: 3px 9px;
+        padding: 2px 7px;
         border-radius: 12px;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
-        min-width: 32px;
+        min-width: 28px;
         text-align: center;
     }
     .score-ok      { background: #1a3d1a; color: var(--green); }
@@ -2795,132 +3169,18 @@ $metaRefresh
     [data-theme="light"] .score-warn    { background: #fdf3dc; color: var(--orange); }
     [data-theme="light"] .score-danger  { background: #fcdfe3; color: var(--red); }
     [data-theme="light"] .score-critic  { background: var(--red); color: white; }
+    /* v2.5.0-color : 4e etat de severite = hors ligne (gris neutre). Base sur les
+       variables existantes -> valable en dark et en clair. */
+    .score-offline { background: var(--bg-elevated); color: var(--text-muted); }
 
     .kpi-crash    { color: var(--red); font-weight: 700; font-size: 15px; }
     .kpi-bsod     { color: var(--pink); font-weight: 700; font-size: 15px; }
     .kpi-hardware { color: var(--purple); font-weight: 700; font-size: 15px; }
 
-    .crash-badge, .hw-badge, .warn-badge {
-        display: inline-block;
-        padding: 2px 7px;
-        border-radius: 4px;
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-right: 6px;
-        vertical-align: middle;
-    }
-    .crash-badge.bsod        { background: #3d1a3d; color: var(--pink); }
-    .crash-badge.freeze-app  { background: #1a2a3d; color: #66aaff; }
-    .crash-badge.hard-reset  { background: #2e1a1a; color: #ff9966; }
-    .crash-badge.freeze      { background: #1a2535; color: #6699cc; }
-    .crash-stopcode          { color: var(--red); font-size: 11px; font-weight: 600; margin-right: 8px; }
-    .crash-bugname           { color: var(--yellow); font-size: 11px; font-style: italic; margin-right: 8px; }
-    .crash-app               { color: var(--yellow); font-size: 11px; margin-right: 8px; }
-
-    .hw-badge.whea-cpu  { background: #3d1a2a; color: #ff6b9d; }
-    .hw-badge.whea-ram  { background: #3d2a1a; color: #ffaa66; }
-    .hw-badge.whea-pcie { background: #2a1a3d; color: #aa99ff; }
-    .hw-badge.gpu-tdr   { background: #1a2a3d; color: #66aaff; }
-    .hw-badge.thermal   { background: #3d2a1a; color: #ff9944; }
-
-    .warn-badge.ram-exhaustion { background: #3d1a1a; color: var(--red); }
-    .warn-badge.cpu-throttling { background: #3d2e1a; color: var(--yellow); }
-    .warn-badge.disk-full      { background: #3d2a1a; color: #ff9966; }
-    .warn-badge.disk-slow      { background: #2a2a3d; color: #99aaff; }
-    /* v1.5 : badge burst pour Event 51 cluster massif (>50 events) */
-    .burst-badge {
-        display: inline-block;
-        margin-left: 6px;
-        padding: 1px 6px;
-        border-radius: 3px;
-        font-size: 10px;
-        font-weight: 700;
-        background: var(--red);
-        color: white;
-        letter-spacing: 0.5px;
-        vertical-align: middle;
-    }
-    .warn-detail               { color: var(--text-muted); font-size: 11px; margin-right: 8px; }
     .kpi-warning               { color: var(--yellow); font-weight: 700; }
 
-    /* v1.6 : bloc CPU dans panel Materiel */
-    .cpu-info-block { padding: 4px 0; }
-    .cpu-info-block .cpu-name {
-        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
-        font-size: 12px;
-        color: var(--text);
-        margin-bottom: 4px;
-        word-break: break-word;
-    }
-    .cpu-info-block .cpu-meta {
-        font-size: 11px;
-        color: var(--text-muted);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-    .cpu-badge-inline {
-        display: inline-block;
-        padding: 1px 6px;
-        border-radius: 3px;
-        font-size: 10px;
-        font-weight: 600;
-    }
-    .cpu-badge-inline.ok      { background: rgba(34,197,94,0.15);  color: var(--green); }
-    .cpu-badge-inline.warning { background: rgba(234,179,8,0.15);  color: var(--yellow); }
-    .cpu-badge-inline.danger  { background: rgba(239,68,68,0.15);  color: var(--red); }
 
-    /* v1.6 : bandeau verdict global (4 niveaux) */
-    .verdict-banner {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 14px;
-        margin: 0 0 12px 0;
-        border-radius: 6px;
-        border-left: 4px solid;
-        font-size: 13px;
-    }
-    .verdict-banner.sain     { background: rgba(34,197,94,0.08);  border-color: var(--green);  color: var(--text); }
-    .verdict-banner.watch    { background: rgba(234,179,8,0.08);  border-color: var(--yellow); color: var(--text); }
-    .verdict-banner.incident { background: rgba(251,146,60,0.10); border-color: #fb923c;       color: var(--text); }
-    .verdict-banner.critical { background: rgba(239,68,68,0.10);  border-color: var(--red);    color: var(--text); }
-    .verdict-banner .v-icon    { font-size: 18px; }
-    .verdict-banner .v-label   { font-weight: 700; margin-right: 6px; }
-    .verdict-banner .v-reasons { color: var(--text-muted); font-size: 12px; }
 
-    /* v1.6 : section Signaux croises (correlations temporelles) */
-    .correlations-block {
-        margin: 10px 0;
-        padding: 10px 12px;
-        background: rgba(139,92,246,0.06);
-        border-left: 3px solid #8b5cf6;
-        border-radius: 4px;
-    }
-    .correlations-block h5 {
-        margin: 0 0 6px 0;
-        font-size: 11px;
-        color: #8b5cf6;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-weight: 700;
-    }
-    .correlation-item {
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        padding: 4px 0;
-        font-size: 12px;
-        color: var(--text);
-    }
-    .correlation-item .c-icon { font-size: 14px; flex-shrink: 0; }
-    .correlation-item .c-severity { font-weight: 700; margin-right: 4px; }
-    .correlation-item.crit  .c-severity { color: var(--red); }
-    .correlation-item.warn  .c-severity { color: var(--yellow); }
-    .correlation-item .c-detail { color: var(--text-muted); font-size: 11px; }
 
     .uptime-badge, .cpu-badge, .conn-badge, .chassis-badge, .os-badge {
         display: inline-block;
@@ -2932,6 +3192,8 @@ $metaRefresh
     .uptime-ok      { background: #1a3d1a; color: var(--green); }
     .uptime-warning { background: #3d3d1a; color: var(--orange); }
     .uptime-danger  { background: #3d1a1a; color: var(--red); }
+    /* v2.5.0-color : uptime < 7 j = etat sain -> neutre (pas de vert positif). */
+    .uptime-neutral { background: var(--bg-elevated); color: var(--text-muted); }
     .cpu-recent       { background: #1a3d1a; color: var(--green); }
     .cpu-vieillissant { background: #3d3d1a; color: var(--orange); }
     .cpu-ancien       { background: #3d1a1a; color: var(--red); }
@@ -2940,6 +3202,14 @@ $metaRefresh
     .conn-wifi       { background: #1a2a3d; color: #6699ff; }
     .conn-autre      { background: #2a2a3a; color: var(--text-dim); }
     .conn-deconnecte { background: #3d1a1a; color: var(--red); }
+    /* v2.5.0-ui : icone chassis inline (avant le CPU), sans texte -> mono-ligne */
+    .chassis-icon {
+        display: inline-block; vertical-align: middle; margin-right: 5px;
+        padding: 1px 4px; border-radius: 3px; font-size: 11px; line-height: 1;
+        cursor: help;
+    }
+    /* v2.5.0-ui : build OS affiche en ligne apres le badge produit */
+    .os-build { margin-left: 5px; font-size: 10px; color: var(--text-faint); }
     /* v5.8 : chassis badges */
     .chassis-laptop  { background: #1a2a3d; color: #6699ff; }
     .chassis-desktop { background: #2a1a3d; color: var(--purple); }
@@ -2969,18 +3239,12 @@ $metaRefresh
     [data-theme="light"] .os-win10   { background: #fdf3dc; color: var(--orange); }
     [data-theme="light"] .os-inconnu { background: #e6e9f2; color: var(--text-muted); }
 
-    /* ===== DISK BARS ===== */
-    .disk-bar-wrap { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
-    .disk-drive    { font-weight: 600; color: var(--text-dim); min-width: 24px; }
-    .disk-bar      { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
-    .disk-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
-    .disk-bar-fill.ok      { background: var(--green); }
-    .disk-bar-fill.warning { background: var(--orange); }
-    .disk-bar-fill.danger  { background: var(--red); }
-    .disk-info-text { font-size: 10px; color: var(--text-muted); min-width: 80px; text-align: right; }
+    /* v2.5.0-ui3 : anciennes barres de remplissage disque retirees (remplacees
+       par des .kv-row "Remplissage C: -> 45 % . 215 Go libres"). CSS supprime. */
 
     /* ===== FRESHNESS (derniere activite) ===== */
-    .freshness-ok       { color: var(--green);  font-size: 11px; }
+    /* v2.5.0-color : "vu recemment" n'est pas une alerte -> neutre (etait vert). */
+    .freshness-ok       { color: var(--text-muted);  font-size: 11px; }
     .freshness-warning  { color: var(--orange); font-size: 11px; }
     .freshness-danger   { color: var(--red);    font-size: 11px; }
 
@@ -2994,17 +3258,6 @@ $metaRefresh
     [data-theme="light"] .boot-warning { background: #fdf3dc; color: var(--orange); }
     [data-theme="light"] .boot-danger  { background: #fcdfe3; color: var(--red); }
 
-    /* ===== CRASHERS (item) ===== */
-    .crasher-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 3px 0;
-        border-bottom: 1px solid var(--bg-main);
-    }
-    .crasher-item:last-child { border-bottom: none; }
-    .crasher-name  { color: var(--yellow); font-size: 11px; }
-    .crasher-count { color: var(--red); font-weight: 700; font-size: 11px; }
     /* v2.3.1 (#9) : ligne lisible sous le crasher (nature/code/origine en clair) */
     .crasher-detail { font-size: 10px; color: var(--text-muted); margin-top: 2px; line-height: 1.35; }
 
@@ -3013,180 +3266,74 @@ $metaRefresh
     .row-main td:first-child:hover { color: var(--accent); }
     .toggle-icon { display: inline-block; margin-right: 6px; font-size: 10px; color: var(--text-muted); transition: transform 0.2s; }
     .row-main.open .toggle-icon { transform: rotate(90deg); }
-    .row-detail { display: none; background: var(--bg-elevated) !important; }
+    /* v2.5.0-ui3 : le panneau deplie doit lire comme une "fiche technique" sur
+       surface neutre claire (var --bg-panel, blanc en clair / surface sombre en
+       dark), jamais la teinte d'alerte de la ligne. On force la surface + les
+       couleurs de texte normales sur la ligne de detail ET sa cellule. */
+    .row-detail { display: none; background: var(--bg-panel) !important; }
     .row-detail.visible { display: table-row; }
-    .row-detail td { padding: 0 !important; border-bottom: 1px solid var(--border) !important; white-space: normal !important; }
-    .detail-box { padding: 14px 20px 16px 36px; display: flex; gap: 24px; flex-wrap: wrap; }
-    .detail-section { flex: 1; min-width: 180px; padding-left: 12px; border-left: 3px solid var(--border); }
-    .detail-section.sec-crash   { border-left-color: var(--red); }
-    .detail-section.sec-boot    { border-left-color: var(--orange); }
-    .detail-section.sec-disk    { border-left-color: var(--green); }
-    .detail-section.sec-crasher { border-left-color: var(--yellow); }
-    .detail-section.sec-hw      { border-left-color: var(--purple); }
-    .detail-section.sec-perf    { border-left-color: var(--cyan); }
-    /* v5.3 / v5.4 */
-    .detail-section.sec-battery { border-left-color: var(--green); }
-    .detail-section.sec-edr     { border-left-color: var(--purple); }
-    .detail-section.sec-bootperf{ border-left-color: var(--orange); }
-    .detail-section.sec-smart   { border-left-color: var(--cyan); min-width: 300px; flex-basis: 320px; }
-    .detail-section.sec-monitors { border-left-color: var(--purple); }
-    /* v1.8 */
-    .detail-section.sec-ram      { border-left-color: var(--cyan); min-width: 260px; flex-basis: 280px; }
-    .detail-section.sec-gpu      { border-left-color: var(--orange); }
-    .detail-section.sec-throttle { border-left-color: var(--red); }
+    .row-detail td { padding: 0 !important; border-bottom: 1px solid var(--border) !important; white-space: normal !important; background: var(--bg-panel) !important; color: var(--text-dim); }
 
-    /* v1.8 : RAM section */
-    .ram-summary {
-        padding: 8px 0 10px 0;
-        border-bottom: 1px solid var(--border);
-        margin-bottom: 8px;
-    }
-    .ram-summary-total {
-        display: flex;
-        align-items: baseline;
-        gap: 6px;
-        margin-bottom: 6px;
-    }
-    .ram-big {
-        font-size: 24px;
-        font-weight: 700;
-        color: var(--cyan);
-    }
-    .ram-unit { font-size: 12px; color: var(--text-muted); }
-    .ram-summary-slots {
-        font-size: 11px;
-        color: var(--text-muted);
-        margin-left: 8px;
-    }
-    .ram-summary-meta {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        font-size: 11px;
-        color: var(--text-muted);
-        flex-wrap: wrap;
-    }
-    .ram-meta-ok { color: var(--green); font-weight: 600; }
-    .ram-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 10px;
-        font-size: 10px;
-        font-weight: 600;
-    }
-    .ram-badge.upgrade-ok { background: rgba(34,197,94,0.15);  color: var(--green); }
-    .ram-badge.upgrade-no { background: rgba(239,68,68,0.12);  color: var(--red); }
-    .ram-modules {
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-        margin-top: 8px;
-    }
-    /* v2.3.0-ui : lignes barrettes aerees (etaient trop tassees) */
-    .ram-module-row {
-        display: flex;
-        gap: 14px;
-        align-items: center;
-        padding: 7px 10px;
-        background: var(--bg-main);
-        border-radius: 5px;
-        font-size: 12px;
-    }
-    .ram-slot-name {
-        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
-        color: var(--text-muted);
-        min-width: 70px;
-    }
-    .ram-capacity {
-        font-weight: 700;
-        color: var(--text);
-        min-width: 50px;
-    }
-    .ram-module-meta {
-        color: var(--text-muted);
-        flex: 1;
-        min-width: 0;              /* v2.1.7 : autorise le flex item a retrecir sous la largeur du contenu */
-        overflow-wrap: anywhere;   /* v2.1.7 : casse un Manufacturer sans espaces (ex "00000000...") au lieu de deborder */
-        font-size: 11px;
-        line-height: 1.4;
-    }
+    /* ============================================================
+       COCKPIT UI : file d'actions a droite du tableau.
+       Le rail de navigation a ete retire (redondant avec les tuiles de
+       famille + la toolbar) ; la page reste pleine largeur.
+       Aucune donnee ni fonction metier modifiee.
+       ============================================================ */
 
-    /* v1.8 : GPU section */
-    .gpu-row {
-        padding: 6px 0;
-        border-bottom: 1px solid var(--border);
-    }
-    .gpu-row:last-child { border-bottom: none; }
-    .gpu-name {
-        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
-        font-size: 12px;
-        color: var(--text);
-        margin-bottom: 2px;
-    }
-    .gpu-meta {
-        font-size: 11px;
-        display: flex;
-        gap: 6px;
-        align-items: center;
-    }
-    .gpu-driver-ok  { color: var(--text-muted); }
-    .gpu-driver-old { color: var(--yellow); }
-    .gpu-old-tag {
-        background: rgba(234,179,8,0.15);
-        color: var(--yellow);
-        padding: 1px 6px;
-        border-radius: 3px;
-        font-size: 9px;
-        font-weight: 600;
-        text-transform: uppercase;
-    }
+    /* File d'actions a droite du tableau */
+    .ck-body { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+    @media (max-width: 1200px) { .ck-body { grid-template-columns: 1fr; } }
+    .ck-body > .table-container { min-width: 0; }
+    .ck-actions { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; position: sticky; top: 12px; }
+    .ck-actions > h3 { margin: 0; padding: 13px 16px; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--text-dim); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: baseline; }
+    .ck-actions > h3 small { text-transform: none; letter-spacing: 0; color: var(--text-faint); font-weight: 400; font-size: 10px; }
+    .ck-act { padding: 11px 14px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; gap: 11px; align-items: flex-start; transition: background .12s; }
+    .ck-act:last-child { border-bottom: 0; }
+    .ck-act:hover { background: var(--bg-elevated); }
+    .ck-act.on { background: var(--bg-elevated); box-shadow: inset 3px 0 0 var(--ck-c, var(--accent)); }
+    .ck-act-num { flex: 0 0 44px; text-align: center; font-size: 18px; font-weight: 700; color: var(--ck-c, var(--accent)); font-variant-numeric: tabular-nums; line-height: 1.15; }
+    .ck-act-num small { display: block; font-size: 9px; font-weight: 500; letter-spacing: .4px; color: var(--text-faint); text-transform: uppercase; }
+    .ck-act-txt { min-width: 0; }
+    .ck-act-txt b { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-main); }
+    .ck-act-txt span { font-size: 11px; color: var(--text-faint); line-height: 1.4; display: block; margin-top: 2px; }
+    .ck-act-empty { padding: 22px 16px; text-align: center; color: var(--text-faint); font-size: 12px; }
 
-    /* v1.8 : CPU Throttling section */
-    .throttle-summary {
+    /* Sous-section "Mon equipe" (bas de la file d'actions) : remplace l'ancien rail. */
+    .ck-team { border-top: 3px solid var(--border); }
+    .ck-team-head {
+        padding: 11px 14px 7px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px;
+        color: var(--text-dim); font-weight: 700; display: flex; justify-content: space-between; align-items: baseline;
+    }
+    .ck-team-head small { text-transform: none; letter-spacing: 0; color: var(--text-faint); font-weight: 400; font-size: 10px; }
+    .ck-team-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        padding: 7px 14px; border-top: 1px solid var(--border); cursor: pointer;
+        font-size: 12.5px; color: var(--text-dim); transition: background .12s;
+    }
+    .ck-team-row:hover { background: var(--bg-elevated); color: var(--text-main); }
+    .ck-team-row.on { background: var(--bg-elevated); box-shadow: inset 3px 0 0 var(--accent); color: var(--text-main); font-weight: 600; }
+    .ck-team-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ck-team-n { flex: 0 0 auto; font-size: 11px; background: var(--bg-elevated); border: 1px solid var(--border);
+        border-radius: 20px; padding: 1px 8px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+    .ck-team-row.on .ck-team-n { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* Anneaux (donut) SVG dans les tuiles de synthese */
+    .ck-ring { flex-shrink: 0; }
+
+    /* ===== Lignes du tableau principal resserrees (densite cockpit) =====
+       Scope strict : uniquement .row-main. Les lignes de detail (.row-detail)
+       gardent leur propre padding (voir plus bas). */
+    thead th { padding-top: 8px; padding-bottom: 8px; }
+    tbody tr.row-main td {
         padding: 6px 10px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        margin-bottom: 8px;
+        font-size: 12px;
+        line-height: 1.35;
+        vertical-align: middle;
+        white-space: nowrap;   /* v2.5.0-ui : chaque cellule sur une seule ligne (densite cockpit) */
     }
-    .throttle-sev-info  { background: rgba(234,179,8,0.10);  color: var(--yellow); }
-    .throttle-sev-alert { background: rgba(239,68,68,0.12);  color: var(--red);    border-left: 3px solid var(--red); padding-left: 8px; }
-    .throttle-row {
-        display: flex;
-        flex-wrap: wrap;       /* v2.1.7 : en colonne etroite, dur/count passent a la ligne au lieu de deborder */
-        gap: 4px 10px;         /* row-gap 4px (si wrap) / column-gap 10px */
-        align-items: center;
-        padding: 4px 0;
-        font-size: 11px;
-    }
-    .throttle-day {
-        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
-        color: var(--text);
-        min-width: 90px;
-    }
-    .throttle-type {
-        color: var(--text-muted);
-        flex: 1;
-        min-width: 0;          /* v2.1.7 : laisse le type retrecir plutot que pousser cumul/events hors ligne */
-    }
-    .throttle-dur {
-        color: var(--orange);
-        font-weight: 600;
-        font-size: 11px;
-        white-space: nowrap;
-    }
-    .throttle-count {
-        color: var(--text-faint);
-        font-weight: 400;
-        font-size: 10px;
-        white-space: nowrap;   /* v2.1.7 : "xN events" ne se coupe pas */
-    }
-    .throttle-more {
-        font-size: 10px;
-        color: var(--text-faint);
-        font-style: italic;
-        padding: 4px 0 0 0;
-    }
+
+
 
     /* Pastilles indicateurs compacts (colonne tableau)
        v5.7 : gap 5px (etait 3px) pour mieux separer les pastilles.
@@ -3208,112 +3355,15 @@ $metaRefresh
     .indicator-dot.ko   { background: var(--red); }
     .indicator-dot.na   { background: var(--border); color: var(--text-muted); }
 
-    /* Drill-down batterie : barre de sante */
-    .batt-bar-wrap { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
-    .batt-bar     { flex: 1; height: 12px; background: var(--bg-main); border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
-    .batt-bar-fill { height: 100%; transition: width 0.3s; }
-    .batt-bar-fill.good    { background: linear-gradient(90deg, var(--green), #3bb891); }
-    .batt-bar-fill.warning { background: linear-gradient(90deg, var(--orange), #ff8c00); }
-    .batt-bar-fill.danger  { background: linear-gradient(90deg, var(--red), #d03030); }
-    .batt-meta    { font-size: 11px; color: var(--text-muted); }
-    .batt-meta strong { color: var(--text-dim); }
 
-    /* Boot Perf : breakdown des phases */
-    .bootperf-phases { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
-    .bootperf-phase  { display: flex; align-items: center; gap: 8px; font-size: 11px; }
-    .bootperf-label  { flex: 0 0 140px; color: var(--text-muted); }
-    .bootperf-bar    { flex: 1; height: 8px; background: var(--bg-main); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
-    .bootperf-bar-fill { height: 100%; background: var(--orange); }
-    .bootperf-bar-fill.slow  { background: var(--red); }
-    .bootperf-bar-fill.fast  { background: var(--green); }
-    .bootperf-value  { flex: 0 0 75px; text-align: right; font-weight: 700; color: var(--text-dim); }
-    .bootperf-meta   { font-size: 10px; color: var(--text-faint); margin-top: 6px; }
-    .bootperf-row    { display: flex; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--bg-main); font-size: 11px; }
-    .bootperf-row:last-child { border-bottom: none; }
-    .bootperf-row .date { color: var(--text-faint); flex: 1; }
-    .bootperf-row .total { color: var(--text-dim); font-weight: 700; }
-    .bootperf-row.slow .total { color: var(--red); }
 
-    /* SMART : carte par disque */
-    .smart-disk { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: var(--bg-main); }
-    .smart-disk-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
-    .smart-disk-name { font-weight: 700; color: var(--text-dim); font-size: 12px; }
-    .smart-disk-sub  { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
-    /* v2.3.0-ui : cartes SMART aerees (etaient trop tassees en colonne etroite) */
-    .smart-grid      { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 24px; font-size: 11.5px; margin-top: 4px; }
-    .smart-kv        { display: flex; justify-content: space-between; gap: 14px; padding: 3px 0; line-height: 1.5; }
-    .smart-kv .k     { color: var(--text-muted); }
-    .smart-kv .v     { color: var(--text-dim); font-weight: 600; text-align: right; }
-    .smart-kv .v.ok   { color: var(--green); }
-    .smart-kv .v.warn { color: var(--orange); }
-    .smart-kv .v.ko   { color: var(--red); }
-    .smart-kv .v.na   { color: var(--text-ghost); font-style: italic; font-weight: normal; }
-    .smart-health-badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 700; }
-    .smart-health-badge.healthy   { background: var(--bg-success); color: var(--green); }
-    .smart-health-badge.warning   { background: var(--bg-warning); color: var(--orange); }
-    .smart-health-badge.unhealthy { background: var(--bg-danger); color: var(--red); }
-    .smart-alerts    { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
-    .smart-alert-chip { font-size: 9.5px; padding: 2px 5px; border-radius: 3px; background: var(--bg-danger); color: var(--red); font-weight: 600; }
 
-    /* ===== MONITORS (v5.7) : inventaire ecrans externes =====
-       Chaque moniteur = une "carte" fine avec nom/fab/serial/age.
-       Un badge vert "actif" quand branche, gris quand plus branche.
-       Un badge orange "age X ans" quand ecran ancien. */
-    .monitor-card {
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 8px 10px;
-        margin-bottom: 6px;
-        background: var(--bg-main);
-    }
-    .monitor-card.old { border-left: 3px solid var(--orange); }
-    .monitor-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        gap: 10px;
-        margin-bottom: 4px;
-    }
-    .monitor-name {
-        font-weight: 700;
-        color: var(--text-dim);
-        font-size: 12px;
-        flex: 1;
-        min-width: 0;
-    }
-    .monitor-manuf {
-        font-size: 11px;
-        color: var(--text-muted);
-        font-weight: 500;
-    }
-    .monitor-badges { display: flex; gap: 4px; flex-shrink: 0; }
-    .mon-badge {
-        font-size: 9.5px;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
-    }
-    .mon-badge.active   { background: var(--bg-success); color: var(--green); }
-    .mon-badge.inactive { background: var(--border);     color: var(--text-muted); }
-    .mon-badge.old      { background: var(--bg-warning); color: var(--orange); }
-    .monitor-meta {
-        font-size: 10.5px;
-        color: var(--text-muted);
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
-    .monitor-meta strong { color: var(--text-dim); }
-    /* v5.8 : ecran non identifie (EDID non transmis) - visuellement neutre */
-    .monitor-card.unidentified { border-left: 3px solid var(--text-ghost); opacity: 0.85; }
-    .monitor-card.unidentified .monitor-name { color: var(--text-muted); font-style: italic; }
     /* v2.3.0 : dernier utilisateur connu (pas de session live) */
-    .user-last { color: var(--text-muted); font-style: italic; }
-    .user-last-tag { font-style: normal; font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px;
+    .user-last { color: var(--text-muted); font-style: italic; white-space: nowrap; }
+    /* v2.5.0-ui : petite puce "DERNIER" inline qui ne passe jamais a la ligne */
+    .user-last-tag { display: inline-block; font-style: normal; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.4px;
                      color: var(--text-ghost); border: 1px solid var(--border); border-radius: 3px;
-                     padding: 0 4px; margin-left: 6px; vertical-align: middle; }
+                     padding: 0 4px; margin-left: 5px; vertical-align: middle; white-space: nowrap; }
 
     /* ===== INVENTAIRE MONITORS GLOBAL (panneau bas de page) ===== */
     .monitor-inventory {
@@ -3374,14 +3424,32 @@ $metaRefresh
         font-size: 10px;
     }
 
-    .detail-section h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 8px; }
-    .detail-item { font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--bg-main); display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
-    .detail-item:last-child { border-bottom: none; }
-    .detail-date  { color: var(--text-faint); white-space: nowrap; font-size: 11px; }
-    .detail-ago   { color: var(--text-muted); font-size: 10px; font-style: italic; }
-    .detail-info  { color: var(--text-dim); }
-    .detail-dur   { color: var(--orange); font-weight: 700; white-space: nowrap; }
-    .detail-empty { color: var(--text-ghost); font-style: italic; font-size: 12px; }
+    /* v2.5.0-ui : etat "rien a signaler" = note discrete sur une ligne, pas une carte vide */
+    .detail-empty { color: var(--text-muted); font-style: normal; font-size: 11.5px; padding: 2px 0; line-height: 1.4; }
+
+    /* v2.5.0 (Essai A) : DRILL-DOWN = liste de definitions mono-ligne unifiee.
+       "Fiche technique" plate. Une donnee = une ligne : gouttiere de libelle a
+       gauche (largeur fixe) + valeur condensee a droite, filet pointille, en-tetes
+       de groupe legers. Meme format partout -> coherence maximale. Remplace les
+       ex-layouts cartes / kv-row / detail-section / detail-item. */
+    .dd-list { padding: 2px 0; }
+    .dd-group { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim); font-weight:600; margin:12px 0 3px; padding-bottom:3px; border-bottom:0.5px solid var(--border); }
+    .dd-strong { font-weight:600; color:var(--text-dim); }
+    .dd-group:first-child { margin-top:0; }
+    .dd-row { display:grid; grid-template-columns:88px 1fr; gap:12px; align-items:baseline; padding:4px 0; border-bottom:0.5px dotted var(--border); }
+    .dd-row:last-child { border-bottom:0; }
+    .dd-l { font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); overflow-wrap:anywhere; }
+    .dd-v { color:var(--text-dim); overflow-wrap:anywhere; }
+    .dd-v .mut { color:var(--text-muted); }
+    .dd-v .mono { font-family: ui-monospace, 'SF Mono', Consolas, monospace; }
+    .dd-v .ok { color:var(--green); }
+    .dd-v .warn { color:var(--orange); }
+    .dd-v .ko { color:var(--red); }
+    .dd-tag { display:inline-block; font-size:10px; padding:1px 7px; border-radius:999px; margin-left:3px; white-space:nowrap; background:var(--bg-elevated); color:var(--text-muted); }
+    .dd-tag.ok { background:var(--bg-success); color:var(--green); }
+    .dd-tag.warn { background:var(--bg-warning); color:var(--orange); }
+    .dd-tag.ko { background:var(--bg-danger); color:var(--red); }
+    .dd-badge { display:inline-block; font-size:10px; padding:1px 7px; border-radius:6px; background:rgba(141,133,255,0.15); color:var(--accent); }
 
     /* ===== ONGLETS DRILL-DOWN (v5.5) =====
        Les 10 sections de detail sont regroupees en 5 onglets thematiques :
@@ -3390,7 +3458,7 @@ $metaRefresh
     .detail-tabs {
         display: flex;
         gap: 4px;
-        border-bottom: 1px solid var(--border);
+        border-bottom: 0.5px solid var(--border);
         padding: 0 20px 0 36px;
         margin: 8px 0 0 0;
         overflow-x: auto;
@@ -3441,39 +3509,7 @@ $metaRefresh
         padding: 14px 20px 16px 36px;
     }
     .detail-tab-panel.active { display: block; }
-    .detail-tab-panel .detail-box {
-        padding: 0;
-    }
 
-    /* Onglet "Vue d'ensemble" : liste compacte des alertes actives */
-    .overview-list { display: flex; flex-direction: column; gap: 6px; }
-    .overview-alert {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 12px;
-        border-radius: 6px;
-        background: var(--bg-main);
-        border-left: 3px solid var(--orange);
-        font-size: 12px;
-    }
-    .overview-alert.critical { border-left-color: var(--red); background: rgba(255, 107, 107, 0.08); }
-    .overview-alert.warning  { border-left-color: var(--orange); }
-    .overview-alert.info     { border-left-color: var(--cyan); }
-    .overview-alert .ov-icon { font-size: 16px; width: 24px; text-align: center; flex-shrink: 0; }
-    .overview-alert .ov-text { flex: 1; color: var(--text-dim); }
-    .overview-alert .ov-text strong { color: var(--text); }
-    .overview-alert .ov-meta { color: var(--text-faint); font-size: 11px; white-space: nowrap; }
-    .overview-empty {
-        padding: 18px 12px;
-        text-align: center;
-        color: var(--green);
-        font-size: 12.5px;
-        background: rgba(78, 204, 163, 0.06);
-        border-radius: 6px;
-        border: 1px dashed rgba(78, 204, 163, 0.3);
-    }
-    .overview-empty strong { display: block; font-size: 14px; margin-bottom: 4px; }
 
     /* ===== MODE COMPACT DU TABLEAU (v5.5) =====
        Par defaut on cache les colonnes "avancees" (Crash/BSOD/HW/Disque/Perf)
@@ -3496,132 +3532,87 @@ $metaRefresh
         letter-spacing: 0.5px;
         margin-bottom: 14px;
     }
-    .global-crashers-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 10px;
-    }
+    /* v2.5 : liste verticale simple (les groupes/entetes rythment la lecture) */
+    .gc-list { display: block; }
     .global-crasher-row {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 8px 12px;
-        background: var(--bg-main);
+        padding: 6px 10px;
+        background: transparent;
         border-radius: 6px;
-        border-left: 3px solid var(--yellow);
+        border-left: 2px solid transparent;
     }
-    .global-crasher-name { color: var(--yellow); font-size: 12px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    .global-crasher-name { color: var(--text-dim); font-size: 12px; font-weight: 500; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, 'SF Mono', Consolas, monospace; }
     .global-crasher-stats { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
-    .global-crasher-total { color: var(--red); font-weight: 700; }
 
-    /* v1.7 : 3 sections Top Crashers global (Local / Reparti / Bruit) */
-    .crasher-section { margin-bottom: 18px; }
-    .crasher-section-title {
-        margin: 0 0 10px 0;
-        font-size: 13px;
-        color: var(--text);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-weight: 700;
-    }
-    .crasher-section-count {
-        background: var(--bg-alt);
-        color: var(--text-muted);
-        padding: 1px 8px;
-        border-radius: 10px;
+    /* ===== TOP CRASHERS PARC (v2.5) : 3 groupes priorises =====
+       Importantes (applis suivies) / Plus fort impact / Bruit de fond.
+       Entetes facon .dd-group, tri par volume, top 5 + expander par groupe. */
+    .gc-group {
         font-size: 11px;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+        color: var(--text-dim);
         font-weight: 600;
+        margin: 16px 0 4px;
+        padding-bottom: 3px;
+        border-bottom: 0.5px solid var(--border);
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
     }
-    .crasher-section-hint {
-        font-size: 11px;
-        color: var(--text-faint);
-        font-weight: 400;
-        margin-left: 4px;
-    }
-    .crasher-section-empty {
-        padding: 8px 12px;
-        background: var(--bg-main);
-        border-radius: 6px;
-        font-size: 11px;
-        color: var(--text-faint);
-        font-style: italic;
-    }
-    .crasher-collapsible { cursor: pointer; user-select: none; }
-    .crasher-toggle { font-size: 11px; color: var(--text-muted); margin-right: 2px; }
-    .crasher-noise-body { margin-top: 4px; }
+    .gc-group:first-child { margin-top: 0; }
+    .gc-group-count { color: var(--text-muted); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .gc-empty { color: var(--text-muted); font-size: 11.5px; padding: 3px 2px; }
+    .gc-hidden { color: var(--text-muted); font-size: 11px; margin-top: 8px; }
 
-    /* Distinction visuelle par niveau (couleur bordure gauche) */
-    .global-crasher-row.local  { border-left-color: var(--red); }
-    .global-crasher-row.spread { border-left-color: var(--yellow); }
-    .global-crasher-row.noise  { border-left-color: var(--text-faint); opacity: 0.75; }
+    /* Ligne "voir les N autres" / bruit de fond replie */
+    .gc-more {
+        cursor: pointer;
+        user-select: none;
+        color: var(--text-muted);
+        font-size: 11px;
+        padding: 5px 4px 2px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .gc-more:hover { color: var(--text-dim); }
+    .gc-more-tri { font-size: 9px; }
+    .gc-more-body { display: block; }
 
-    /* Badge score */
-    .crasher-score {
+    /* Chip tag (uppercase, pilule ~9.5px) */
+    .gc-tag {
         display: inline-block;
-        min-width: 32px;
-        text-align: center;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-family: ui-monospace, 'SF Mono', Consolas, monospace;
-        font-size: 11px;
-        font-weight: 700;
+        font-size: 9.5px;
+        line-height: 1.5;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        padding: 0 7px;
+        border-radius: 999px;
+        white-space: nowrap;
+        font-weight: 600;
+        background: var(--bg-elevated);
+        color: var(--text-muted);
     }
-    .crasher-score-local  { background: rgba(239,68,68,0.18); color: var(--red); }
-    .crasher-score-spread { background: rgba(234,179,8,0.18); color: var(--yellow); }
+    .gc-tag-suivi { background: rgba(141,133,255,0.15); color: var(--accent); }
+    .gc-tag-fail  { background: var(--bg-warning);      color: var(--orange); }
 
-    /* v2.1.12 : applis suivies ("A investiguer en priorite") - registre accent,
-       volontairement distinct des niveaux de gravite (rouge/jaune/orange). */
-    .crasher-score-priority { background: rgba(141,133,255,0.20); color: var(--accent); }
-    .global-crasher-row.priority { border-left-color: var(--accent); }
-    .global-crasher-row.priority .global-crasher-name { color: var(--accent); }
-    /* v2.1.12 : lignes cliquables (tout le panneau) -> filtre les PC concernes */
+    /* Metriques a droite : nombres en gras. Rouge dans le groupe "Importantes". */
+    .gc-spacer { flex: 1 1 auto; }
+    .global-crasher-stats b { color: var(--text-main); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .gc-important .global-crasher-stats b { color: var(--red); }
+
+    /* Lignes cliquables (tout le panneau) -> filtre les PC concernes */
     .global-crasher-row.clickable { cursor: pointer; transition: background .1s ease, box-shadow .1s ease; }
     .global-crasher-row.clickable:hover { background: var(--bg-elevated); }
     .global-crasher-row.active { background: rgba(141,133,255,0.14); box-shadow: inset 0 0 0 1px var(--accent); }
 
-    /* v2.1.13 : encart piste materielle memoire (registre ambre "a verifier", pas rouge alarme) */
-    .memory-piste { margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; background: rgba(255,184,77,0.10); border-left: 3px solid var(--orange); }
-    .memory-piste-head { font-size: 11px; font-weight: 700; color: var(--orange); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-    .memory-piste-body { font-size: 12px; color: var(--text-main); line-height: 1.5; }
-    .memory-piste-note { display: block; margin-top: 4px; font-size: 11px; color: var(--text-muted); font-style: italic; }
 
     /* v2.1.14 : bouton "tout effacer" dans la barre des filtres actifs */
     .clear-all-filters { background: transparent; border: 1px solid var(--text-faint); color: var(--text-muted); font-size: 11px; padding: 3px 10px; border-radius: 12px; cursor: pointer; margin-left: 4px; font-family: inherit; }
     .clear-all-filters:hover { border-color: var(--red); color: var(--red); }
-    .crasher-score-noise  { background: var(--bg-alt);       color: var(--text-muted); }
-
-    /* Cadenas "forced to noise" via blacklist soft */
-    .crasher-forced { font-size: 11px; opacity: 0.6; margin-right: -4px; }
-
-    /* v1.7 : drill-down PC - bruiteurs grises */
-    .crasher-soft-noise { opacity: 0.55; }
-    .crasher-noise-tag {
-        display: inline-block;
-        font-size: 9px;
-        background: var(--bg-alt);
-        color: var(--text-faint);
-        padding: 1px 5px;
-        border-radius: 3px;
-        margin-left: 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    /* v2.1.4 : Applis en echec recurrent (Type app_failure) - registre "a reparer" */
-    .global-crasher-row.appfail { border-left-color: var(--orange); }
-    .crasher-score-appfail { background: rgba(230,126,34,0.18); color: var(--orange); }
-    .crasher-appfail-tag {
-        display: inline-block;
-        font-size: 9px;
-        background: rgba(230,126,34,0.18);
-        color: var(--orange);
-        padding: 1px 5px;
-        border-radius: 3px;
-        margin-left: 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
 
     /* ===== BOOT BREAKDOWN (v5.2) ===== */
     .boot-breakdown { display: flex; flex-direction: column; gap: 10px; }
@@ -3771,6 +3762,11 @@ $metaRefresh
 </head>
 <body>
 
+<!-- ============================================================
+     COCKPIT UI : page pleine largeur (le rail de gauche
+     a ete retire). Tableau + file d'actions dans .ck-body plus bas.
+     ============================================================ -->
+
 <div class="header">
     <h1><span>$titleHtml</span> &mdash; $subtitleHtml</h1>
     <div class="header-right">
@@ -3786,38 +3782,45 @@ $anomalyHtml
 <div class="toolbar">
     <span class="label">P&eacute;riode :</span>
     <button class="range-btn active" onclick="setDays(1, this)">24h</button>
-    <button class="range-btn" onclick="setDays(7, this)">7 jours</button>
-    <button class="range-btn" onclick="setDays(15, this)">15 jours</button>
-    <button class="range-btn" onclick="setDays(30, this)">30 jours</button>
-
-    <div class="divider"></div>
-
-    <button class="filter-btn" id="maskHealthyBtn" onclick="toggleMaskHealthy()" title="Masquer les PC sans probleme">Masquer sains</button>
-    <button class="filter-btn" id="advancedColsBtn" onclick="toggleAdvancedCols()" title="Afficher les colonnes techniques (Crash, BSOD, HW, Disque, Perf)">Vue d&eacute;taill&eacute;e</button>
-    $anomalyFilterBtn
+    <button class="range-btn" onclick="setDays(7, this)">7j</button>
+    <button class="range-btn" onclick="setDays(15, this)">15j</button>
+    <button class="range-btn" onclick="setDays(30, this)">30j</button>
 
     <div class="divider"></div>
 
     <label style="color: var(--text-muted); font-size: 12px;">Site :</label>
     <select id="siteFilter" onchange="filterChanged()"><option value="">Tous</option></select>
-    <label style="color: var(--text-muted); font-size: 12px;">CPU :</label>
+    <label style="color: var(--text-muted); font-size: 12px;">$cpuFilterLabelTxt</label>
     <select id="cpuFilter" onchange="filterChanged()">
-        <option value="">Tous</option>
-        <option value="Recent">Recent</option>
-        <option value="Vieillissant">Vieillissant</option>
-        <option value="Ancien">Ancien</option>
-        <option value="Inconnu">Inconnu</option>
+$cpuFilterOptions
     </select>
     <label style="color: var(--text-muted); font-size: 12px;">OS :</label>
     <select id="osFilter" onchange="filterChanged()"><option value="">Tous</option></select>
     <label style="color: var(--text-muted); font-size: 12px;">Mod&egrave;le :</label>
     <select id="modelFilter" onchange="filterChanged()"><option value="">Tous</option></select>
+    <label style="color: var(--text-muted); font-size: 12px;">VPN :</label>
+    <select id="vpnFilter" onchange="filterChanged()"><option value="">Toutes</option></select>
+
+    <div class="divider"></div>
+    <label style="color: var(--text-muted); font-size: 12px;">Type :</label>
+    <button class="chassis-filter-btn" id="chassisLaptop"  onclick="toggleChassisFilter('laptop')"  title="Portables">&#128187;</button>
+    <button class="chassis-filter-btn" id="chassisDesktop" onclick="toggleChassisFilter('desktop')" title="Postes fixes">&#128421;</button>
+    <button class="chassis-filter-btn" id="chassisAio"     onclick="toggleChassisFilter('aio')"     title="Tout-en-un (AIO)">&#128444;</button>
 
     <div class="search-wrap">
         <span class="search-icon">&#128269;</span>
-        <input class="search-input" type="text" id="searchInput" placeholder="PC ou utilisateur..." oninput="filterChanged()">
+        <input class="search-input" type="text" id="searchInput" placeholder="PC, utilisateur, n&deg; s&eacute;rie..." oninput="filterChanged()">
+        <span class="search-clear" id="searchClear" onclick="clearSearch()" title="Effacer la recherche">&times;</span>
     </div>
     <button class="export-btn" onclick="exportCSV()" title="Exporter la vue courante en CSV">&#8681; CSV</button>
+
+    <div class="toolbar-break"></div>
+
+    <button class="filter-btn" id="maskHealthyBtn" onclick="toggleMaskHealthy()" title="Masquer les PC sans probleme">Masquer sains</button>
+    <button class="filter-btn" id="advancedColsBtn" onclick="toggleAdvancedCols()" title="Afficher les colonnes techniques (Crash, BSOD, HW, Disque, Perf)">Vue d&eacute;taill&eacute;e</button>
+    $anomalyFilterBtn
+
+    <button class="filter-btn" id="resetBtn" onclick="clearAllFilters()" title="R&eacute;initialiser tous les filtres" style="margin-left:auto">R&eacute;initialiser</button>
 </div>
 
 <!-- v5.5 : Summary bar avec les 3 chiffres essentiels -->
@@ -3831,6 +3834,8 @@ $anomalyHtml
 <div class="kpi-grid" id="kpiGrid" style="display:none"></div>
 <div id="kpiGroups" style="display:none"></div>
 
+<!-- cockpit : tableau (gauche) + file d'actions (droite) -->
+<div class="ck-body">
 <div class="table-container">
     <div class="table-header">
         <div>
@@ -3850,12 +3855,19 @@ $anomalyHtml
     <!-- v1.5 : pagination bas -->
     <div id="paginationBottom"></div>
     <div class="legend">
-        <div class="legend-item"><div class="legend-dot dot-danger"></div> Crash ou BSOD</div>
-        <div class="legend-item"><div class="legend-dot dot-hardware"></div> Erreur mat&eacute;rielle</div>
-        <div class="legend-item"><div class="legend-dot dot-warning"></div> Boot long / disque critique</div>
-        <div class="legend-item"><div class="legend-dot dot-ok"></div> Pas de probl&egrave;me</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Sain</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> &Agrave; surveiller</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Critique</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--text-muted)"></div> Hors ligne</div>
     </div>
 </div>
+
+<section class="ck-actions">
+    <h3>File d'actions <small>par gravit&eacute;</small></h3>
+    <div id="ckActs"></div>
+</section>
+</div>
+<!-- /ck-body -->
 
 <div class="global-panel">
     <h3>R&eacute;partition des d&eacute;marrages (parc)</h3>
@@ -3890,7 +3902,7 @@ $anomalyHtml
 <!-- v2.1.2 : Top Crashers deplace tout en bas de page -->
 <div class="global-panel">
     <h3>Top Crashers parc global</h3>
-    <div class="global-crashers-grid" id="globalCrashers"></div>
+    <div class="gc-list" id="globalCrashers"></div>
 </div>
 
 <script>
@@ -3905,10 +3917,37 @@ var screenAgeThreshold = (function() { var v = parseInt(localStorage.getItem('pc
 var seuilDiskAlert   = $SeuilDiskAlert;
 var seuilDiskWarning = $SeuilDiskWarning;
 var generatedAt   = new Date('$($now.ToString("yyyy-MM-ddTHH:mm:ss"))');
+// v2.5.3 : renouvellement. RENEWAL_MAX_YEAR = null => mode desactive (tag CPU d'age).
+var RENEWAL_MAX_YEAR = $renewalMaxYearJs;
+var RENEWAL_MODE = (RENEWAL_MAX_YEAR !== null);
+function isRenewalCandidate(pc) { return RENEWAL_MODE && pc && pc.CPUYear && pc.CPUYear <= RENEWAL_MAX_YEAR; }
+// v2.5.3 : match du filtre "CPU" (mode age) OU "Renouvellement" (mode candidat).
+function cpuFilterMatch(p) {
+    if (!state.cpuFilter) return true;
+    if (RENEWAL_MODE) {
+        if (state.cpuFilter === 'renew') return isRenewalCandidate(p.pc);
+        if (state.cpuFilter === 'keep')  return !isRenewalCandidate(p.pc);
+        return true;
+    }
+    return p.pc.CPUAgeCategory === state.cpuFilter;
+}
 // v2.1.12 : applis suivies (minuscules) - remontees dans la section "A investiguer en priorite".
 var priorityApps  = $priorityAppsJson;
 // v2.4.2 : registre decommission complet (stats/audit cycle de vie).
 var decomRegistry = $decomRegistryJson;
+
+// cockpit : mapping PC -> technicien assigne, tire du registre de decommission
+// (seule source d'affectation nominative disponible cote client). Sert au
+// filtre "Mon equipe" du rail. Ne couvre que les PC presents dans le registre.
+var ckTechByPc = (function() {
+    var m = {};
+    (decomRegistry || []).forEach(function(e) {
+        if (e && e.PC && e.AssignedTo) m[e.PC] = e.AssignedTo;
+    });
+    return m;
+})();
+// cockpit : metadonnees des familles (rempli par renderKpis) pour cabler le rail.
+var ckFamilyMeta = {};
 
 // ===== ETAT UI =====
 var state = {
@@ -3919,8 +3958,11 @@ var state = {
     cpuFilter: '',
     osFilter: '',
     modelFilter: '',
+    vpnFilter: '',   // v2.5.2 : filtre par version de client VPN
+    chassisFilter: null,   // v2.5.2 : 'laptop' | 'desktop' | 'aio' | null (filtre icones)
     kpiFilter: null,     // 'offline', 'crash', 'bsod', 'hw', 'bootLong', 'diskAlert', 'oldCpu', 'crashRecent'
     appFilter: null,     // v2.1.12 : nom d'appli (clic sur un crasher) -> filtre les PC qui l'ont en crash
+    techFilter: null,    // cockpit : technicien du rail "Mon equipe" -> filtre les PC qui lui sont assignes
     sort: { col: 'score', dir: 'desc' },
     // Pagination : itemsPerPage peut valoir 20, 50, 100, ou 0 (tous)
     // Persistance via localStorage pour se souvenir du choix utilisateur
@@ -4017,7 +4059,7 @@ function prettyRamManuf(raw) {
     var s = ('' + raw).trim();
     if (!/^[0-9A-Fa-f]+$/.test(s)) return s;   // deja un nom lisible
     if (/^0+$/.test(s))            return '';   // BIOS non renseigne
-    if (s.length % 2 !== 0)        return s;
+    if (s.length % 2 !== 0)        return '';   // hex illisible -> on masque
     var map = { 1:'AMD', 11:'Nanya', 44:'Micron', 45:'SK Hynix', 78:'Samsung' };
     var cont = false;
     for (var i = 0; i < s.length; i += 2) {
@@ -4029,7 +4071,19 @@ function prettyRamManuf(raw) {
         if (code === 0) continue;
         if (map[code]) return map[code];
     }
-    return s;   // code inconnu / banque > 1 : on garde le brut
+    return '';   // code JEDEC inconnu : mieux vaut rien que du hex brut
+}
+// v2.5.0 : normalise le type memoire. Gere "DDR4" (deja propre), un code
+// SMBIOS nu ("35") ou le repli du collector ("Type=35"). Table SMBIOS 7.18.2.
+function cleanRamType(t) {
+    if (!t) return '';
+    var s = String(t);
+    if (s.indexOf('=') === -1 && !/^\d+$/.test(s)) return s;   // deja lisible (DDR4...)
+    var m = s.match(/(\d+)/);
+    var code = m ? parseInt(m[1], 10) : null;
+    var map = { 20:'DDR', 21:'DDR2', 24:'DDR3', 26:'DDR4', 34:'DDR5',
+                28:'LPDDR', 29:'LPDDR2', 30:'LPDDR3', 31:'LPDDR4', 35:'LPDDR5' };
+    return (code != null && map[code]) ? map[code] : '';
 }
 // v2.1.2 : formatage lisible d'une duree en secondes (throttling cumule par jour)
 function fmtDuration(sec) {
@@ -4051,6 +4105,17 @@ function timeAgo(dateStr) {
     if (diffH > 0) return 'il y a ' + diffH + 'h';
     if (diffMin > 0) return 'il y a ' + diffMin + 'min';
     return 'a l instant';
+}
+function frDate(s) {
+    if (!s) return '';
+    var m = String(s).match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+    if (!m) return s;
+    // v2.5.0 : format unique dans tout le dashboard -> "JJ-MM HH:MM". Les donnees
+    // sont toujours recentes (<= 30 j) : l'annee est retiree, les secondes ignorees
+    // (le regex ne capture que HH:MM). Jour + mois en gras.
+    var r = '<b class="dd-strong">' + m[3] + '-' + m[2] + '</b>';
+    if (m[4]) r += ' ' + m[4] + ':' + m[5];
+    return r;
 }
 
 // ============================================================
@@ -4107,6 +4172,32 @@ function isBlacklistedSoft(name) {
 function isPriorityApp(name) {
     if (!name) return false;
     return priorityApps.indexOf(String(name).toLowerCase()) !== -1;
+}
+
+// v2.5.0 : filtre de bruit PARTAGE (panneau global + drill-down par PC). Le
+// Collector capture parfois des fragments de message de log (traces Dell DDPM,
+// exceptions .NET, namespaces, SID, {}, ...) comme si c'etaient des applis en
+// echec. Un vrai process a un .exe, ou est un token propre sans point / espace /
+// ponctuation. Une appli suivie (priorityApps) n'est jamais consideree bruit.
+function isRealApp(n) {
+    n = String(n);
+    if (/[\s\[\]{}='":]/.test(n)) return false;   // espace / ponctuation => texte de log
+    if (/\.exe/i.test(n)) return true;             // tout ce qui contient .exe est un process
+    return n.indexOf('.') === -1;                  // token propre sans point OK ; namespace .NET rejete
+}
+// v2.5.0 : un "crasher" dont le nom est exactement la session ouverte est un
+// artefact d'extraction (le nom d'utilisateur happe dans un message). On le
+// masque en s'appuyant sur les identites connues du poste.
+function isUserArtifact(name, pc) {
+    if (!name || !pc) return false;
+    var n = String(name).toLowerCase().trim();
+    if (!n) return false;
+    var users = [pc.CurrentUser, pc.LastLoggedUser];
+    for (var i = 0; i < users.length; i++) {
+        var u = String(users[i] || '').toLowerCase().trim();
+        if (u && u !== '(aucune session)' && u === n) return true;
+    }
+    return false;
 }
 
 // Scoring : penalise la dispersion entre PC.
@@ -4232,7 +4323,10 @@ function computeVerdict(p) {
         reasons.push('SSD wear ' + smartWearMax + '%');
         level = 'critical';
     }
-    if (cpuCat === 'Ancien' && crashCount >= 1) {
+    // v2.5.3 : en mode renouvellement, l'axe age ne pollue plus le VERDICT sante
+    // (le renouvellement est un axe de planning, montre via badge/filtre/KPI).
+    // Aucun libelle "ancien/vieillissant" affiche. En fallback, comportement historique.
+    if (!RENEWAL_MODE && cpuCat === 'Ancien' && crashCount >= 1) {
         reasons.push('CPU ancien + crashs');
         level = 'critical';
     }
@@ -4259,7 +4353,7 @@ function computeVerdict(p) {
 
     // --- NIVEAU A SURVEILLER ---
     if (level !== 'critical' && level !== 'incident') {
-        if (cpuCat === 'Vieillissant') {
+        if (!RENEWAL_MODE && cpuCat === 'Vieillissant') {
             reasons.push('CPU vieillissant');
             level = 'watch';
         }
@@ -4319,7 +4413,7 @@ function detectCorrelations(p) {
                 severity: 'crit',
                 icon: '&#128190;',
                 title: 'Probable panne disque',
-                detail: 'Burst I/O massif (' + b.Count + ' events) le ' + b.Timestamp + ' suivi d un crash materiel dans les 10 min'
+                detail: 'Burst I/O massif (' + b.Count + ' events) le ' + frDate(b.Timestamp) + ' suivi d un crash materiel dans les 10 min'
             });
         }
     });
@@ -4522,6 +4616,42 @@ function initModelDropdown() {
     });
 }
 
+// ===== INIT VPN VERSION DROPDOWN (v2.5.2) =====
+// Liste les versions de client VPN presentes (VpnClient.Version, Collector >= 2.5.1).
+// But : traquer les vieilles versions (ex. FortiClient 6.x) sur un parc heterogene.
+// Tri par version DECROISSANTE : les 7.x en haut, les 6.x regroupees en bas.
+function initVpnDropdown() {
+    var sel = document.getElementById('vpnFilter');
+    if (!sel) return;
+    var vers = {};
+    pcData.forEach(function(pc) {
+        if (pc.VpnClient && pc.VpnClient.Present && pc.VpnClient.Version) vers[pc.VpnClient.Version] = true;
+    });
+    var sorted = Object.keys(vers).sort(function(a, b) {
+        var pa = a.split('.'), pb = b.split('.');
+        for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+            var na = parseInt(pa[i], 10) || 0, nb = parseInt(pb[i], 10) || 0;
+            if (na !== nb) return nb - na;   // decroissant : 7.x avant 6.x
+        }
+        return 0;
+    });
+    // Masquer le filtre s'il n'y a pas de diversite (0 ou 1 version connue) : inutile.
+    if (sorted.length < 2) {
+        sel.style.display = 'none';
+        var labels = document.querySelectorAll('.toolbar label');
+        for (var i = 0; i < labels.length; i++) {
+            if (labels[i].textContent.indexOf('VPN') !== -1) labels[i].style.display = 'none';
+        }
+        return;
+    }
+    sorted.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        sel.appendChild(opt);
+    });
+}
+
 // ===== THEME =====
 function toggleTheme() {
     var html = document.documentElement;
@@ -4555,6 +4685,25 @@ function setDays(days, btn) {
     state.currentPage = 1;  // v1.5 : retour page 1 sur changement de filtre
     document.querySelectorAll('.range-btn').forEach(function(b) { b.classList.remove('active'); });
     if (btn) btn.classList.add('active');
+    render();
+}
+// v2.5.2 : filtre chassis par icone (toggle). Un seul type actif a la fois ;
+// re-cliquer l'icone active enleve le filtre. ChassisInfo null (Collector < 5.6)
+// -> jamais retenu quand un type est selectionne.
+function chassisMatch(pc, kind) {
+    var ci = pc.ChassisInfo;
+    if (!ci) return false;
+    return (kind === 'laptop' && ci.IsLaptop) ||
+           (kind === 'desktop' && ci.IsDesktop) ||
+           (kind === 'aio' && ci.IsAIO);
+}
+function toggleChassisFilter(kind) {
+    state.chassisFilter = (state.chassisFilter === kind) ? null : kind;
+    state.currentPage = 1;
+    ['laptop', 'desktop', 'aio'].forEach(function(k) {
+        var b = document.getElementById('chassis' + k.charAt(0).toUpperCase() + k.slice(1));
+        if (b) b.classList.toggle('active', state.chassisFilter === k);
+    });
     render();
 }
 function toggleMaskHealthy() {
@@ -4597,6 +4746,11 @@ function clearKpiFilter() {
     state.currentPage = 1;  // v1.5
     render();
 }
+function clearSearch() {
+    var i = document.getElementById('searchInput');
+    if (i) { i.value = ''; i.focus(); }
+    filterChanged();
+}
 // v2.1.12 : filtre par appli (clic sur un crasher dans le panneau Top Crashers).
 function toggleAppFilter(name) {
     if (!name) return;
@@ -4615,19 +4769,114 @@ function clearAppFilter() {
 function clearAllFilters() {
     state.kpiFilter   = null;
     state.appFilter   = null;
+    state.techFilter  = null;   // cockpit
     state.maskHealthy = false;
     state.siteFilter  = '';
     state.cpuFilter   = '';
     state.osFilter    = '';
     state.modelFilter = '';
+    state.vpnFilter   = '';
+    state.chassisFilter = null;
+    ['laptop', 'desktop', 'aio'].forEach(function(k) {
+        var cb = document.getElementById('chassis' + k.charAt(0).toUpperCase() + k.slice(1));
+        if (cb) cb.classList.remove('active');
+    });
     var mb = document.getElementById('maskHealthyBtn'); if (mb) mb.classList.remove('active');
     var sf = document.getElementById('siteFilter');     if (sf) sf.value = '';
     var cf = document.getElementById('cpuFilter');      if (cf) cf.value = '';
     var of = document.getElementById('osFilter');        if (of) of.value = '';
     var mf = document.getElementById('modelFilter');    if (mf) mf.value = '';
+    var vf = document.getElementById('vpnFilter');      if (vf) vf.value = '';
     var si = document.getElementById('searchInput');    if (si) si.value = '';
     state.currentPage = 1;
     render();
+}
+
+// ============================================================
+// COCKPIT UI : helpers du rail + file d'actions.
+// Ne fait que piloter les filtres EXISTANTS (toggleKpiFilter,
+// maskHealthy, offline, clearAllFilters) + un filtre technicien.
+// ============================================================
+function ckRing(pct, color) {
+    var r = 20, c = 2 * Math.PI * r, off = c * (1 - pct / 100);
+    return '<svg class="ck-ring" width="50" height="50" viewBox="0 0 50 50" aria-hidden="true">' +
+      '<circle cx="25" cy="25" r="' + r + '" fill="none" stroke="var(--border)" stroke-width="5"></circle>' +
+      '<circle cx="25" cy="25" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="5" stroke-linecap="round" stroke-dasharray="' + c + '" stroke-dashoffset="' + off + '" transform="rotate(-90 25 25)"></circle>' +
+      '<text x="25" y="29" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text-main)">' + pct + '</text></svg>';
+}
+function ckJsAttr(s) { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+function ckSetMask(v) {
+    state.maskHealthy = v;
+    var b = document.getElementById('maskHealthyBtn');
+    if (b) b.classList.toggle('active', v);
+}
+function ckTech(name) {
+    if (!name) return;
+    state.appFilter = null;
+    state.kpiFilter = null;
+    ckSetMask(false);
+    state.techFilter = (state.techFilter === name) ? null : name;
+    state.currentPage = 1;
+    render();
+}
+function ckClearTech() {
+    state.techFilter = null;
+    state.currentPage = 1;
+    render();
+}
+// File d'actions (droite) : cartes derivees des agregats deja calcules.
+// Chaque carte applique un filtre KPI existant via toggleKpiFilter.
+// Le bloc "Mon equipe" (techniciens du registre de decommission) est
+// desormais rendu ici, en bas de la file, a la place de l'ancien rail.
+function renderActionFile(agg, pcs) {
+    var box = document.getElementById('ckActs');
+    if (!box) return;
+    var cards = [
+        { k: 'edrDown',   c: 'var(--red)',    n: agg.totalEdrDown,     u: 'postes',  t: 'Agent EDR arr&ecirc;t&eacute; ou absent', why: 'Trou de s&eacute;curit&eacute; direct : relancer le service ou repousser le paquet.' },
+        // v2.5.1 : "Silencieux / hors ligne" RETIRE de la file d'actions - un poste
+        // eteint n'est pas une action a traiter (parc a moitie eteint l'ete). Le compte
+        // reste visible dans la tuile "En ligne 24h", et le filtre 'offline' existe
+        // toujours (tuile cliquable + matchKpiFilter) : on retire l'incitation a agir,
+        // pas la visibilite.
+        { k: 'osEol',     c: 'var(--orange)', n: agg.totalOsEol,       u: 'postes',  t: 'Windows 10 fin de support', why: 'A basculer en 11 ou a sortir du parc. Point de conformit&eacute;.' },
+        { k: 'bsod',      c: 'var(--orange)', n: agg.totalBSOD,        u: '&eacute;v&eacute;n.', t: '&Eacute;crans bleus (BSOD)', why: 'Un utilisateur perd son travail. Prioriser les r&eacute;cidivistes.' },
+        { k: 'diskAlert', c: 'var(--orange)', n: agg.totalDiskAlerts,  u: 'alertes', t: 'Disques satur&eacute;s', why: 'Cause n&deg;1 de lenteur et de blocage des mises a jour.' },
+        { k: 'smart',     c: 'var(--pink)',   n: agg.totalSmartAlert,  u: 'postes',  t: 'Disques SMART en alerte', why: 'Signes de panne mat&eacute;rielle a venir : sauvegarder puis remplacer.' },
+        { k: 'battery',   c: 'var(--yellow)', n: agg.totalBatteryWorn, u: 'postes',  t: 'Batteries us&eacute;es (&lt;60%)', why: 'Commande group&eacute;e plut&ocirc;t qu\'au coup par coup.' },
+        { k: 'uptime30',  c: 'var(--cyan)',   n: agg.totalUptime30,    u: 'postes',  t: 'Jamais &eacute;teints (&gt;30 j)', why: 'Mises a jour non appliqu&eacute;es + consommation inutile.' },
+        { k: 'decomLate', c: 'var(--red)',    n: agg.totalDecomLate,   u: 'postes',  t: 'D&eacute;com. en retard', why: '&Eacute;ch&eacute;ance de sortie d&eacute;pass&eacute;e : lib&egrave;re licences et budget.' },
+        { k: 'decomTodo', c: 'var(--purple)', n: agg.totalDecomTodo,   u: 'postes',  t: '&Agrave; d&eacute;commissionner', why: 'Sortie d\'inventaire planifi&eacute;e : lib&egrave;re licences et support.' }
+    ];
+    var html = '';
+    cards.forEach(function(a) {
+        if (!a.n) return;
+        var on = (state.kpiFilter === a.k) ? ' on' : '';
+        html += '<div class="ck-act' + on + '" style="--ck-c:' + a.c + '" onclick="toggleKpiFilter(\'' + a.k + '\')">' +
+                '<div class="ck-act-num">' + a.n + '<small>' + a.u + '</small></div>' +
+                '<div class="ck-act-txt"><b>' + a.t + '</b><span>' + a.why + '</span></div>' +
+                '</div>';
+    });
+    if (!html) html = '<div class="ck-act-empty">Rien d\'urgent &mdash; le parc est calme.</div>';
+
+    // ===== Sous-section "Mon equipe" =====
+    // Techniciens issus du registre de decommission, comptes sur la vue
+    // courante (les PC hors registre n'y figurent pas). Clic -> filtre techFilter.
+    var teamCount = {};
+    (pcs || []).forEach(function(p) { var t = ckTechByPc[p.pc.PC]; if (t) teamCount[t] = (teamCount[t] || 0) + 1; });
+    var names = Object.keys(teamCount).sort();
+    if (names.length > 0) {
+        html += '<div class="ck-team">' +
+                '<div class="ck-team-head">Mon &eacute;quipe <small>postes assign&eacute;s</small></div>';
+        names.forEach(function(n) {
+            var on = (state.techFilter === n) ? ' on' : '';
+            html += '<div class="ck-team-row' + on + '" onclick="ckTech(\'' + ckJsAttr(n) + '\')">' +
+                    '<span class="ck-team-name">' + n + '</span>' +
+                    '<span class="ck-team-n">' + teamCount[n] + '</span>' +
+                    '</div>';
+        });
+        html += '</div>';
+    }
+    box.innerHTML = html;
 }
 
 // ===== ENRICHISSEMENT DES PC =====
@@ -4640,6 +4889,9 @@ function enrichPC(pc, cutoff) {
     // alors que le JSON contenait bien un dernier boot connu plus ancien.
     var allBoots    = pc.Boots || [];
     var boots       = allBoots.filter(function(b) { return parseDate(b.DateBoot) >= cutoff; });
+    // v2.5.0 : redemarrages MAJ Windows (Event 1074) filtres sur la periode, pour
+    // corerler les demarrages a leur cause dans l'onglet Demarrage.
+    var reboots     = (pc.Reboots || []).filter(function(r) { return parseDate(r.Timestamp) >= cutoff; });
     var bsods       = (pc.BSODs   || []).filter(function(b) { return parseDate(b.Date) >= cutoff; });
     var warnings    = (pc.ResourceWarnings || []).filter(function(w) { return parseDate(w.Timestamp) >= cutoff; });
     var bootsLongs  = boots.filter(function(b) { return b.EstBootLong; });
@@ -4696,6 +4948,10 @@ function enrichPC(pc, cutoff) {
     var edrStopped = !!(edr && edr.IsAlert && edr.Installed);
     var edrAbsent  = !!(edr && edr.IsAlert && !edr.Installed);
 
+    // v2.5.1 : client VPN (present + version). Inventaire, PAS une alerte -> non
+    // cable au score/badge. null si Collector < 2.5.1 (champ non collecte).
+    var vpn = pc.VpnClient || null;
+
     var bootPerf = pc.BootPerformance || null;
     var bootPerfAlert = !!(bootPerf && bootPerf.IsAlert);
 
@@ -4751,7 +5007,7 @@ function enrichPC(pc, cutoff) {
 
     var result = {
         pc: pc,
-        crashes: crashes, boots: boots, bsods: bsods, warnings: warnings,
+        crashes: crashes, boots: boots, reboots: reboots, bsods: bsods, warnings: warnings,
         topRAM: pc.TopRAM || [], diskInfo: pc.DiskInfo || [], diskAlerts: diskAlerts,
         topCrashers: pc.TopCrashers || [],
         anomalies: pc.Anomalies || [],
@@ -4789,6 +5045,7 @@ function enrichPC(pc, cutoff) {
         edrAlert: edrAlert,
         edrStopped: edrStopped,
         edrAbsent: edrAbsent,
+        vpn: vpn,
         bootPerf: bootPerf,
         bootPerfAlert: bootPerfAlert,
         diskHealth: diskHealth,
@@ -4857,13 +5114,14 @@ function matchKpiFilter(p, filter) {
     switch (filter) {
         case 'offline':     return p.pc.IsOffline;
         case 'online':      return !p.pc.IsOffline;
+        case 'healthy':     return p.score === 0;   // cockpit : vue "Postes sains"
         case 'crash':       return p.crashCount > 0;
         case 'bsod':        return p.bsodCount > 0;
         case 'hw':          return p.hwCount > 0;
         case 'wheaCorr':    return p.wheaCorrected.length > 0;
         case 'bootLong':    return p.bootLongCount > 0;
         case 'diskAlert':   return p.diskAlertCount > 0;
-        case 'oldCpu':      return p.pc.CPUAgeCategory === 'Ancien';
+        case 'oldCpu':      return RENEWAL_MODE ? isRenewalCandidate(p.pc) : (p.pc.CPUAgeCategory === 'Ancien');
         case 'crashRecent': return (p.pc.Crashes || []).some(function(c) { return parseDate(c.Timestamp) >= crashRecentCutoff; });
         // v5.3 / v5.4
         case 'edrDown':     return p.edrAlert;
@@ -4881,6 +5139,9 @@ function matchKpiFilter(p, filter) {
         case 'oldMonitor':  return p.oldMonitorAlert;
         // v2.1.11 : PC ayant au moins une anomalie (donnee a verifier)
         case 'anomaly':     return (p.anomalies || []).length > 0;
+        // filtres uptime : postes qui tournent longtemps sans reboot (jamais eteints)
+        case 'uptime7':     return (p.pc.UptimeDays || 0) >= 7 && (p.pc.UptimeDays || 0) < 30;
+        case 'uptime30':    return (p.pc.UptimeDays || 0) >= 30;
         default: return true;
     }
 }
@@ -4899,6 +5160,7 @@ function render() {
     state.cpuFilter  = document.getElementById('cpuFilter').value;
     state.osFilter   = document.getElementById('osFilter').value;
     var mfEl = document.getElementById('modelFilter'); state.modelFilter = mfEl ? mfEl.value : '';
+    var vfEl = document.getElementById('vpnFilter'); state.vpnFilter = vfEl ? vfEl.value : '';
 
     // Enrichir tous les PCs
     var allEnriched = pcData.map(function(pc) { return enrichPC(pc, cutoff); });
@@ -4907,9 +5169,11 @@ function render() {
     // Pour que clicker un KPI filtre le tableau sans cacher le KPI lui-meme
     var baseFiltered = allEnriched.filter(function(p) {
         if (state.siteFilter && p.pc.Site !== state.siteFilter) return false;
-        if (state.cpuFilter  && p.pc.CPUAgeCategory !== state.cpuFilter) return false;
+        if (state.cpuFilter && !cpuFilterMatch(p)) return false;
         if (state.osFilter   && p.pc.OSProduct !== state.osFilter) return false;
         if (state.modelFilter && (p.pc.Model || '') !== state.modelFilter) return false;
+        if (state.vpnFilter && (!p.vpn || p.vpn.Version !== state.vpnFilter)) return false;
+        if (state.chassisFilter && !chassisMatch(p.pc, state.chassisFilter)) return false;
         if (searchTerm) {
             return p.pc.PC.toLowerCase().indexOf(searchTerm) !== -1 ||
                    (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) !== -1 ||
@@ -4925,6 +5189,8 @@ function render() {
 
     // Vue tableau : on applique kpiFilter + maskHealthy
     var visible = baseFiltered.filter(function(p) {
+        // cockpit : filtre "Mon equipe" (technicien assigne via le registre decom)
+        if (state.techFilter && ckTechByPc[p.pc.PC] !== state.techFilter) return false;
         if (!matchKpiFilter(p, state.kpiFilter)) return false;
         // v2.1.11 : le filtre "anomaly" prime sur maskHealthy (axe orthogonal a la sante).
         // Sinon un PC sain-mais-anormal serait masque et le compteur du bouton mentirait.
@@ -5087,17 +5353,18 @@ function renderActiveFilters() {
     var chips = [];
     if (state.kpiFilter) {
         var labels = {
-            'offline': 'Offline', 'online': 'En ligne', 'crash': 'Crash/Freeze',
+            'offline': 'Offline', 'online': 'En ligne', 'healthy': 'Postes sains', 'crash': 'Crash/Freeze',
             'bsod': 'BSOD', 'hw': 'Erreurs fatales HW', 'wheaCorr': 'WHEA corrigees',
             'bootLong': 'Boots longs',
-            'diskAlert': 'Disques critiques', 'oldCpu': 'CPU anciens',
+            'diskAlert': 'Disques critiques', 'oldCpu': (RENEWAL_MODE ? 'A renouveler' : 'CPU anciens'),
             'crashRecent': 'Crash recent (' + seuilCrashRecent + 'j)',
             // v5.3 / v5.4
             'edrDown': 'EDR en panne',
             'battery': 'Batterie usee',
             'bootPerf': 'Boots lents',
             'smart': 'SMART alerte',
-            'oldMonitor': 'Ecrans anciens (>=7 ans)'
+            'oldMonitor': 'Ecrans anciens (>=7 ans)',
+            'uptime7': 'Uptime 7-30 j', 'uptime30': 'Uptime > 30 j'
         };
         chips.push('<span class="active-filter-chip">' + labels[state.kpiFilter] + ' <span class="close" onclick="clearKpiFilter()">&times;</span></span>');
     }
@@ -5107,10 +5374,15 @@ function renderActiveFilters() {
     if (state.appFilter) {
         chips.push('<span class="active-filter-chip">Appli&nbsp;: ' + state.appFilter + ' <span class="close" onclick="clearAppFilter()">&times;</span></span>');
     }
+    if (state.techFilter) {
+        chips.push('<span class="active-filter-chip">Technicien&nbsp;: ' + state.techFilter + ' <span class="close" onclick="ckClearTech()">&times;</span></span>');
+    }
     // v2.1.14 : bouton "tout effacer" des qu'un filtre quelconque est actif - y compris les
     // menus site/CPU et la recherche, qui ne generent pas de chip a eux seuls.
     var searchActive = (document.getElementById('searchInput').value || '').trim().length > 0;
-    var anyFilter = !!(state.kpiFilter || state.appFilter || state.maskHealthy || state.siteFilter || state.cpuFilter || state.osFilter || state.modelFilter || searchActive);
+    var anyFilter = !!(state.kpiFilter || state.appFilter || state.techFilter || state.maskHealthy || state.siteFilter || state.cpuFilter || state.osFilter || state.modelFilter || state.vpnFilter || state.chassisFilter || searchActive);
+    var resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) resetBtn.disabled = !anyFilter;
     if (anyFilter) {
         chips.push('<button class="clear-all-filters" onclick="clearAllFilters()" title="Reinitialiser tous les filtres">&times; Tout effacer</button>');
     }
@@ -5140,7 +5412,7 @@ function renderKpis(pcs) {
     var totalDiskAlerts = pcs.reduce(function(s, p) { return s + p.diskAlertCount; }, 0);
     var totalHardware = pcs.reduce(function(s, p) { return s + p.hwCount; }, 0);
     var pcWithCorrected = pcs.filter(function(p) { return p.wheaCorrected.length > 0; }).length;
-    var totalOldCPU = pcs.filter(function(p) { return p.pc.CPUAgeCategory === 'Ancien'; }).length;
+    var totalOldCPU = pcs.filter(function(p) { return RENEWAL_MODE ? isRenewalCandidate(p.pc) : (p.pc.CPUAgeCategory === 'Ancien'); }).length;
 
     var totalEdrDown = pcs.filter(function(p) { return p.edrAlert; }).length;
     var totalEdrStopped = pcs.filter(function(p) { return p.edrStopped; }).length;
@@ -5153,6 +5425,8 @@ function renderKpis(pcs) {
     var totalBatteryWorn = pcs.filter(function(p) { return p.batteryAlert; }).length;
     var totalBootPerfSlow = pcs.filter(function(p) { return p.bootPerfAlert; }).length;
     var totalSmartAlert = pcs.filter(function(p) { return p.diskSmartAlert; }).length;
+    var totalUptime30    = pcs.filter(function(p) { return (p.pc.UptimeDays || 0) >= 30; }).length;
+    var totalUptime7to30 = pcs.filter(function(p) { var u = p.pc.UptimeDays || 0; return u >= 7 && u < 30; }).length;
 
     // v5.7 : inventaire moniteurs externes
     var totalMonitors = pcs.reduce(function(s, p) { return s + (p.monitors ? p.monitors.length : 0); }, 0);
@@ -5184,7 +5458,7 @@ function renderKpis(pcs) {
           '</div>' +
         '</div>' +
         '<div class="summary-tile clickable' + (state.kpiFilter === 'offline' ? ' active' : '') + '" onclick="toggleKpiFilter(\'offline\')" title="Cliquer pour filtrer les postes hors ligne">' +
-          '<div class="summary-icon green">&#10003;</div>' +
+          ckRing(pctOnline, 'var(--green)') +
           '<div class="summary-content">' +
             '<div class="summary-value">' + (totalPC - totalOffline) + ' <span style="font-size:14px;color:var(--text-muted);font-weight:500">/ ' + totalPC + '</span></div>' +
             '<div class="summary-label">En ligne (24h)</div>' +
@@ -5192,7 +5466,7 @@ function renderKpis(pcs) {
           '</div>' +
         '</div>' +
         '<div class="summary-tile">' +
-          '<div class="summary-icon ' + (pcWithIssues === 0 ? 'green' : 'red') + '">' + (pcWithIssues === 0 ? '&#10003;' : '&#9888;') + '</div>' +
+          ckRing(pctHealthy, (pctHealthy >= 80 ? 'var(--green)' : (pctHealthy >= 50 ? 'var(--orange)' : 'var(--red)'))) +
           '<div class="summary-content">' +
             '<div class="summary-value">' + pcHealthy + ' <span style="font-size:14px;color:var(--text-muted);font-weight:500">/ ' + totalPC + '</span></div>' +
             '<div class="summary-label">PC sans alerte</div>' +
@@ -5224,10 +5498,12 @@ function renderKpis(pcs) {
         ]
     };
     var familyPerformance = {
-        key: 'performance', family: 'family-performance', icon: '&#9889;', title: 'Performance',
+        key: 'performance', family: 'family-performance', icon: '&#9889;', title: 'Boot &amp; uptime',
         subs: [
             { k: 'bootLong', label: 'Boots longs',          v: totalBootsLongs,   level: (totalBootsLongs > 0 ? 'warn' : 'neutral') },
-            { k: 'bootPerf', label: 'Boots lents (&gt;90s)', v: totalBootPerfSlow, level: (totalBootPerfSlow > 0 ? 'warn' : 'neutral') }
+            { k: 'bootPerf', label: 'Boots lents (&gt;90s)', v: totalBootPerfSlow, level: (totalBootPerfSlow > 0 ? 'warn' : 'neutral') },
+            { k: 'uptime7',  label: 'Uptime 7-30 j',          v: totalUptime7to30,  level: (totalUptime7to30 > 0 ? 'warn' : 'neutral') },
+            { k: 'uptime30', label: 'Uptime &gt; 30 j',       v: totalUptime30,     level: (totalUptime30 > 0 ? 'danger' : 'neutral') }
         ]
     };
     var familyMaterial = {
@@ -5236,7 +5512,7 @@ function renderKpis(pcs) {
             { k: 'diskAlert',  label: 'Disques satur&eacute;s',           v: totalDiskAlerts,   level: (totalDiskAlerts > 0 ? 'warn' : 'neutral') },
             { k: 'smart',      label: 'SMART alerte',                     v: totalSmartAlert,   level: (totalSmartAlert > 0 ? 'warn' : 'neutral') },
             { k: 'battery',    label: 'Batterie us&eacute;e (&lt;60%)',   v: totalBatteryWorn,  level: (totalBatteryWorn > 0 ? 'warn' : 'neutral') },
-            { k: 'oldCpu',     label: 'CPU anciens',                      v: totalOldCPU,       level: (totalOldCPU > 0 ? 'danger' : 'neutral') },
+            { k: 'oldCpu',     label: (RENEWAL_MODE ? 'A renouveler' : 'CPU anciens'), v: totalOldCPU, level: (totalOldCPU > 0 ? (RENEWAL_MODE ? 'warn' : 'danger') : 'neutral') },
             { k: 'oldMonitor', label: 'Ecrans &acirc;g&eacute;s (&ge;' + screenAgeThreshold + ' ans)', v: pcWithOldMonitor, level: (pcWithOldMonitor > 0 ? 'warn' : 'neutral') }
         ]
     };
@@ -5324,6 +5600,10 @@ function renderKpis(pcs) {
             }
         }
 
+        // cockpit : memorise le sous-KPI representatif + le compteur "chaud"
+        // de chaque famille pour cabler le rail de navigation "Par axe".
+        ckFamilyMeta[fam.key] = { primary: primaryKey, hot: hotCount, keys: keysOf(fam) };
+
         html += '<button type="button" class="kpi-group-btn ' + stateCls + ' ' + fam.family + active + '" ' +
                 'onclick="toggleKpiFilter(\'' + primaryKey + '\')">' +
                 '<div class="kpi-group-btn-icon">' + fam.icon + '</div>' +
@@ -5338,6 +5618,15 @@ function renderKpis(pcs) {
                 '</button>';
     });
     bar.innerHTML = html;
+
+    // cockpit : alimente la file d'actions a droite (+ sous-section "Mon equipe").
+    var ckAgg = {
+        totalPC: totalPC, pcWithIssues: pcWithIssues, totalOffline: totalOffline, pcHealthy: pcHealthy,
+        totalEdrDown: totalEdrDown, totalOsEol: totalOsEol, totalBSOD: totalBSOD,
+        totalDiskAlerts: totalDiskAlerts, totalSmartAlert: totalSmartAlert, totalBatteryWorn: totalBatteryWorn,
+        totalUptime30: totalUptime30, totalDecomLate: totalDecomLate, totalDecomTodo: totalDecomTodo
+    };
+    renderActionFile(ckAgg, pcs);
 }
 
 // ===== AGREGATION PARC : REPARTITION DES DEMARRAGES (v5.2) =====
@@ -5404,8 +5693,14 @@ function renderBootBreakdown(pcs) {
 
 // ===== AGREGATION PARC : TOP CRASHERS GLOBAL (v1.7 : 3 sections) =====
 function renderGlobalCrashers(pcs) {
-    var agg = {};
+    var agg = {}, userSet = {};
     pcs.forEach(function(p) {
+        // v2.5.0 : identites du poste, pour ecarter un nom d'utilisateur happe
+        // par erreur comme une appli en echec.
+        [p.pc && p.pc.CurrentUser, p.pc && p.pc.LastLoggedUser].forEach(function(u) {
+            u = String(u || '').toLowerCase().trim();
+            if (u && u !== '(aucune session)') userSet[u] = true;
+        });
         (p.topCrashers || []).forEach(function(c) {
             var key = c.AppName;
             // v1.7 : blacklist HARD - on zappe completement a l'agregation
@@ -5431,8 +5726,16 @@ function renderGlobalCrashers(pcs) {
         return a;
     });
 
-    // Tri principal : score decroissant dans chaque section
-    arr.sort(function(a, b) { return b.score - a.score; });
+    // v2.5 : pre-filtre "bruit" (isRealApp = helper global) + retrait des noms
+    // d'utilisateur happes par erreur. Une appli suivie (priorityApps) reste
+    // toujours, meme mal nommee.
+    var hiddenCount = 0;
+    arr = arr.filter(function(c) {
+        if (isPriorityApp(c.name)) return true;
+        if (userSet[String(c.name).toLowerCase().trim()]) { hiddenCount++; return false; }
+        if (!isRealApp(c.name)) { hiddenCount++; return false; }
+        return true;
+    });
 
     var container = document.getElementById('globalCrashers');
     if (arr.length === 0) {
@@ -5440,125 +5743,116 @@ function renderGlobalCrashers(pcs) {
         return;
     }
 
-    var priority = arr.filter(function(a) { return a.level === 'priority'; });
-    var local   = arr.filter(function(a) { return a.level === 'local'; });
-    var spread  = arr.filter(function(a) { return a.level === 'spread'; });
-    var appfail = arr.filter(function(a) { return a.level === 'appfail'; });
-    var noise   = arr.filter(function(a) { return a.level === 'noise'; });
+    // v2.5 : seuils "Plus fort impact" (faciles a ajuster). Un crasher non suivi
+    // remonte dans ce groupe s'il depasse l'un OU l'autre.
+    var IMPACT_TOTAL_MIN  = 20;   // nb de plantages cumules
+    var IMPACT_PC_MIN     = 5;    // nb de PC touches
+    var WIDESPREAD_PC_MIN = 5;    // seuil du tag "repandu" vs "concentre"
 
-    // Helper de rendu d'une ligne crasheur
-    function renderRow(c) {
-        var forcedTag = c.forced ? '<span class="crasher-forced" title="Force en bruit (blacklist soft)">&#128274;</span>' : '';
-        // v2.1.4 : rendu specifique pour un echec applicatif (pas de score de
-        // dispersion, libelle "echecs" au lieu de "crashs").
-        var badgeHtml, statsWord;
-        if (c.level === 'appfail') {
-            badgeHtml = '<span class="crasher-score crasher-score-appfail" title="Installation ou mise a jour qui echoue en boucle">&#128295; echec</span>';
-            statsWord = ' echecs / ';
-        } else {
-            badgeHtml = '<span class="crasher-score crasher-score-' + c.level + '" title="Score signal (plus haut = plus concentre sur peu de PC)">' + c.score.toFixed(1) + '</span>';
-            statsWord = ' crashs / ';
+    // Appli "importante" = suivie, declaree dans PriorityApps (config.psd1).
+    // Le code ne nomme aucun produit : l'exploitant liste ses applis critiques
+    // (dont l'agent EDR, ex. son process .exe) dans sa config, elles ressortent ici.
+    function isImportant(c) { return isPriorityApp(c.name); }
+
+    // Formatage : fine espace insecable comme separateur de milliers (>= 1000).
+    function fmtN(v) {
+        var s = String(v);
+        return s.length > 3 ? s.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') : s;
+    }
+
+    // Tri unique dans CHAQUE groupe : volume de plantages decroissant (jamais la dispersion).
+    function byTotalDesc(a, b) { return b.total - a.total; }
+
+    var important = arr.filter(isImportant).sort(byTotalDesc);
+    var rest      = arr.filter(function(c) { return !isImportant(c); });
+    function isImpact(c) { return c.total >= IMPACT_TOTAL_MIN || c.pcCount >= IMPACT_PC_MIN; }
+    var impact = rest.filter(isImpact).sort(byTotalDesc);
+    var noise  = rest.filter(function(c) { return !isImpact(c); }).sort(byTotalDesc);
+
+    // Rendu d'une ligne crasheur : nom (mono) + un tag chip + metriques a droite.
+    // Ligne cliquable -> filtre les PC concernes. Le nom vient de l'embed (deja
+    // ConvertTo-HtmlSafe) : sur dans l'attribut, lu via dataset (aucune eval JS).
+    function renderRow(c, group) {
+        var isFail = !c.isCrash;   // agregat 'app_failure' (echec install/maj)
+        var tag = '';
+        if (isPriorityApp(c.name)) {
+            tag = '<span class="gc-tag gc-tag-suivi" title="Appli suivie (config)">suivi</span>';
+        } else if (isFail) {
+            tag = '<span class="gc-tag gc-tag-fail" title="Installation ou mise a jour qui echoue en boucle">&eacute;chec install</span>';
+        } else if (group === 'impact') {
+            tag = (c.pcCount >= WIDESPREAD_PC_MIN)
+                ? '<span class="gc-tag" title="Touche plusieurs PC">r&eacute;pandu</span>'
+                : '<span class="gc-tag" title="Concentre sur peu de PC">concentr&eacute;</span>';
         }
-        // v2.1.12 : ligne cliquable -> filtre les PC concernes. Le nom vient de l'embed
-        // (deja ConvertTo-HtmlSafe) : sur dans un attribut, et lu via dataset (aucune eval JS).
+        var word = isFail ? '&eacute;checs' : 'plant&eacute;s';
         var activeCls = (state.appFilter && state.appFilter === c.name) ? ' active' : '';
-        return '<div class="global-crasher-row ' + c.level + ' clickable' + activeCls + '" data-appname="' + String(c.name).replace(/&/g, '&amp;') + '">' +
+        var impCls = (group === 'important') ? ' gc-important' : '';
+        return '<div class="global-crasher-row clickable' + impCls + activeCls + '" data-appname="' + String(c.name).replace(/&/g, '&amp;') + '">' +
                   '<span class="global-crasher-name" title="' + c.name + '">' + c.name + '</span>' +
-                  forcedTag +
-                  badgeHtml +
+                  tag +
+                  '<span class="gc-spacer"></span>' +
                   '<span class="global-crasher-stats">' +
-                    '<span class="global-crasher-total">' + c.total + '</span>' +
-                    statsWord + c.pcCount + ' PC' +
+                    '<b>' + fmtN(c.total) + '</b> ' + word + ' &middot; <b>' + fmtN(c.pcCount) + '</b> PC' +
                   '</span>' +
                 '</div>';
     }
 
+    // Rendu d'un groupe : les TOP_N premiers, puis "voir les N autres" (replie).
+    var TOP_N = 5;
+    function renderGroup(list, group) {
+        if (list.length <= TOP_N) {
+            return list.map(function(c) { return renderRow(c, group); }).join('');
+        }
+        var head = list.slice(0, TOP_N).map(function(c) { return renderRow(c, group); }).join('');
+        var more = list.slice(TOP_N).map(function(c) { return renderRow(c, group); }).join('');
+        var n = list.length - TOP_N;
+        return head +
+            '<div class="gc-more" onclick="toggleMore(this)"><span class="gc-more-tri">&#9656;</span>voir les ' + n + ' autre' + (n > 1 ? 's' : '') + '</div>' +
+            '<div class="gc-more-body" style="display:none">' + more + '</div>';
+    }
+
     var html = '';
 
-    // --- Section 0 : Applis suivies (v2.1.12) ---
-    // Toujours en tete, AVANT le classement par dispersion : une appli metier qui
-    // plante de facon repartie (ex une appli metier 10 crashs / 5 PC) ne doit pas se noyer dans le bruit.
-    if (priority.length > 0) {
-        html += '<div class="crasher-section crasher-section-priority">' +
-                '<h4 class="crasher-section-title">&#128204; A investiguer en priorite ' +
-                  '<span class="crasher-section-count">' + priority.length + '</span>' +
-                  '<span class="crasher-section-hint">Applis suivies, remont&eacute;es quelle que soit leur dispersion &middot; cliquer pour filtrer les PC concern&eacute;s</span>' +
-                '</h4>' +
-                '<div class="global-crashers-grid">' + priority.map(renderRow).join('') + '</div>' +
+    // --- Groupe 1 : Importantes - a traiter (applis suivies / EDR, quel que soit le volume) ---
+    html += '<div class="gc-group">Importantes &mdash; &agrave; traiter <span class="gc-group-count">' + important.length + '</span></div>';
+    html += (important.length === 0)
+        ? '<div class="gc-empty">aucune appli importante en plantage</div>'
+        : renderGroup(important, 'important');
+
+    // --- Groupe 2 : Plus fort impact sur le parc (volume ou nb de PC eleve) ---
+    html += '<div class="gc-group">Plus fort impact sur le parc <span class="gc-group-count">' + impact.length + '</span></div>';
+    html += (impact.length === 0)
+        ? '<div class="gc-empty">aucun signal fort</div>'
+        : renderGroup(impact, 'impact');
+
+    // --- Groupe 3 : Bruit de fond (longue traine) - repli integral par defaut ---
+    html += '<div class="gc-group">Bruit de fond <span class="gc-group-count">' + noise.length + '</span></div>';
+    if (noise.length === 0) {
+        html += '<div class="gc-empty">aucun bruit r&eacute;siduel</div>';
+    } else {
+        html += '<div class="gc-more" onclick="toggleMore(this)"><span class="gc-more-tri">&#9656;</span>voir les ' + noise.length + ' appli' + (noise.length > 1 ? 's' : '') + ' (bruit de fond)</div>' +
+                '<div class="gc-more-body" style="display:none">' +
+                noise.map(function(c) { return renderRow(c, 'noise'); }).join('') +
                 '</div>';
     }
 
-    // --- Section 1 : Signaux locaux ---
-    html += '<div class="crasher-section crasher-section-local">' +
-            '<h4 class="crasher-section-title">&#127919; Signaux locaux ' +
-              '<span class="crasher-section-count">' + local.length + '</span>' +
-              '<span class="crasher-section-hint">Crashs concentres sur peu de PC, a investiguer</span>' +
-            '</h4>';
-    if (local.length > 0) {
-        html += '<div class="global-crashers-grid">' + local.map(renderRow).join('') + '</div>';
-    } else {
-        html += '<div class="crasher-section-empty">Aucun signal local detecte</div>';
+    // v2.5 : transparence - combien de fragments de trace non exploitables masques.
+    if (hiddenCount > 0) {
+        html += '<div class="gc-hidden">' + hiddenCount + ' entr&eacute;e(s) de trace non exploitable(s) masqu&eacute;e(s) (bruit Dell / .NET)</div>';
     }
-    html += '</div>';
-
-    // --- Section 2 : Problemes repartis ---
-    html += '<div class="crasher-section crasher-section-spread">' +
-            '<h4 class="crasher-section-title">&#9888;&#65039; Problemes repartis ' +
-              '<span class="crasher-section-count">' + spread.length + '</span>' +
-              '<span class="crasher-section-hint">Possibles bugs applicatifs touchant plusieurs PC</span>' +
-            '</h4>';
-    if (spread.length > 0) {
-        html += '<div class="global-crashers-grid">' + spread.map(renderRow).join('') + '</div>';
-    } else {
-        html += '<div class="crasher-section-empty">Aucun probleme reparti detecte</div>';
-    }
-    html += '</div>';
-
-    // --- Section 2bis : Applis en echec recurrent (Type app_failure) ---
-    // v2.1.4 : echecs d'install/maj qui bouclent, distincts des vrais crashes.
-    html += '<div class="crasher-section crasher-section-appfail">' +
-            '<h4 class="crasher-section-title">&#128295; Applis en echec recurrent ' +
-              '<span class="crasher-section-count">' + appfail.length + '</span>' +
-              '<span class="crasher-section-hint">Installation ou mise a jour qui echoue en boucle, a reparer ou desinstaller</span>' +
-            '</h4>';
-    if (appfail.length > 0) {
-        html += '<div class="global-crashers-grid">' + appfail.map(renderRow).join('') + '</div>';
-    } else {
-        html += '<div class="crasher-section-empty">Aucune appli en echec recurrent</div>';
-    }
-    html += '</div>';
-
-    // --- Section 3 : Bruit ambient (repliable, fermee par defaut) ---
-    html += '<div class="crasher-section crasher-section-noise">' +
-            '<h4 class="crasher-section-title crasher-collapsible" onclick="toggleNoise(this)">' +
-              '<span class="crasher-toggle">&#9656;</span> ' +
-              '&#128266; Bruit ambient ' +
-              '<span class="crasher-section-count">' + noise.length + '</span>' +
-              '<span class="crasher-section-hint">Bruit de fond parc (repli&eacute; par d&eacute;faut)</span>' +
-            '</h4>' +
-            '<div class="crasher-noise-body" style="display:none">';
-    if (noise.length > 0) {
-        html += '<div class="global-crashers-grid">' + noise.map(renderRow).join('') + '</div>';
-    } else {
-        html += '<div class="crasher-section-empty">Pas de bruit residuel</div>';
-    }
-    html += '</div></div>';
 
     container.innerHTML = html;
 }
 
-// v1.7 : toggle visuel section bruit
-function toggleNoise(el) {
-    var body = el.parentElement.querySelector('.crasher-noise-body');
-    var toggle = el.querySelector('.crasher-toggle');
-    if (!body) return;
-    if (body.style.display === 'none') {
-        body.style.display = '';
-        if (toggle) toggle.innerHTML = '&#9662;';  // fleche bas
-    } else {
-        body.style.display = 'none';
-        if (toggle) toggle.innerHTML = '&#9656;';  // fleche droite
-    }
+// v2.5 : expander generique (top 5 + "voir les N autres" et bruit de fond).
+// Bascule le conteneur .gc-more-body qui suit immediatement la ligne cliquee.
+function toggleMore(el) {
+    var body = el.nextElementSibling;
+    if (!body || String(body.className).indexOf('gc-more-body') === -1) return;
+    var tri = el.querySelector('.gc-more-tri');
+    var hidden = (body.style.display === 'none');
+    body.style.display = hidden ? '' : 'none';
+    if (tri) tri.innerHTML = hidden ? '&#9662;' : '&#9656;';
 }
 
 // ===== AGREGATION PARC : STATS / AUDIT CYCLE DE VIE (v2.4.2) =====
@@ -5818,7 +6112,6 @@ function renderTable(pcs) {
         '<th>OS</th>' +
         '<th class="' + sortClass('uptime') + '" onclick="sortColumn(\'uptime\')">Uptime ' + sortArrow('uptime') + '</th>' +
         '<th class="' + sortClass('fresh')  + '" onclick="sortColumn(\'fresh\')">Vu '  + sortArrow('fresh')  + '</th>' +
-        '<th class="' + sortClass('boot')   + '" onclick="sortColumn(\'boot\')">Boot ' + sortArrow('boot')   + '</th>' +
         '<th class="col-advanced ' + sortClass('crash')  + '" onclick="sortColumn(\'crash\')">Crash ' + sortArrow('crash') + '</th>' +
         '<th class="col-advanced ' + sortClass('bsod')   + '" onclick="sortColumn(\'bsod\')">BSOD '  + sortArrow('bsod')   + '</th>' +
         '<th class="col-advanced ' + sortClass('hw')     + '" onclick="sortColumn(\'hw\')">HW '      + sortArrow('hw')     + '</th>' +
@@ -5828,19 +6121,29 @@ function renderTable(pcs) {
         '</tr>';
 
     var tbody = '';
-    var colspan = showSite ? 18 : 17;
+    var colspan = showSite ? 17 : 16;
     pcs.forEach(function(p, idx) {
         var pc = p.pc;
+        // v2.5.0-color : la teinte de ligne est neutralisee (voir CSS). La severite
+        // est desormais portee uniquement par le badge de score, sur 4 niveaux.
         var rowClass = 'row-ok';
-        if (p.crashCount > 0 || p.bsodCount > 0) rowClass = 'row-danger';
-        else if (p.hwCount > 0 || p.edrAlert || p.diskSmartAlert) rowClass = 'row-hardware';
-        else if (p.bootLongCount > 0 || p.diskAlertCount > 0 || p.batteryAlert || p.bootPerfAlert) rowClass = 'row-warning';
 
-        var scoreCell = '<span class="score-badge ' + scoreClass(p.score) + '" title="Score = BSOD:' + p.bsodCount + ' Crash:' + p.crashCount + ' WHEAFatal:' + p.wheaFatal.length + ' GPU:' + p.gpuTDR.length + ' Thermal:' + p.thermal.length + ' BootLong:' + p.bootLongCount + ' Disk:' + p.diskAlertCount + (p.pc.IsOffline ? ' +Offline' : '') + (p.edrAlert ? ' +EDR' : '') + (p.batteryAlert ? ' +Batt' : '') + (p.bootPerfAlert ? ' +BootSlow' : '') + (p.diskSmartAlert ? ' +SMART' : '') + '">' + p.score + '</span>';
+        // v2.5.0-color : severite du badge de score (1 seul signal couleur/ligne).
+        //   gris  -> hors ligne (aucune donnee a jour, prime sur tout)
+        //   vert  -> sain (score 0)
+        //   rouge -> critique : reprend la classif "danger" du tint precedent
+        //            (crash/BSOD/materiel fatal/EDR HS/SMART)
+        //   orange-> a surveiller : tout autre score > 0
+        var hasDanger = (p.crashCount > 0 || p.bsodCount > 0 || p.hwCount > 0 || p.edrAlert || p.diskSmartAlert);
+        var sevClass = pc.IsOffline
+            ? 'score-offline'
+            : (p.score === 0 ? 'score-ok' : (hasDanger ? 'score-danger' : 'score-warn'));
+
+        var scoreCell = '<span class="score-badge ' + sevClass + '" title="Score = BSOD:' + p.bsodCount + ' Crash:' + p.crashCount + ' WHEAFatal:' + p.wheaFatal.length + ' GPU:' + p.gpuTDR.length + ' Thermal:' + p.thermal.length + ' BootLong:' + p.bootLongCount + ' Disk:' + p.diskAlertCount + (p.pc.IsOffline ? ' +Offline' : '') + (p.edrAlert ? ' +EDR' : '') + (p.batteryAlert ? ' +Batt' : '') + (p.bootPerfAlert ? ' +BootSlow' : '') + (p.diskSmartAlert ? ' +SMART' : '') + '">' + p.score + '</span>';
 
         var statusBadge = pc.IsOffline
             ? '<span class="badge badge-offline">OFFLINE</span>'
-            : '<span class="badge badge-online">OK</span>';
+            : '<span class="badge badge-online">ONLINE</span>';
 
         var siteCell = '';
         if (showSite) {
@@ -5850,57 +6153,63 @@ function renderTable(pcs) {
 
         var uptimeCell = 'N/A';
         if (pc.UptimeDays !== null && pc.UptimeDays !== undefined) {
-            var uptimeClass = 'uptime-ok';
+            // v2.5.0-color : < 7 j = neutre (sain) ; 7-30 j = orange ; > 30 j = rouge.
+            var uptimeClass = 'uptime-neutral';
             if (pc.UptimeDays > 30) uptimeClass = 'uptime-danger';
-            else if (pc.UptimeDays > 14) uptimeClass = 'uptime-warning';
+            else if (pc.UptimeDays >= 7) uptimeClass = 'uptime-warning';
             uptimeCell = '<span class="uptime-badge ' + uptimeClass + '">' + formatUptime(pc.UptimeDays) + '</span>';
         }
 
         var freshCell = '<span class="' + freshnessClass(p.collectedHoursAgo) + '">' + timeAgo(pc.CollectedAt) + '</span>';
 
         var connType = pc.ConnectionType || 'Inconnu';
+        // v2.5.0-color : le type de connexion n'est pas une alerte -> neutre.
+        // Ethernet / WiFi / Inconnu = neutre (conn-autre). Seul "Deconnecte" reste rouge.
         var connClass = 'conn-autre';
-        if (connType === 'Ethernet') connClass = 'conn-ethernet';
-        else if (connType === 'WiFi') connClass = 'conn-wifi';
-        else if (connType === 'Deconnecte') connClass = 'conn-deconnecte';
+        if (connType === 'Deconnecte') connClass = 'conn-deconnecte';
         var connCell = '<span class="conn-badge ' + connClass + '">' + connType + '</span>';
 
-        var cpuAgeCategory = pc.CPUAgeCategory || 'Inconnu';
-        var cpuClass = 'cpu-inconnu';
-        if (cpuAgeCategory === 'Recent') cpuClass = 'cpu-recent';
-        else if (cpuAgeCategory === 'Vieillissant') cpuClass = 'cpu-vieillissant';
-        else if (cpuAgeCategory === 'Ancien') cpuClass = 'cpu-ancien';
-        var cpuLabel = cpuAgeCategory;
-        if (pc.CPUYear) cpuLabel += ' (' + pc.CPUYear + ')';
-        var cpuCell = '<span class="cpu-badge ' + cpuClass + '" title="' + (pc.CPUName || '') + '">' + cpuLabel + '</span>';
+        // v2.5.3 : en mode renouvellement, le tableau affiche "A renouveler" (candidat,
+        // orange) ou l'annee CPU (parc courant, neutre) au lieu de Recent/Vieillissant/
+        // Ancien - l'age reel reste dans l'onglet Materiel. Sinon, tag d'age historique.
+        var cpuClass, cpuLabel;
+        if (RENEWAL_MODE) {
+            if (isRenewalCandidate(pc)) { cpuClass = 'cpu-vieillissant'; cpuLabel = 'A renouveler'; }
+            else { cpuClass = 'cpu-inconnu'; cpuLabel = pc.CPUYear ? String(pc.CPUYear) : '—'; }
+        } else {
+            var cpuAgeCategory = pc.CPUAgeCategory || 'Inconnu';
+            // v2.5.0-color : Recent / Vieillissant / Inconnu = neutre ; seul "Ancien" en orange.
+            cpuClass = 'cpu-inconnu';
+            if (cpuAgeCategory === 'Ancien') cpuClass = 'cpu-vieillissant';
+            cpuLabel = cpuAgeCategory;
+            if (pc.CPUYear) cpuLabel += ' (' + pc.CPUYear + ')';
+        }
 
-        // v5.8 : badge chassis sous le CPU (laptop/desktop/AIO)
+        // v5.8 / v2.5.0-ui : icone chassis (laptop/desktop/AIO) placee EN LIGNE
+        // avant le libelle CPU. On garde le glyphe et les couleurs du badge
+        // chassis existant, mais on retire le texte (repris en tooltip) pour
+        // rester sur une seule ligne.
+        var chassisIcon = '';
         if (pc.ChassisInfo && pc.ChassisInfo.ChassisLabel && pc.ChassisInfo.ChassisLabel !== 'Inconnu') {
             var chCls = 'chassis-autre', chIcon = '&#128221;';
             if (pc.ChassisInfo.IsLaptop)       { chCls = 'chassis-laptop';  chIcon = '&#128187;'; }
             else if (pc.ChassisInfo.IsAIO)     { chCls = 'chassis-aio';     chIcon = '&#128444;'; }
             else if (pc.ChassisInfo.IsDesktop) { chCls = 'chassis-desktop'; chIcon = '&#128421;'; }
-            cpuCell += '<div style="margin-top:3px"><span class="chassis-badge ' + chCls + '" title="Type de chassis">' +
-                       chIcon + ' ' + pc.ChassisInfo.ChassisLabel + '</span></div>';
+            chassisIcon = '<span class="chassis-icon ' + chCls + '" title="' + pc.ChassisInfo.ChassisLabel + '">' + chIcon + '</span>';
         }
+        var cpuCell = chassisIcon + '<span class="cpu-badge ' + cpuClass + '" title="' + (pc.CPUName || '') + '">' + cpuLabel + '</span>';
 
         // v2.2.1 : OS (Windows 10/11) - inventaire migration / EOL.
         var osProduct = pc.OSProduct || 'Inconnu';
+        // v2.5.0-color : Windows 11 / Inconnu = neutre (os-inconnu).
+        // Windows 10 reste en orange (os-win10) : fin de support = vraie alerte.
         var osCls = 'os-inconnu';
-        if (osProduct === 'Windows 11') osCls = 'os-win11';
-        else if (osProduct === 'Windows 10') osCls = 'os-win10';
+        if (osProduct === 'Windows 10') osCls = 'os-win10';
         var osTitle = 'Build ' + (pc.OSBuild || '?') + (pc.OSEdition ? ' - ' + pc.OSEdition : '');
         var osCell = '<span class="os-badge ' + osCls + '" title="' + osTitle + '">' + osProduct + '</span>';
         if (pc.OSDisplayVersion) {
-            osCell += '<div style="margin-top:3px;font-size:10px;color:var(--text-faint)">' + pc.OSDisplayVersion + '</div>';
-        }
-
-        var bootCell = 'N/A';
-        if (p.dernierBoot) {
-            var bootClass = 'boot-ok';
-            if (p.dernierBoot.DurationMin > 5) bootClass = 'boot-danger';
-            else if (p.dernierBoot.EstBootLong) bootClass = 'boot-warning';
-            bootCell = '<span class="boot-badge ' + bootClass + '">' + p.dernierBoot.DurationMin + ' min</span><div class="boot-date">' + p.dernierBoot.DateBoot + '</div>';
+            // v2.5.0-ui : build affiche EN LIGNE (mono-ligne), plus petit et attenue.
+            osCell += '<span class="os-build">&middot; ' + pc.OSDisplayVersion + '</span>';
         }
 
         var diskCell = '';
@@ -6005,7 +6314,6 @@ function renderTable(pcs) {
             '<td>' + osCell + '</td>' +
             '<td>' + uptimeCell + '</td>' +
             '<td>' + freshCell + '</td>' +
-            '<td>' + bootCell + '</td>' +
             '<td class="col-advanced"><span class="kpi-crash">' + p.crashCount + '</span>' + (p.bsodClassifieCount > 0 ? ' <span class="kpi-bsod" style="font-size:11px">(' + p.bsodClassifieCount + ' BSOD)</span>' : '') + '</td>' +
             '<td class="col-advanced"><span class="kpi-bsod">' + p.bsodCount + '</span></td>' +
             '<td class="col-advanced">' + hwCell + '</td>' +
@@ -6024,8 +6332,31 @@ function renderTable(pcs) {
 }
 
 function renderDetailRow(p, idx, colspan) {
-    // v1.6 : libelles fins par CrashCause pour les Events 41.
-    // Fallback sur les anciens libelles si CrashCause absent (JSON v1.4/1.5).
+    // v2.5.0 (Essai A + option 3) : drill-down = liste de definitions mono-ligne
+    // unifiee (une donnee = une ligne : gouttiere de libelle + valeur condensee).
+    // Les sections riches sont condensees en une ligne composite ; les listes = une
+    // ligne par item. Les champs N/A / vides / rares-par-defaut sont OMIS (option 3) ;
+    // les champs rares mais renseignes sont replies dans la ligne. Aucune donnee
+    // metier n'est modifiee : ce n'est qu'un reformatage de l'affichage.
+
+    // --- petites fabriques de balisage (aucun contenu HTML n'est re-echappe :
+    //     les valeurs proviennent deja echappees a l'embed du JSON) ---
+    function ddG(name) { return '<div class="dd-group">' + name + '</div>'; }
+    function ddR(label, val, vcls) {
+        if (val === null || val === undefined || val === '') return '';
+        return '<div class="dd-row"><span class="dd-l">' + label + '</span>' +
+               '<span class="dd-v' + (vcls ? ' ' + vcls : '') + '">' + val + '</span></div>';
+    }
+    function mut(t)  { return '<span class="mut">' + t + '</span>'; }
+    function mono(t) { return '<span class="mono">' + t + '</span>'; }
+    function col(t, cls) { return cls ? '<span class="' + cls + '">' + t + '</span>' : t; }
+    function tag(t, cls) { return '<span class="dd-tag' + (cls ? ' ' + cls : '') + '">' + t + '</span>'; }
+    // secondaire muet, precede d'un separateur point median ; ignore vides/null
+    function joinMut(parts) {
+        var a = parts.filter(function(x) { return x !== null && x !== undefined && x !== ''; });
+        return a.length ? ' ' + mut('&middot; ' + a.join(' &middot; ')) : '';
+    }
+    // v1.6 : libelles fins par CrashCause pour les Events 41 (fallback anciens JSON)
     function crashCauseLabel(cause) {
         if (cause === 'BSODSilent')        return 'BSOD silencieux';
         if (cause === 'SleepResumeFailed') return 'Reprise veille rat&eacute;e';
@@ -6036,664 +6367,463 @@ function renderDetailRow(p, idx, colspan) {
         return null;
     }
 
-    // Crashes avec BugCheck symbolique + CrashCause v1.6
-    var crashHTML = '';
-    if (p.crashes.length > 0) {
-        p.crashes.forEach(function(c) {
-            var badge = '', detailSpan = '';
-            var causeLbl = crashCauseLabel(c.CrashCause);
-
-            if (c.Type === 'BSOD') {
-                badge = '<span class="crash-badge bsod">BSOD</span>';
-                detailSpan = '<span class="crash-stopcode">' + (c.Detail || '') + '</span>';
-                var bugName = bugCheckName(c.Detail);
-                if (bugName) detailSpan += '<span class="crash-bugname">' + bugName + '</span>';
-            } else if (c.Type === 'Hard reset') {
-                badge = '<span class="crash-badge hard-reset">Hard reset</span>';
-                // v1.6 : preciser la cause si disponible
-                if (causeLbl) detailSpan = '<span class="crash-app">' + causeLbl + '</span>';
-            } else if (c.Detail) {
-                badge = '<span class="crash-badge freeze-app">Freeze</span>';
-                detailSpan = '<span class="crash-app">' + c.Detail + '</span>';
-            } else {
-                badge = '<span class="crash-badge freeze">Freeze</span>';
-                if (causeLbl) detailSpan = '<span class="crash-app">' + causeLbl + '</span>';
-            }
-            crashHTML += '<div class="detail-item">' + badge + detailSpan + '<span class="detail-date">' + c.Timestamp + ' <span class="detail-ago">(' + timeAgo(c.Timestamp) + ')</span></span></div>';
-        });
-    } else {
-        crashHTML = '<div class="detail-empty">Aucun crash sur la periode</div>';
-    }
-
     // ========================================================
-    // DRILL-DOWN DEMARRAGES (v5.2)
-    //   - Mini-repartition par type (ColdBoot / FastStartup / Resume)
-    //   - Liste des 8 derniers demarrages avec badge du type
-    //   - Mise en evidence des boots longs (>= seuilBootLong)
+    // MATERIEL : groupes "Identite" (CPU / OS / Machine) puis "Materiel".
     // ========================================================
-    var bootLongHTML = '';
-
-    // Ligne de repartition par type (seulement si on a des Cold/Fast/Resume)
-    var bt = p.bootsByType || {};
-    var nbCold = bt.ColdBoot || 0, nbFast = bt.FastStartup || 0, nbResume = bt.Resume || 0;
-    var totalByType = nbCold + nbFast + nbResume;
-    if (totalByType > 0) {
-        bootLongHTML += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;font-size:10px">';
-        if (nbCold > 0)   bootLongHTML += '<span class="boot-type-chip boot-cold" title="Arret complet + demarrage">&#10052; Cold &times;' + nbCold + '</span>';
-        if (nbFast > 0)   bootLongHTML += '<span class="boot-type-chip boot-fast" title="Fast Startup (hybrid boot)">&#9889; Fast &times;' + nbFast + '</span>';
-        if (nbResume > 0) bootLongHTML += '<span class="boot-type-chip boot-resume" title="Reprise depuis hibernation">&#128164; Resume &times;' + nbResume + '</span>';
-        bootLongHTML += '</div>';
-    }
-
-    // Liste des 8 derniers demarrages (tous types)
-    if (p.boots.length > 0) {
-        var recentBoots = p.boots.slice().reverse().slice(0, 8);
-        recentBoots.forEach(function(b) {
-            var typeBadge = '';
-            var t = b.BootType || 'Unknown';
-            if      (t === 'ColdBoot')    typeBadge = '<span class="boot-type-chip boot-cold" title="Cold boot">&#10052;</span>';
-            else if (t === 'FastStartup') typeBadge = '<span class="boot-type-chip boot-fast" title="Fast Startup">&#9889;</span>';
-            else if (t === 'Resume')      typeBadge = '<span class="boot-type-chip boot-resume" title="Resume hibernation">&#128164;</span>';
-            else                          typeBadge = '<span class="boot-type-chip boot-unknown" title="Type inconnu">?</span>';
-
-            var durClass = b.EstBootLong ? 'detail-dur' : 'detail-info';
-            bootLongHTML += '<div class="detail-item">' +
-                typeBadge +
-                '<span class="detail-date" style="flex:1">' + b.DateBoot + '</span>' +
-                '<span class="' + durClass + '">' + b.DurationMin + ' min</span>' +
-                '</div>';
-        });
-        if (p.boots.length > 8) {
-            bootLongHTML += '<div class="detail-empty">... et ' + (p.boots.length - 8) + ' autre(s)</div>';
-        }
-    } else {
-        bootLongHTML += '<div class="detail-empty">Aucun demarrage detecte</div>';
-    }
-
-    // v1.6 : bloc CPU pour le panel Materiel
-    var cpuHTML = '';
-    var cpuCat = p.pc.CPUAgeCategory || 'Inconnu';
-    var cpuBadgeCls = 'ok';
-    if (cpuCat === 'Ancien')       cpuBadgeCls = 'danger';
-    else if (cpuCat === 'Vieillissant') cpuBadgeCls = 'warning';
-    else if (cpuCat === 'Recent')  cpuBadgeCls = 'ok';
-    var cpuMetaParts = [];
-    if (p.pc.CPUVendor) cpuMetaParts.push(p.pc.CPUVendor);
-    if (p.pc.CPUGen)    cpuMetaParts.push('Gen ' + p.pc.CPUGen);
-    if (p.pc.CPUYear)   cpuMetaParts.push(p.pc.CPUYear);
-    if (p.pc.CPUAge !== null && p.pc.CPUAge !== undefined) cpuMetaParts.push(p.pc.CPUAge + ' an(s)');
-    var cpuMetaStr = cpuMetaParts.join(' &middot; ');
+    // CPU : modele complet . annee . age  + tag categorie d'age
+    var cpuVal = '';
     if (p.pc.CPUName) {
-        cpuHTML = '<div class="cpu-info-block">' +
-                    '<div class="cpu-name">' + p.pc.CPUName + '</div>' +
-                    '<div class="cpu-meta">' +
-                      (cpuMetaStr ? '<span>' + cpuMetaStr + '</span>' : '') +
-                      '<span class="cpu-badge-inline ' + cpuBadgeCls + '">' + cpuCat + '</span>' +
-                    '</div>' +
-                  '</div>';
-    } else {
-        cpuHTML = '<div class="detail-empty">Nom CPU non disponible</div>';
-    }
-
-    // v2.2.1 : bloc OS (Windows 10/11) pour le panel Materiel.
-    var osHTML = '';
-    var dOsProduct = p.pc.OSProduct || 'Inconnu';
-    var dOsCls = 'os-inconnu';
-    if (dOsProduct === 'Windows 11') dOsCls = 'os-win11';
-    else if (dOsProduct === 'Windows 10') dOsCls = 'os-win10';
-    var dOsMetaParts = [];
-    if (p.pc.OSDisplayVersion) dOsMetaParts.push(p.pc.OSDisplayVersion);
-    if (p.pc.OSEdition) dOsMetaParts.push(p.pc.OSEdition);
-    if (p.pc.OSBuild) dOsMetaParts.push('build ' + p.pc.OSBuild);
-    var dOsMetaStr = dOsMetaParts.join(' &middot; ');
-    var dSerial = p.pc.SerialNumber || '';
-    // v2.4.7 : modele + fabricant (deja HTML-echappes a l'embed -> insertion sure).
-    var dModel = [p.pc.Manufacturer || '', p.pc.Model || ''].filter(function(x) { return x; }).join(' ');
-    osHTML = '<div class="cpu-info-block">' +
-               '<div style="margin-bottom:3px"><span class="os-badge ' + dOsCls + '">' + dOsProduct + '</span></div>' +
-               (dOsMetaStr ? '<div class="cpu-meta"><span>' + dOsMetaStr + '</span></div>' : '') +
-               (dModel ? '<div class="cpu-meta"><span>Mod&egrave;le : <strong>' + dModel + '</strong></span></div>' : '') +
-               (dSerial ? '<div class="cpu-meta"><span>N&deg; s&eacute;rie : <strong>' + dSerial + '</strong></span></div>' : '') +
-             '</div>';
-
-    var diskHTML = '';
-    if (p.diskInfo.length > 0) {
-        p.diskInfo.forEach(function(d) {
-            var fillClass = 'ok';
-            if (d.IsAlert) fillClass = 'danger';
-            else if (d.PctFree < seuilDiskWarning) fillClass = 'warning';
-            diskHTML += '<div class="disk-bar-wrap"><span class="disk-drive">' + d.Drive + '</span><div class="disk-bar"><div class="disk-bar-fill ' + fillClass + '" style="width:' + d.PctUsed + '%"></div></div><span class="disk-info-text">' + d.FreeGB + ' GB (' + d.PctFree + '%)</span></div>';
-        });
-    } else {
-        diskHTML = '<div class="detail-empty">Pas d info disque</div>';
-    }
-
-    var crasherHTML = '';
-    // v1.7 : on filtre les blacklist HARD (invisibles) et marque les SOFT (grises).
-    var pcCrashers = (p.topCrashers || []).filter(function(tc) {
-        return !isBlacklistedHard(tc.AppName);
-    });
-    if (pcCrashers.length > 0) {
-        pcCrashers.slice(0, 5).forEach(function(tc) {
-            // v2.1.4 : la nature (echec applicatif) prime sur le tag bruit.
-            var isAppFail = (tc.Type === 'app_failure');
-            var isSoft = isBlacklistedSoft(tc.AppName);
-            var rowCls = 'crasher-item';
-            var tag = '';
-            if (isAppFail) {
-                rowCls = 'crasher-item crasher-appfail';
-                tag = ' <span class="crasher-appfail-tag" title="Installation ou mise a jour qui echoue en boucle - a reparer ou desinstaller">echec recurrent</span>';
-            } else if (isSoft) {
-                rowCls = 'crasher-item crasher-soft-noise';
-                tag = ' <span class="crasher-noise-tag" title="Crasher connu - bruit ambient">bruit</span>';
+        var cpuSec = [];
+        if (p.pc.CPUYear) cpuSec.push(p.pc.CPUYear);
+        if (p.pc.CPUAge !== null && p.pc.CPUAge !== undefined) cpuSec.push(p.pc.CPUAge + ' ans');
+        cpuVal = p.pc.CPUName + joinMut(cpuSec);
+        // v2.5.3 : l'onglet Materiel garde TOUJOURS l'annee + l'age (cpuSec ci-dessus).
+        // Le badge devient Candidat/Parc courant en mode renouvellement, sinon age.
+        if (RENEWAL_MODE) {
+            cpuVal += isRenewalCandidate(p.pc) ? tag('A renouveler', 'warn') : tag('Parc courant', 'ok');
+        } else {
+            var cpuCat = p.pc.CPUAgeCategory || '';
+            if (cpuCat && cpuCat !== 'Inconnu') {
+                var cpuTagCls = (cpuCat === 'Ancien') ? 'ko' : ((cpuCat === 'Vieillissant') ? 'warn' : 'ok');
+                cpuVal += tag(cpuCat, cpuTagCls);
             }
-            crasherHTML += '<div class="' + rowCls + '">' +
-                             '<span class="crasher-name">' + tc.AppName + '</span> ' +
-                             '<span class="crasher-count">(' + tc.CrashCount + ')</span>' +
-                             tag +
-                             crasherDetailHtml(tc) +
-                           '</div>';
-        });
-    } else {
-        crasherHTML = '<div class="detail-empty">Aucun crash app</div>';
-    }
-
-    // ========================================================
-    // DRILL-DOWN HARDWARE (v5.2)
-    //   Section 1 : Erreurs FATALES (WHEA Fatal + GPU TDR + Thermal)
-    //     → une ligne par occurrence, rouge/violet selon gravite
-    //   Section 2 : Erreurs CORRIGEES (WHEA Corrected)
-    //     → une ligne par signature, avec compteur d'occurrences
-    //     (la plupart des parcs en generent massivement sans que
-    //      ca reflete un vrai probleme)
-    // ========================================================
-    var hwHTML = '';
-    var hasFatal = (p.wheaFatal.length + p.gpuTDR.length + p.thermal.length) > 0;
-    var hasCorrected = p.wheaCorrected.length > 0;
-
-    if (hasFatal) {
-        hwHTML += '<div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600">Fatales (' + (p.wheaFatal.length + p.gpuTDR.length + p.thermal.length) + ')</div>';
-
-        // WHEA fatales : classification par composant
-        p.wheaFatal.forEach(function(h) {
-            var comp = (h.Component || 'Autre').toLowerCase();
-            var badgeClass = 'whea-' + comp;
-            if (comp !== 'cpu' && comp !== 'ram' && comp !== 'pcie') badgeClass = 'whea-cpu'; // fallback style
-            var detail = h.ErrorSource || '';
-            if (h.BDF) detail += (detail ? ' · ' : '') + h.BDF;
-            hwHTML += '<div class="detail-item">' +
-                '<span class="hw-badge ' + badgeClass + '">' + (h.Component || '?') + '</span>' +
-                '<span class="detail-info">' + detail + '</span>' +
-                '<span class="detail-date">' + h.Timestamp + '</span></div>';
-        });
-
-        // GPU TDR
-        p.gpuTDR.forEach(function(h) {
-            hwHTML += '<div class="detail-item">' +
-                '<span class="hw-badge gpu-tdr">GPU</span>' +
-                '<span class="detail-info">' + (h.Driver || '') + '</span>' +
-                '<span class="detail-date">' + h.Timestamp + '</span></div>';
-        });
-
-        // Thermal
-        p.thermal.forEach(function(h) {
-            var thermInfo = (h.Temperature || '') + (h.Zone ? ' &middot; ' + h.Zone : '');
-            hwHTML += '<div class="detail-item">' +
-                '<span class="hw-badge thermal">' + h.AlertType + '</span>' +
-                '<span class="detail-info">' + thermInfo + '</span>' +
-                '<span class="detail-date">' + h.Timestamp + '</span></div>';
-        });
-    }
-
-    if (hasCorrected) {
-        if (hasFatal) hwHTML += '<div style="margin-top:12px"></div>';
-        hwHTML += '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600">Corrigees (' + p.wheaCorrectedTotal + ' occurrences)</div>';
-
-        // Top 5 des signatures les plus frequentes
-        p.wheaCorrected.slice(0, 5).forEach(function(h) {
-            var comp = (h.Component || 'Autre').toLowerCase();
-            var badgeClass = 'whea-' + comp;
-            if (comp !== 'cpu' && comp !== 'ram' && comp !== 'pcie') badgeClass = 'whea-cpu';
-            var detail = h.ErrorSource || '';
-            if (h.BDF) detail += (detail ? ' · ' : '') + h.BDF;
-            hwHTML += '<div class="detail-item">' +
-                '<span class="hw-badge ' + badgeClass + '" style="opacity:0.7">' + (h.Component || '?') + '</span>' +
-                '<span class="detail-info" style="flex:1">' + detail + '</span>' +
-                '<span class="crasher-count">&times;' + h.Count + '</span>' +
-                '<span class="detail-date">' + h.LastSeen + '</span></div>';
-        });
-        if (p.wheaCorrected.length > 5) {
-            hwHTML += '<div class="detail-empty">... et ' + (p.wheaCorrected.length - 5) + ' autre(s) signature(s)</div>';
         }
     }
+    // OS : badge produit + version . edition . build
+    var dOsProduct = p.pc.OSProduct || 'Inconnu';
+    var dOsCls = (dOsProduct === 'Windows 11') ? 'os-win11' : ((dOsProduct === 'Windows 10') ? 'os-win10' : 'os-inconnu');
+    var osSec = [];
+    if (p.pc.OSDisplayVersion) osSec.push(p.pc.OSDisplayVersion);
+    if (p.pc.OSEdition)        osSec.push(p.pc.OSEdition);
+    if (p.pc.OSBuild)          osSec.push('build ' + p.pc.OSBuild);
+    var osVal = '<span class="os-badge ' + dOsCls + '">' + dOsProduct + '</span>' + joinMut(osSec);
+    // Machine : fabricant modele . S/N (mono)
+    var dModel = [p.pc.Manufacturer || '', p.pc.Model || ''].filter(function(x) { return x; }).join(' ');
+    var machVal = dModel || '';
+    if (p.pc.SerialNumber) machVal += (machVal ? ' ' + mut('&middot; S/N ') : mut('S/N ')) + mono(p.pc.SerialNumber);
 
-    if (!hasFatal && !hasCorrected) {
-        hwHTML = '<div class="detail-empty">Aucune erreur materielle</div>';
+    // GPU : par adaptateur "Nom vX.Y" joints par point median
+    var gpuList = p.gpuInventory || [];
+    var gpuVal = gpuList.length ? gpuList.map(function(g) {
+        var nm = g.Name || '(GPU inconnu)';
+        return nm + (g.DriverVersion ? ' ' + mut('v' + g.DriverVersion) : '');
+    }).join(' &middot; ') : '';
+
+    // RAM : installee / max . slots libres . barrettes inline
+    var ramVal = '';
+    if (p.memory) {
+        var mem = p.memory;
+        ramVal = mem.TotalInstalledGB + ' / ' + mem.MaxCapacityGB + ' Go';
+        var ramSec = [];
+        if (mem.FreeSlots > 0)   ramSec.push(mem.FreeSlots + ' slot(s) libre(s)');
+        else if (mem.TotalSlots) ramSec.push('0 slot libre');
+        if (mem.Modules && mem.Modules.length) {
+            // v2.5.0 : on regroupe les barrettes identiques (frequent sur RAM
+            // soudee : plusieurs modules "Motherboard" strictement identiques ->
+            // "4 x 8 Go LPDDR5 8000 MHz" au lieu de 4 lignes brutes repetees).
+            // Le slot (DIMMA/Motherboard) est volontairement omis : peu utile ici
+            // et il casse le regroupement.
+            var seen = {}, order = [];
+            mem.Modules.forEach(function(mod) {
+                var mp = [mod.CapacityGB + ' Go'];
+                var ty = cleanRamType(mod.Type);      if (ty) mp.push(ty);
+                if (mod.SpeedMHz > 0)                 mp.push(mod.SpeedMHz + ' MHz');
+                var rm = prettyRamManuf(mod.Manufacturer); if (rm) mp.push(rm);
+                var key = mp.join(' ');
+                if (seen[key] === undefined) { seen[key] = 0; order.push(key); }
+                seen[key]++;
+            });
+            var mods = order.map(function(k) {
+                return (seen[k] > 1 ? seen[k] + ' &times; ' : '') + k;
+            }).join(', ');
+            ramSec.push(mods);
+        }
+        ramVal += joinMut(ramSec);
     }
 
-    // v2.1.13 : encart piste memoire, prefixe a la carte Hardware (toujours rendue -> visible
-    // meme si les WHEA RAM sont hors de la periode selectionnee, car la piste est un signal global).
+    // Disque : une ligne par volume, valeur coloree par seuil de remplissage
+    var diskRows = '';
+    (p.diskInfo || []).forEach(function(d) {
+        var valCls = 'ok';
+        if (d.IsAlert) valCls = 'ko';
+        else if (d.PctFree < seuilDiskWarning) valCls = 'warn';
+        diskRows += ddR('Disque ' + d.Drive, col(d.PctUsed + '%', valCls) + ' ' + mut('(' + d.FreeGB + ' Go libres)'));
+    });
+
+    // SMART : une ligne par disque physique (option 3 sur les champs rares)
+    var smartRows = '';
+    (p.diskHealth || []).forEach(function(d) {
+        var hl = d.HealthStatus || 'Unknown';
+        var hcls = (hl === 'Warning') ? 'warn' : ((hl !== 'Healthy') ? 'ko' : 'ok');
+        var tempCls = '';
+        if (d.TemperatureC != null) tempCls = (d.TemperatureC >= 70) ? 'ko' : ((d.TemperatureC >= 55) ? 'warn' : 'ok');
+        var wearCls = '';
+        if (d.WearPct != null) wearCls = (d.WearPct >= 70) ? 'ko' : ((d.WearPct >= 40) ? 'warn' : 'ok');
+        var seg = [];
+        var ctx = [];
+        if (d.MediaType) ctx.push(d.MediaType);
+        if (d.SizeGB)    ctx.push(d.SizeGB + ' Go');
+        if (ctx.length) seg.push(mut(ctx.join(' ')));
+        if (d.TemperatureC != null) seg.push(col(d.TemperatureC + '&deg;C', tempCls));
+        if (d.WearPct != null)      seg.push('usure ' + col(d.WearPct + '%', wearCls));
+        if (d.PowerOnHours != null) seg.push(d.PowerOnHours + ' h');
+        seg.push('err ' + (d.ReadErrorsTotal || 0) + '/' + (d.WriteErrorsTotal || 0));
+        // option 3 : champs rares uniquement si presents et hors valeur par defaut
+        if (d.TemperatureMaxC != null) seg.push('max ' + d.TemperatureMaxC + '&deg;C');
+        if (d.ReadErrorsUncorrected != null && d.ReadErrorsUncorrected > 0)  seg.push(col('lect.NC ' + d.ReadErrorsUncorrected, 'ko'));
+        if (d.WriteErrorsUncorrected != null && d.WriteErrorsUncorrected > 0) seg.push(col('&eacute;cr.NC ' + d.WriteErrorsUncorrected, 'ko'));
+        var sv = tag(hl, hcls) + ' ' + seg.join(' &middot; ');
+        if (d.AlertReasons && d.AlertReasons.length) {
+            sv += ' ' + d.AlertReasons.map(function(r) { return tag(r, 'ko'); }).join('');
+        }
+        smartRows += ddR(d.FriendlyName || 'Disque', sv);
+    });
+
+    // Batterie : sante . charge . capacite actuelle/design (+ cycles). Omise si absente.
+    var battVal = '';
+    if (p.battery && p.battery.HasBattery) {
+        var b = p.battery;
+        var bh = b.HealthPercent || 0;
+        var bhcls = (bh < 60) ? 'ko' : ((bh < 80) ? 'warn' : 'ok');
+        battVal = col(bh + '%', bhcls);
+        if (bh < 80 && b.HealthCategory) battVal += tag(b.HealthCategory, bhcls);
+        var bSec = [];
+        if (b.CurrentChargePct != null) bSec.push(b.CurrentChargePct + '% (' + b.Status + ')');
+        if (b.FullChargeCapacity || b.DesignCapacity) {
+            var aw = b.FullChargeCapacity ? Math.round(b.FullChargeCapacity / 1000) + ' Wh' : '?';
+            var dw = b.DesignCapacity ? Math.round(b.DesignCapacity / 1000) + ' Wh' : '?';
+            bSec.push(aw + ' / ' + dw);
+        }
+        if (b.CycleCount != null) bSec.push(b.CycleCount + ' cycles');
+        battVal += joinMut(bSec);
+    }
+
+    // Ecran(s) : une ligne par moniteur identifie (+ note si non identifie)
+    var monRows = '';
+    (p.monitors || []).forEach(function(mon) {
+        var actTag = mon.Active ? tag('Actif', 'ok') : tag('D&eacute;branch&eacute;', '');
+        if (!monIsIdentified(mon)) {
+            monRows += ddR('&Eacute;cran', mut('non identifi&eacute; (EDID non transmis)') + actTag);
+            return;
+        }
+        var name = mon.Model || mon.ProductCode || '(mod&egrave;le inconnu)';
+        var mv = name + actTag;
+        var isOld = (mon.AgeYears != null && mon.AgeYears >= screenAgeThreshold);
+        if (isOld) mv += tag(mon.AgeYears + ' ans', 'warn');
+        var mSec = [];
+        var manuf = mon.Manufacturer || mon.ManufacturerCode;
+        if (manuf) mSec.push(manuf);
+        if (mon.YearOfManufacture) mSec.push(mon.YearOfManufacture);
+        if (mon.SerialNumber) mSec.push('S/N ' + mon.SerialNumber);
+        mv += joinMut(mSec);
+        monRows += ddR('&Eacute;cran', mv);
+    });
+
+    // Throttling : "aucun detecte" (muet) ou synthese + journees
+    var throttleList = (p.hardwareHealth && p.hardwareHealth.CPUThrottling) ? p.hardwareHealth.CPUThrottling : [];
+    var thrVal, thrRows = '';
+    if (!throttleList.length) {
+        thrVal = mut('aucun d&eacute;tect&eacute;');
+    } else {
+        var thDays = throttleList.length;
+        thrVal = (thDays >= 3)
+            ? col('&#9888;&#65039; ' + thDays + ' jours de bridage firmware', 'warn')
+            : thDays + ' jour(s) de bridage firmware';
+        throttleList.slice(0, 5).forEach(function(t) {
+            var typeShort = t.EventId === 55 ? 'Thermal reduction' : 'Firmware limit';
+            var dv = fmtDuration(t.TotalSeconds);
+            thrRows += ddR('Bridage', mono(t.Day) + ' ' + mut(typeShort + (dv ? ' &middot; cumul ' + dv : '') + ' &middot; &times;' + t.Count));
+        });
+        if (throttleList.length > 5) thrRows += ddR('Bridage', mut('+ ' + (throttleList.length - 5) + ' journ&eacute;es plus anciennes'));
+    }
+
+    var matContent =
+        ddG('Identit&eacute;') +
+        ddR('CPU', cpuVal) + ddR('OS', osVal) + ddR('Machine', machVal) +
+        ddG('Mat&eacute;riel') +
+        ddR('GPU', gpuVal) + ddR('RAM', ramVal) + diskRows + smartRows +
+        ddR('Batterie', battVal) + monRows + ddR('Throttling', thrVal) + thrRows;
+
+    // ========================================================
+    // STABILITE : Crash/Freeze, erreurs materielles, top crashers, performance.
+    // ========================================================
+    var crashRows = '';
+    if (p.crashes.length > 0) {
+        // Replie les libelles d'evenement identiques consecutifs (ex. runs de
+        // "Hard reset" / "BSOD") : le type n'est ecrit que sur la 1re ligne du
+        // run, les occurrences suivantes gardent une gouttiere de libelle vide.
+        // Une ligne par (type + detail) : les occurrences identiques (ex. runs de
+        // "Hard reset - Coupure alim/thermal") sont regroupees, dates a la suite.
+        var crashGroups = [];
+        p.crashes.forEach(function(c) {
+            var causeLbl = crashCauseLabel(c.CrashCause);
+            var when = frDate(c.Timestamp) + ' (' + timeAgo(c.Timestamp) + ')';
+            var label, detail;
+            if (c.Type === 'BSOD') {
+                label = 'BSOD';
+                var bn = bugCheckName(c.Detail);
+                detail = col(c.Detail || '', 'ko') + (bn ? ' ' + bn : '');
+            } else if (c.Type === 'Hard reset') {
+                label = 'Hard reset'; detail = (causeLbl ? causeLbl : '');
+            } else if (c.Detail) {
+                label = 'Freeze'; detail = c.Detail;
+            } else {
+                label = 'Freeze'; detail = (causeLbl ? causeLbl : '');
+            }
+            var last = crashGroups[crashGroups.length - 1];
+            if (last && last.label === label && last.detail === detail) { last.whens.push(when); }
+            else { crashGroups.push({ label: label, detail: detail, whens: [when] }); }
+        });
+        crashGroups.forEach(function(g) {
+            crashRows += ddR(g.label, mut(g.whens.join(' &middot; ')) + (g.detail ? ' &middot; ' + g.detail : ''));
+        });
+    } else {
+        crashRows = ddR('Crash / Freeze', mut('aucun sur la p&eacute;riode'));
+    }
+
+    // Piste memoire (correlation crash memoire + WHEA RAM), si active
+    var pisteRow = '';
     if (p.memoryPiste && p.memoryPiste.active) {
         var mp = p.memoryPiste;
         var crashNames = mp.crashers.map(function(c) { return c.AppName + ' (' + (exceptionLabel(c.ExceptionCode) || c.ExceptionCode) + ')'; }).join(', ');
         var ramCount = mp.ramFatal.length + mp.ramCorrected.reduce(function(s, c) { return s + (c.Count || 1); }, 0);
-        var pisteHTML = '<div class="memory-piste">' +
-            '<div class="memory-piste-head">&#128269; Piste &agrave; v&eacute;rifier &middot; m&eacute;moire</div>' +
-            '<div class="memory-piste-body">Ce poste cumule des plantages applicatifs de type m&eacute;moire (' + crashNames + ') ' +
-            'et des erreurs mat&eacute;rielles RAM (WHEA &times;' + ramCount + '). Un test m&eacute;moire (memtest) serait &agrave; envisager.' +
-            '<span class="memory-piste-note">Corr&eacute;lation, pas diagnostic &middot; sur l\'ensemble des donn&eacute;es collect&eacute;es.</span>' +
-            '</div></div>';
-        hwHTML = pisteHTML + hwHTML;
+        pisteRow = ddR('Piste', col('m&eacute;moire &agrave; v&eacute;rifier', 'warn') + ' ' +
+            mut('plantages m&eacute;moire (' + crashNames + ') + WHEA RAM &times;' + ramCount + ' &middot; envisager un memtest'));
     }
 
-    var perfHTML = '';
-    if (p.warnings.length > 0) {
-        p.warnings.forEach(function(w) {
-            var badge = '', badgeClass = '';
-            if (w.Type === 'RAM exhaustion')      { badgeClass = 'ram-exhaustion'; badge = 'RAM'; }
-            else if (w.Type === 'CPU throttling') { badgeClass = 'cpu-throttling'; badge = 'CPU'; }
-            else if (w.Type === 'Disk full')      { badgeClass = 'disk-full';      badge = 'DISK'; }
-            else if (w.Type === 'Disk slow')      { badgeClass = 'disk-slow';      badge = 'I/O'; }
-            // v1.5 : affichage enrichi avec Count + burst (backward-compat v1.4-)
-            var detailStr = w.Detail || '';
-            var countStr  = '';
-            var burstStr  = '';
-            if (typeof w.Count === 'number' && w.Count > 1) {
-                var durSec = 0;
-                if (w.FirstSeen && w.LastSeen) {
-                    try { durSec = Math.round((parseDate(w.LastSeen) - parseDate(w.FirstSeen)) / 1000); } catch(e) {}
-                }
-                countStr = ' &times;' + w.Count + ' events';
-                if (durSec <= 1) countStr += ' en 1s';
-                else if (durSec < 60) countStr += ' en ' + durSec + 's';
-                else countStr += ' en ' + Math.round(durSec / 60) + 'min';
-            }
-            if (w.IsBurst === true) {
-                burstStr = ' <span class="burst-badge" title="Burst massif : probable incident mat\u00e9riel">&#128293; BURST</span>';
-            }
-            perfHTML += '<div class="detail-item"><span class="warn-badge ' + badgeClass + '">' + badge + '</span><span class="warn-detail">' + detailStr + countStr + burstStr + '</span><span class="detail-date">' + w.Timestamp + '</span></div>';
-        });
-    }
-    if (p.topRAM.length > 0) {
-        if (perfHTML) perfHTML += '<div style="margin-top:10px;margin-bottom:6px;font-size:10px;color:var(--text-faint)">Top RAM</div>';
-        p.topRAM.forEach(function(proc) {
-            perfHTML += '<div class="detail-item"><span class="detail-info">' + proc.Name + '</span><span class="detail-dur">' + proc.WorkingSetMB + ' MB</span></div>';
-        });
-    }
-    if (!perfHTML) perfHTML = '<div class="detail-empty">Aucun warning</div>';
+    // Erreurs materielles : fatales (rouge) puis corrigees (telemetrie, muet)
+    var hwRows = '';
+    p.wheaFatal.forEach(function(h) {
+        var detail = h.ErrorSource || '';
+        if (h.BDF) detail += (detail ? ' &middot; ' : '') + h.BDF;
+        hwRows += ddR(h.Component || 'HW', col(detail || (h.Component || '?'), 'ko') + ' ' + mut(frDate(h.Timestamp)));
+    });
+    p.gpuTDR.forEach(function(h) {
+        hwRows += ddR('GPU', col('TDR ' + (h.Driver || ''), 'ko') + ' ' + mut(frDate(h.Timestamp)));
+    });
+    p.thermal.forEach(function(h) {
+        var ti = (h.Temperature || '') + (h.Zone ? ' &middot; ' + h.Zone : '');
+        hwRows += ddR('Thermal', col(h.AlertType, 'ko') + (ti ? ' ' + ti : '') + ' ' + mut(frDate(h.Timestamp)));
+    });
+    p.wheaCorrected.slice(0, 5).forEach(function(h) {
+        var detail = h.ErrorSource || '';
+        if (h.BDF) detail += (detail ? ' &middot; ' : '') + h.BDF;
+        hwRows += ddR(h.Component || 'HW', mut((detail || 'corrig&eacute;e') + ' &times;' + h.Count + ' &middot; ') + frDate(h.LastSeen));
+    });
+    if (p.wheaCorrected.length > 5) hwRows += ddR('HW', mut('... et ' + (p.wheaCorrected.length - 5) + ' signature(s)'));
+    if (!hwRows) hwRows = ddR('Hardware', mut('aucune erreur mat&eacute;rielle'));
 
-    // ========================================================
-    // DRILL-DOWN BATTERIE + EDR (v5.3)
-    // On combine les deux dans une section pour economiser la place
-    // ========================================================
-    var batteryHTML = '';
-    if (!p.battery) {
-        batteryHTML = '<div class="detail-empty">Donn&eacute;es batterie absentes (Collector &lt; v5.3)</div>';
-    } else if (!p.battery.HasBattery) {
-        batteryHTML = '<div class="detail-empty">Pas de batterie d&eacute;tect&eacute;e (desktop ou VM)</div>';
+    // Top crashers : label = appli, valeur = "<n> plantes . cause . origine"
+    // v2.5.0 : meme filtre de bruit que le panneau global (isRealApp) + retrait du
+    // nom d'utilisateur happe par erreur. Avant, le drill-down affichait tout brut
+    // (traces Dell DDPM, un nom d'utilisateur, exceptions .NET...). Une appli suivie reste.
+    var crasherRows = '';
+    var crasherHidden = 0;
+    var pcCrashers = (p.topCrashers || []).filter(function(tc) {
+        if (isBlacklistedHard(tc.AppName)) { return false; }   // deja retire silencieusement (systeme)
+        if (isPriorityApp(tc.AppName)) return true;
+        if (isUserArtifact(tc.AppName, p.pc) || !isRealApp(tc.AppName)) { crasherHidden++; return false; }
+        return true;
+    });
+    if (pcCrashers.length > 0) {
+        pcCrashers.slice(0, 5).forEach(function(tc) {
+            var v = tc.CrashCount + ' plant&eacute;' + (tc.CrashCount > 1 ? 's' : '');
+            var extra = [];
+            var code = exceptionLabel(tc.ExceptionCode);
+            if (code) extra.push(code);
+            var orig = crasherOrigin(tc.FaultModule);
+            if (orig) extra.push(orig);
+            v += joinMut(extra);
+            if (tc.Type === 'app_failure') v += tag('&eacute;chec r&eacute;current', 'warn');
+            else if (isBlacklistedSoft(tc.AppName)) v += tag('bruit', '');
+            crasherRows += ddR(tc.AppName, v);
+        });
+        if (crasherHidden > 0) crasherRows += ddR('', mut(crasherHidden + ' entr&eacute;e(s) de trace non exploitable(s) masqu&eacute;e(s) (bruit de log)'));
+    } else if (crasherHidden > 0) {
+        crasherRows = ddR('Top crashers', mut('aucun crash app exploitable (' + crasherHidden + ' entr&eacute;e(s) de bruit masqu&eacute;e(s))'));
     } else {
-        var health = p.battery.HealthPercent || 0;
-        var barClass = 'good';
-        if (health < 60) barClass = 'danger';
-        else if (health < 80) barClass = 'warning';
+        crasherRows = ddR('Top crashers', mut('aucun crash app'));
+    }
 
-        batteryHTML += '<div class="batt-bar-wrap">' +
-            '<div class="batt-bar"><div class="batt-bar-fill ' + barClass + '" style="width:' + Math.min(health, 100) + '%"></div></div>' +
-            '<strong style="color:var(--text-dim);min-width:55px;text-align:right">' + health + '%</strong>' +
-            '</div>';
-
-        batteryHTML += '<div class="batt-meta">' +
-            (p.battery.HealthCategory ? 'Etat : <strong>' + p.battery.HealthCategory + '</strong> &middot; ' : '') +
-            'Charge : <strong>' + p.battery.CurrentChargePct + '%</strong> (' + p.battery.Status + ')' +
-            '</div>';
-
-        var metaParts = [];
-        if (p.battery.Manufacturer)       metaParts.push('Fab: <strong>' + p.battery.Manufacturer + '</strong>');
-        if (p.battery.Chemistry)          metaParts.push('Chimie: <strong>' + p.battery.Chemistry + '</strong>');
-        if (p.battery.CycleCount != null) metaParts.push('Cycles: <strong>' + p.battery.CycleCount + '</strong>');
-        if (p.battery.DesignCapacity)     metaParts.push('Design: <strong>' + Math.round(p.battery.DesignCapacity / 1000) + ' Wh</strong>');
-        if (p.battery.FullChargeCapacity) metaParts.push('Actuel: <strong>' + Math.round(p.battery.FullChargeCapacity / 1000) + ' Wh</strong>');
-        if (metaParts.length > 0) {
-            batteryHTML += '<div class="batt-meta" style="margin-top:6px">' + metaParts.join(' &middot; ') + '</div>';
+    // Performance : warnings (RAM/CPU/Disque/IO) puis top consommateurs RAM
+    var perfRows = '';
+    p.warnings.forEach(function(w) {
+        var bl = (w.Type === 'RAM exhaustion') ? 'RAM'
+               : (w.Type === 'CPU throttling') ? 'CPU'
+               : (w.Type === 'Disk full') ? 'Disque'
+               : (w.Type === 'Disk slow') ? 'I/O' : 'Perf';
+        var detailStr = w.Detail || '';
+        var countStr = '';
+        if (typeof w.Count === 'number' && w.Count > 1) {
+            var durSec = 0;
+            if (w.FirstSeen && w.LastSeen) { try { durSec = Math.round((parseDate(w.LastSeen) - parseDate(w.FirstSeen)) / 1000); } catch (e) {} }
+            countStr = ' &times;' + w.Count + ' events';
+            if (durSec <= 1) countStr += ' en 1s';
+            else if (durSec < 60) countStr += ' en ' + durSec + 's';
+            else countStr += ' en ' + Math.round(durSec / 60) + 'min';
         }
-    }
+        var burst = (w.IsBurst === true) ? tag('&#128293; BURST', 'ko') : '';
+        perfRows += ddR(bl, col(detailStr + countStr, 'warn') + burst + ' ' + mut(frDate(w.Timestamp)));
+    });
+    p.topRAM.forEach(function(proc) {
+        var mb = proc.WorkingSetMB;
+        var mcls = (mb >= 2000) ? 'ko' : ((mb >= 1000) ? 'warn' : '');
+        perfRows += ddR(proc.Name, col(mb + ' MB', mcls));
+    });
+    if (!perfRows) perfRows = ddR('Performance', mut('aucun warning'));
 
-    // Services surveilles (v2.2 : liste pilotee par config). Badge = DisplayName du
-    // service (vient du config) ; [Role] indique le service structurant (ex EDR).
-    var edrHTML = '';
-    if (!p.monitoredServices || p.monitoredServices.length === 0) {
-        edrHTML = '<div class="detail-empty">Aucun service surveill&eacute; (poste en cours de MAJ Collector, ou config MonitoredServices vide)</div>';
-    } else {
-        p.monitoredServices.forEach(function(svc) {
-            var svcBadge, svcBadgeClass;
-            if (!svc.Installed) {
-                svcBadge = 'NON INSTALL&Eacute;'; svcBadgeClass = 'bsod';
-            } else if (svc.IsAlert) {
-                svcBadge = svc.Status;             svcBadgeClass = 'hard-reset';
-            } else {
-                svcBadge = 'Running';              svcBadgeClass = 'freeze-app';
+    var stabContent =
+        ddG('Crash / Freeze') + crashRows +
+        ddG('Erreurs mat&eacute;rielles') + pisteRow + hwRows +
+        ddG('Top crashers') + crasherRows +
+        ddG('Performance') + perfRows;
+
+    // ========================================================
+    // DEMARRAGE : boots recents + boot performance.
+    // ========================================================
+    var bootRows = '';
+    if (p.boots.length > 0) {
+        // v2.5.0 : on classe chaque demarrage par CAUSE plutot que par type kernel.
+        // Un "Cold x5" brut alarmait a tort (cf. cycle de MAJ Windows qui enchaine
+        // plusieurs reboots en quelques minutes). On correle chaque boot :
+        //   - reprise apres plantage  = un Event 41 (BSOD) tombe a +/- 3 min du boot
+        //   - mise a jour Windows     = un Event 1074 "update" juste avant le boot
+        //   - demarrage normal        = tout le reste (allumage, redemarrage manuel)
+        var rb = p.reboots || [], cr = p.crashes || [];
+        // Un Event 41 est journalise au 1er boot qui suit l'arret sale : son
+        // horodatage colle donc au boot (+/- 90 s). Fenetre volontairement serree
+        // pour ne pas happer un reboot de MAJ survenu 2-3 min apres le plantage.
+        function nearCrash(tb) {
+            for (var i = 0; i < cr.length; i++) {
+                if (Math.abs((tb - parseDate(cr[i].Timestamp)) / 1000) <= 90) return true;
             }
-            var roleTag = svc.Role ? ' <span class="detail-info">[' + svc.Role + ']</span>' : '';
-            edrHTML += '<div class="detail-item">' +
-                '<span class="crash-badge ' + svcBadgeClass + '">' + svc.DisplayName + '</span>' +
-                '<span class="detail-info" style="flex:1">' + svc.ServiceName + roleTag + '</span>' +
-                '<span class="detail-date">' + svcBadge + '</span>' +
-                '</div>';
-            if (svc.Installed) {
-                edrHTML += '<div class="batt-meta" style="margin-top:6px">Type d&eacute;marrage : <strong>' + svc.StartType + '</strong></div>';
+            return false;
+        }
+        function nearUpdate(tb) {
+            for (var i = 0; i < rb.length; i++) {
+                if (!rb[i].IsUpdate) continue;
+                var dt = (tb - parseDate(rb[i].Timestamp)) / 1000;   // boot apres le 1074
+                if (dt >= -60 && dt <= 360) return true;
             }
+            return false;
+        }
+        var grpMaj = [], grpCrash = [], grpNorm = [];   // grpNorm garde les DateBoot bruts
+        p.boots.slice().reverse().forEach(function(bo) {   // plus recent -> plus ancien
+            var tb = parseDate(bo.DateBoot);
+            if (nearCrash(tb))       grpCrash.push(frDate(bo.DateBoot, true) + (bo.EstBootLong ? ' (long)' : ''));
+            else if (nearUpdate(tb)) grpMaj.push(frDate(bo.DateBoot, true) + (bo.EstBootLong ? ' (long)' : ''));
+            else                     grpNorm.push(bo.DateBoot);
         });
+        // Listes datees pour ce qui compte une par une (MAJ, plantages).
+        var listRow = function(label, arr) {
+            if (!arr.length) return '';
+            var shown = arr.slice(0, 12).join(' &middot; ');
+            if (arr.length > 12) shown += ' &middot; +' + (arr.length - 12);
+            return ddR(label, mut(shown));
+        };
+        bootRows += listRow('Mises &agrave; jour Windows' + (grpMaj.length > 1 ? ' (cycle)' : ''), grpMaj);
+        bootRows += listRow('Reprises apr&egrave;s plantage', grpCrash);
+        // v2.5.0 : demarrages normaux -> listes courtes en clair, listes longues
+        // (rebooteur quotidien) resumees. Sinon 30 dates a la chaine = illisible.
+        if (grpNorm.length) {
+            if (grpNorm.length <= 6) {
+                bootRows += ddR('D&eacute;marrages', mut(grpNorm.map(function(d) { return frDate(d, true); }).join(' &middot; ')));
+            } else {
+                var recent = grpNorm[0], oldest = grpNorm[grpNorm.length - 1];
+                bootRows += ddR('D&eacute;marrages', mut(
+                    '<b class="dd-strong">' + grpNorm.length + '</b> d&eacute;marrages &middot; du ' +
+                    frDate(oldest, true) + ' au ' + frDate(recent, true)));
+            }
+        }
+    } else {
+        bootRows += ddR('D&eacute;marrage', mut('aucun d&eacute;marrage d&eacute;tect&eacute;'));
     }
 
-    // ========================================================
-    // DRILL-DOWN BOOT PERFORMANCE (v5.4)
-    // - Phases du dernier boot en barres proportionnelles
-    // - Historique des 5 derniers boots
-    // ========================================================
-    var bootPerfHTML = '';
+    var bpRows = '';
     if (!p.bootPerf || !p.bootPerf.LastBoot) {
-        bootPerfHTML = '<div class="detail-empty">Aucune donn&eacute;e boot perf (aucun cold boot r&eacute;cent ou Collector &lt; v5.4)</div>';
+        bpRows = ddR('Boot perf', mut('aucune donn&eacute;e (aucun cold boot r&eacute;cent)'));
     } else {
         var lb = p.bootPerf.LastBoot;
-        var totalMs = Math.max(lb.BootTimeMs, 1);
-
-        // Phases breakdown
-        bootPerfHTML += '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600">Dernier boot &mdash; ' + (lb.BootTimeMs/1000).toFixed(1) + 's total</div>';
-
-        bootPerfHTML += '<div class="bootperf-phases">';
-        function phase(label, ms, slowThresh) {
-            var pct = Math.min((ms / totalMs) * 100, 100);
-            var cls = 'bootperf-bar-fill';
-            if (slowThresh && ms > slowThresh) cls += ' slow';
-            else if (ms < 10000) cls += ' fast';
-            return '<div class="bootperf-phase">' +
-                   '<span class="bootperf-label">' + label + '</span>' +
-                   '<div class="bootperf-bar"><div class="' + cls + '" style="width:' + pct + '%"></div></div>' +
-                   '<span class="bootperf-value">' + (ms/1000).toFixed(1) + 's</span>' +
-                   '</div>';
-        }
-        bootPerfHTML += phase('MainPath (OS&rarr;Logon)', lb.MainPathBootTimeMs, 60000);
-        bootPerfHTML += phase('PostBoot (Logon&rarr;Idle)', lb.BootPostBootTimeMs, 90000);
-        bootPerfHTML += phase('Profil utilisateur', lb.UserProfileProcessingTimeMs, 10000);
-        bootPerfHTML += phase('Init Explorer', lb.ExplorerInitTimeMs, 15000);
-        bootPerfHTML += '</div>';
-
-        var bootMeta = [];
-        bootMeta.push('Apps d&eacute;marrage: <strong>' + lb.NumStartupApps + '</strong>');
-        bootMeta.push('Niveau Win: <strong>' + (lb.Level || '?') + '</strong>');
-        if (lb.IsRebootAfterInstall) bootMeta.push('<strong style="color:var(--orange)">Post-MAJ Windows</strong>');
-        bootPerfHTML += '<div class="bootperf-meta">' + bootMeta.join(' &middot; ') + '</div>';
-
-        // Historique (skip le premier qui est LastBoot)
+        var secs = function(ms) { return (ms / 1000).toFixed(1) + ' s'; };
+        var phaseRow = function(label, ms, slow) {
+            var cls = (slow && ms > slow) ? 'warn' : ((ms < 10000) ? 'ok' : '');
+            return ddR(label, col(secs(ms), cls));
+        };
+        // v2.5.0 : libelles friendly (les noms Microsoft MainPath/PostBoot etc.
+        // ne parlaient pas aux techs).
+        bpRows += phaseRow('Syst&egrave;me &amp; services', lb.MainPathBootTimeMs, 60000);
+        bpRows += phaseRow('Finition en arri&egrave;re-plan', lb.BootPostBootTimeMs, 90000);
+        bpRows += phaseRow('Chargement du profil', lb.UserProfileProcessingTimeMs, 10000);
+        bpRows += phaseRow('Affichage du bureau', lb.ExplorerInitTimeMs, 15000);
+        var summ = secs(lb.BootTimeMs) + joinMut([
+            lb.NumStartupApps + ' apps',
+            'niveau ' + (lb.Level || '?'),
+            (p.bootPerf.Stats ? (p.bootPerf.Stats.SlowBootsCount + '/' + p.bootPerf.Stats.BootsAnalyzed + ' lents') : '')
+        ]);
+        if (lb.IsRebootAfterInstall) summ += tag('post-MAJ', 'warn');
+        bpRows += ddR('Total', summ);
         if (p.bootPerf.History && p.bootPerf.History.length > 1) {
-            bootPerfHTML += '<div style="margin-top:12px;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;font-weight:600">Historique (' + (p.bootPerf.History.length) + ' boots)</div>';
+            // Toutes ces lignes portent le meme libelle "Boot" : on l'ecrit une
+            // seule fois (1re ligne de l'historique), les suivantes s'empilent
+            // avec une gouttiere de libelle vide.
             p.bootPerf.History.forEach(function(h, i) {
-                if (i === 0) return; // deja affiche en "dernier boot"
-                var rowCls = h.IsSlow ? 'bootperf-row slow' : 'bootperf-row';
-                bootPerfHTML += '<div class="' + rowCls + '">' +
-                    '<span class="date">' + h.Timestamp + '</span>' +
-                    '<span>Main ' + (h.MainPathBootTimeMs/1000).toFixed(1) + 's</span>' +
-                    '<span>Post ' + (h.BootPostBootTimeMs/1000).toFixed(1) + 's</span>' +
-                    '<span class="total">' + (h.BootTimeMs/1000).toFixed(1) + 's</span>' +
-                    '</div>';
+                if (i === 0) return;
+                var histLabel = (i === 1) ? 'Boot' : '';
+                bpRows += ddR(histLabel, mut(frDate(h.Timestamp, true)) + ' Syst&egrave;me ' + secs(h.MainPathBootTimeMs) +
+                    ' &middot; Finition ' + secs(h.BootPostBootTimeMs) + ' &middot; ' + col('Total ' + secs(h.BootTimeMs), h.IsSlow ? 'warn' : ''));
             });
         }
-
-        // Stats agregees
         if (p.bootPerf.Stats) {
             var st = p.bootPerf.Stats;
-            bootPerfHTML += '<div class="bootperf-meta" style="margin-top:10px">' +
-                'Moyennes : Main <strong>' + (st.AvgMainPathMs/1000).toFixed(1) + 's</strong> &middot; ' +
-                'Post <strong>' + (st.AvgPostBootMs/1000).toFixed(1) + 's</strong> &middot; ' +
-                'Total <strong>' + (st.AvgBootTimeMs/1000).toFixed(1) + 's</strong>' +
-                ' &middot; Slow boots : <strong>' + st.SlowBootsCount + '/' + st.BootsAnalyzed + '</strong>' +
-                '</div>';
+            bpRows += ddR('Moyennes', mut('Syst&egrave;me ' + secs(st.AvgMainPathMs) + ' &middot; Finition ' + secs(st.AvgPostBootMs) + ' &middot; Total ' + secs(st.AvgBootTimeMs)));
         }
     }
 
+    var bootContent = ddG('D&eacute;marrages r&eacute;cents') + bootRows + ddG('Boot performance') + bpRows;
+
     // ========================================================
-    // DRILL-DOWN SMART (v5.4)
-    // Une carte par disque physique avec les compteurs SMART
+    // SECURITE : services surveilles (EDR, AV, etc.), un par ligne.
     // ========================================================
-    var smartHTML = '';
-    if (!p.diskHealth || p.diskHealth.length === 0) {
-        smartHTML = '<div class="detail-empty">Aucune donn&eacute;e SMART (Collector &lt; v5.4)</div>';
+    var edrRows = '';
+    if (!p.monitoredServices || p.monitoredServices.length === 0) {
+        edrRows = ddR('Services', mut('aucun service surveill&eacute;'));
     } else {
-        p.diskHealth.forEach(function(d) {
-            var healthBadgeCls = 'healthy';
-            var healthLabel = d.HealthStatus || 'Unknown';
-            if (healthLabel === 'Warning')          healthBadgeCls = 'warning';
-            else if (healthLabel !== 'Healthy')     healthBadgeCls = 'unhealthy';
-
-            function kv(label, val, cls) {
-                var cc = cls || '';
-                if (val === null || val === undefined || val === '')
-                    return '<div class="smart-kv"><span class="k">' + label + '</span><span class="v na">N/A</span></div>';
-                return '<div class="smart-kv"><span class="k">' + label + '</span><span class="v ' + cc + '">' + val + '</span></div>';
-            }
-
-            // Couleur temperature
-            var tempCls = '';
-            if (d.TemperatureC != null) {
-                if (d.TemperatureC >= 70)      tempCls = 'ko';
-                else if (d.TemperatureC >= 55) tempCls = 'warn';
-                else                           tempCls = 'ok';
-            }
-            // Couleur wear
-            var wearCls = '';
-            if (d.WearPct != null) {
-                if (d.WearPct >= 70)      wearCls = 'ko';
-                else if (d.WearPct >= 40) wearCls = 'warn';
-                else                      wearCls = 'ok';
-            }
-
-            smartHTML += '<div class="smart-disk">' +
-                '<div class="smart-disk-head">' +
-                  '<div>' +
-                    '<div class="smart-disk-name">' + (d.FriendlyName || '?') + '</div>' +
-                    '<div class="smart-disk-sub">' + (d.MediaType || '?') + ' &middot; ' + (d.BusType || '?') + ' &middot; ' + (d.SizeGB || 0) + ' GB</div>' +
-                  '</div>' +
-                  '<span class="smart-health-badge ' + healthBadgeCls + '">' + healthLabel + '</span>' +
-                '</div>' +
-                '<div class="smart-grid">' +
-                  kv('Temp&eacute;rature', d.TemperatureC != null ? d.TemperatureC + '&deg;C' : null, tempCls) +
-                  kv('Temp max historique', d.TemperatureMaxC != null ? d.TemperatureMaxC + '&deg;C' : null) +
-                  kv('Wear', d.WearPct != null ? d.WearPct + '%' : null, wearCls) +
-                  kv('Power-On Hours', d.PowerOnHours != null ? d.PowerOnHours + 'h' : null) +
-                  kv('Read errors', d.ReadErrorsTotal) +
-                  kv('Read uncorr.', d.ReadErrorsUncorrected, (d.ReadErrorsUncorrected > 0 ? 'ko' : '')) +
-                  kv('Write errors', d.WriteErrorsTotal) +
-                  kv('Write uncorr.', d.WriteErrorsUncorrected, (d.WriteErrorsUncorrected > 0 ? 'ko' : '')) +
-                '</div>';
-            if (d.AlertReasons && d.AlertReasons.length > 0) {
-                smartHTML += '<div class="smart-alerts">';
-                d.AlertReasons.forEach(function(r) {
-                    smartHTML += '<span class="smart-alert-chip">' + r + '</span>';
-                });
-                smartHTML += '</div>';
-            }
-            smartHTML += '</div>';
+        p.monitoredServices.forEach(function(svc) {
+            var st, cls;
+            if (!svc.Installed)   { st = 'NON INSTALL&Eacute;'; cls = 'ko'; }
+            else if (svc.IsAlert) { st = svc.Status;           cls = 'warn'; }
+            else                  { st = 'Running';            cls = 'ok'; }
+            var v = tag(st, cls);
+            var sSec = [];
+            if (svc.ServiceName) sSec.push(svc.ServiceName);
+            if (svc.Role) sSec.push('[' + svc.Role + ']');
+            if (svc.Installed && svc.StartType) sSec.push('d&eacute;marrage ' + svc.StartType);
+            v += joinMut(sSec);
+            edrRows += ddR(svc.DisplayName, v);
         });
     }
-
-    // ========================================================
-    // MONITORS (v5.7) : inventaire ecrans externes du PC
-    // Chaque ecran = une petite carte avec nom, fab, serie, age.
-    // Les internes (laptop LCD) sont exclus par le Collector.
-    // ========================================================
-    var monitorsHTML = '';
-    var monitorsList = p.monitors || [];
-    if (monitorsList.length === 0) {
-        monitorsHTML = '<div class="detail-empty">Aucun &eacute;cran secondaire branch&eacute; (ou Collector &lt; v5.5)</div>';
+    // v2.5.1 : client VPN (present + version). Inventaire, pas d'alerte.
+    var vpnRow;
+    if (!p.vpn) {
+        vpnRow = ddR('Client VPN', mut('non collect&eacute; (Collector &lt; 2.5.1)'));
+    } else if (p.vpn.Present) {
+        var vpnSec = [];
+        if (p.vpn.Version) vpnSec.push('v' + p.vpn.Version);
+        vpnRow = ddR(p.vpn.Product || 'VPN', tag('Pr&eacute;sent', 'ok') + joinMut(vpnSec));
     } else {
-        monitorsList.forEach(function(mon) {
-            var badges = '';
-            if (mon.Active)  badges += '<span class="mon-badge active">Actif</span>';
-            else             badges += '<span class="mon-badge inactive">D&eacute;branch&eacute;</span>';
-
-            // v5.8 : ecran dont l'EDID n'est pas transmis (dock / adaptateur / KVM).
-            // On l'affiche honnetement plutot que "@@@ / 0000" : c'est un ecran
-            // reel, juste non identifiable. Hors calcul d'age (pas d'annee fiable).
-            if (!monIsIdentified(mon)) {
-                monitorsHTML += '<div class="monitor-card unidentified">' +
-                    '<div class="monitor-head">' +
-                      '<div class="monitor-name">&Eacute;cran non identifi&eacute;' +
-                        '<div class="monitor-manuf">EDID non transmis (dock / adaptateur / KVM)</div>' +
-                      '</div>' +
-                      '<div class="monitor-badges">' + badges + '</div>' +
-                    '</div>' +
-                    '</div>';
-                return;
-            }
-
-            var isOld = (mon.AgeYears !== null && mon.AgeYears !== undefined && mon.AgeYears >= screenAgeThreshold);
-            var cardCls = 'monitor-card' + (isOld ? ' old' : '');
-            var displayName = mon.Model || mon.ProductCode || '(mod&egrave;le inconnu)';
-            var displayManuf = mon.Manufacturer || mon.ManufacturerCode || '?';
-
-            if (isOld) badges += '<span class="mon-badge old">' + mon.AgeYears + ' ans</span>';
-
-            var metaParts = [];
-            if (mon.SerialNumber) metaParts.push('S/N : <strong>' + mon.SerialNumber + '</strong>');
-            if (mon.YearOfManufacture) {
-                var dateStr = mon.YearOfManufacture;
-                if (mon.WeekOfManufacture) dateStr += ' S' + mon.WeekOfManufacture;
-                metaParts.push('Fabriqu&eacute; : <strong>' + dateStr + '</strong>');
-            }
-            if (mon.ProductCode && mon.ProductCode !== mon.Model) {
-                metaParts.push('Code : <strong>' + mon.ProductCode + '</strong>');
-            }
-
-            monitorsHTML += '<div class="' + cardCls + '">' +
-                '<div class="monitor-head">' +
-                  '<div class="monitor-name">' + displayName +
-                    '<div class="monitor-manuf">' + displayManuf + '</div>' +
-                  '</div>' +
-                  '<div class="monitor-badges">' + badges + '</div>' +
-                '</div>' +
-                (metaParts.length > 0 ? '<div class="monitor-meta">' + metaParts.join(' &middot; ') + '</div>' : '') +
-                '</div>';
-        });
+        vpnRow = ddR('Client VPN', mut('non d&eacute;tect&eacute;'));
     }
+    var secContent = ddG('Services surveill&eacute;s') + edrRows + ddG('Client VPN') + vpnRow;
 
     // ========================================================
-    // v1.8 : RAM INVENTORY
-    // ========================================================
-    var ramHTML = '';
-    if (!p.memory) {
-        ramHTML = '<div class="detail-empty">Donn&eacute;es non disponibles (Collector &lt; v1.8)</div>';
-    } else {
-        var mem = p.memory;
-        // Ligne de synthese (totale + slots + max + upgrade possible)
-        var upgradeTag = mem.CanUpgrade
-            ? '<span class="ram-badge upgrade-ok">Upgrade possible</span>'
-            : '<span class="ram-badge upgrade-no">Max atteint</span>';
-        ramHTML = '<div class="ram-summary">' +
-                    '<div class="ram-summary-total">' +
-                      '<span class="ram-big">' + mem.TotalInstalledGB + '</span>' +
-                      '<span class="ram-unit">Go</span>' +
-                      '<span class="ram-summary-slots">installes sur ' + mem.MaxCapacityGB + ' Go max</span>' +
-                    '</div>' +
-                    '<div class="ram-summary-meta">' +
-                      '<span>' + mem.OccupiedSlots + '/' + mem.TotalSlots + ' slots</span>' +
-                      (mem.FreeSlots > 0 ? '<span class="ram-meta-ok">' + mem.FreeSlots + ' libre(s)</span>' : '') +
-                      upgradeTag +
-                    '</div>' +
-                  '</div>';
-        // Detail des barrettes
-        if (mem.Modules && mem.Modules.length > 0) {
-            ramHTML += '<div class="ram-modules">';
-            mem.Modules.forEach(function(mod) {
-                var metaParts = [];
-                if (mod.Type)         metaParts.push(mod.Type);
-                if (mod.SpeedMHz > 0) metaParts.push(mod.SpeedMHz + ' MHz');
-                // v1.9 : decodage JEDEC cote client (couvre les anciens JSON pas
-                // encore reguleres par le Collector 2.3.0).
-                var ramManuf = prettyRamManuf(mod.Manufacturer);
-                if (ramManuf) metaParts.push(ramManuf);
-                ramHTML += '<div class="ram-module-row">' +
-                             '<span class="ram-slot-name">' + (mod.Slot || '?') + '</span>' +
-                             '<span class="ram-capacity">' + mod.CapacityGB + ' Go</span>' +
-                             '<span class="ram-module-meta">' + metaParts.join(' &middot; ') + '</span>' +
-                           '</div>';
-            });
-            ramHTML += '</div>';
-        }
-    }
-
-    // ========================================================
-    // v1.8 : GPU INVENTORY
-    // ========================================================
-    var gpuHTML = '';
-    var gpuList = p.gpuInventory || [];
-    if (gpuList.length === 0) {
-        gpuHTML = '<div class="detail-empty">Donn&eacute;es non disponibles (Collector &lt; v1.8)</div>';
-    } else {
-        gpuList.forEach(function(g) {
-            // Marquer le driver comme "vieux" si > 2 ans (simple heuristique)
-            var oldDriver = false;
-            if (g.DriverDate) {
-                try {
-                    var dd = parseDate(g.DriverDate + ' 00:00:00');
-                    var yearsDiff = (generatedAt - dd) / (365.25 * 24 * 3600 * 1000);
-                    if (yearsDiff > 2) oldDriver = true;
-                } catch (e) {}
-            }
-            var driverCls = oldDriver ? 'gpu-driver-old' : 'gpu-driver-ok';
-            var metaParts = [];
-            if (g.DriverVersion) metaParts.push('v' + g.DriverVersion);
-            if (g.DriverDate)    metaParts.push(g.DriverDate);
-            gpuHTML += '<div class="gpu-row">' +
-                         '<div class="gpu-name">' + (g.Name || '(GPU inconnu)') + '</div>' +
-                         '<div class="gpu-meta ' + driverCls + '">' + metaParts.join(' &middot; ') +
-                           (oldDriver ? ' <span class="gpu-old-tag">driver &gt;2 ans</span>' : '') +
-                         '</div>' +
-                       '</div>';
-        });
-    }
-
-    // ========================================================
-    // v1.8 : CPU THROTTLING (Kernel-Processor-Power 35/55)
-    // ========================================================
-    var throttleHTML = '';
-    var throttleList = (p.hardwareHealth && p.hardwareHealth.CPUThrottling) ? p.hardwareHealth.CPUThrottling : [];
-    var throttleDays = throttleList.length;
-    if (throttleDays === 0) {
-        throttleHTML = '<div class="detail-empty">Aucun throttling CPU d&eacute;tect&eacute;</div>';
-    } else {
-        // Badge d'alerte si >= 3 jours distincts (seuil d'alerte defini en design)
-        var sevCls = throttleDays >= 3 ? 'throttle-sev-alert' : 'throttle-sev-info';
-        var sevLabel = throttleDays >= 3
-            ? '&#9888;&#65039; ' + throttleDays + ' jours de bridage CPU par firmware'
-            : throttleDays + ' jour(s) avec bridage firmware';
-        throttleHTML = '<div class="throttle-summary ' + sevCls + '">' + sevLabel + '</div>';
-        // Liste des journees (Collector agrege deja par jour)
-        throttleList.slice(0, 5).forEach(function(t) {
-            var typeShort = t.EventId === 55 ? 'Thermal reduction' : 'Firmware limit';
-            var durTxt = fmtDuration(t.TotalSeconds);
-            throttleHTML += '<div class="throttle-row">' +
-                              '<span class="throttle-day">' + t.Day + '</span>' +
-                              '<span class="throttle-type">' + typeShort + '</span>' +
-                              (durTxt ? '<span class="throttle-dur">cumul ' + durTxt + '</span>' : '') +
-                              '<span class="throttle-count">&#215;' + t.Count + ' events</span>' +
-                            '</div>';
-        });
-        if (throttleList.length > 5) {
-            throttleHTML += '<div class="throttle-more">+ ' + (throttleList.length - 5) + ' journees plus anciennes</div>';
-        }
-    }
-
-    // ========================================================
-    // v5.5 : VUE D'ENSEMBLE (onglet par defaut)
-    // Liste les alertes actives en clair sans diluer l'info.
-    // Si le PC est tout vert, message encourageant.
+    // VUE D'ENSEMBLE : verdict + alertes actives + signaux croises (mono-ligne).
     // ========================================================
     function ovAlert(lvl, icon, title, meta) {
-        return '<div class="overview-alert ' + lvl + '">' +
-               '<span class="ov-icon">' + icon + '</span>' +
-               '<span class="ov-text">' + title + '</span>' +
-               '<span class="ov-meta">' + (meta || '') + '</span>' +
-               '</div>';
+        var lbl = (lvl === 'critical') ? 'Critique' : ((lvl === 'warning') ? 'Alerte' : 'Info');
+        var vcls = (lvl === 'critical') ? 'ko' : ((lvl === 'warning') ? 'warn' : '');
+        var rank = (lvl === 'critical') ? 0 : ((lvl === 'warning') ? 1 : 2);
+        var v = col(title, vcls) + (meta ? ' ' + mut('&middot; ' + meta) : '');
+        return { lbl: lbl, v: v, rank: rank };
     }
     var overview = [];
     if (p.pc.IsOffline) {
@@ -6740,36 +6870,42 @@ function renderDetailRow(p, idx, colspan) {
         overview.push(ovAlert('info', '&#9432;', p.wheaCorrectedTotal + ' erreur(s) mat&eacute;rielle(s) corrig&eacute;es (t&eacute;l&eacute;m&eacute;trie)', p.wheaCorrected.length + ' signature(s)'));
     }
 
-    var overviewHTML;
-    // v1.6 : bandeau verdict global calcule en tete, avant la liste d'alertes
+    // Verdict global (une ligne)
     var verdict = computeVerdict(p);
-    var verdictHTML = '<div class="verdict-banner ' + verdict.cls + '">' +
-                        '<span class="v-icon">' + verdict.icon + '</span>' +
-                        '<span class="v-label">' + verdict.label + '</span>' +
-                        (verdict.reasons.length > 0
-                          ? '<span class="v-reasons">&middot; ' + verdict.reasons.join(' &middot; ') + '</span>'
-                          : '') +
-                      '</div>';
-    if (overview.length === 0) {
-        overviewHTML = verdictHTML + '<div class="overview-empty"><strong>&#10003; Tout va bien</strong>Aucune alerte active sur cette p&eacute;riode</div>';
+    var verdictCls = (verdict.cls === 'critical') ? 'ko' : ((verdict.cls === 'incident' || verdict.cls === 'watch') ? 'warn' : 'ok');
+    var verdictV = col(verdict.label, verdictCls) +
+        (verdict.reasons.length > 0 ? ' ' + mut('&middot; ' + verdict.reasons.join(' &middot; ')) : '');
+
+    var ovAlertsHTML;
+    if (overview.length) {
+        overview.sort(function(a, b) { return a.rank - b.rank; });
+        var prevOv = null;
+        ovAlertsHTML = overview.map(function(o) {
+            var dl = (o.lbl === prevOv) ? '' : o.lbl;
+            prevOv = o.lbl;
+            return ddR(dl, o.v);
+        }).join('');
     } else {
-        overviewHTML = verdictHTML + '<div class="overview-list">' + overview.join('') + '</div>';
+        ovAlertsHTML = ddR('&Eacute;tat', col('Tout va bien', 'ok') + ' ' + mut('aucune alerte active sur cette p&eacute;riode'));
     }
 
+    // Signaux croises (correlations temporelles) : une ligne par correlation
+    var correlations = detectCorrelations(p);
+    var corrRows = '';
+    correlations.forEach(function(f) {
+        corrRows += ddR('Signal', col(f.title, f.severity === 'crit' ? 'ko' : 'warn') + ' ' + mut(f.detail));
+    });
+
+    var ovContent =
+        ddG('Synth&egrave;se') + ddR('Verdict', verdictV) +
+        ddG('Alertes actives') + ovAlertsHTML +
+        (corrRows ? ddG('Signaux crois&eacute;s') + corrRows : '');
+
     // ========================================================
-    // v5.5 : STRUCTURE EN ONGLETS
-    // On garde les 10 sections dans 5 onglets thematiques + vue d'ensemble.
-    // Les compteurs sur les onglets aident l'utilisateur a savoir
-    // instantanement ou il y a un probleme.
+    // STRUCTURE EN ONGLETS (inchangee) : compteurs + boutons + panneaux.
     // ========================================================
-    // Compteurs par onglet (pour les badges)
     var cntStability = p.crashCount + p.bsodCount + p.hwCount + (p.wheaCorrected ? p.wheaCorrected.length : 0);
     var cntBoot      = p.bootLongCount + (p.bootPerfAlert ? 1 : 0);
-    // Le badge MATERIEL ne compte QUE les defauts materiels reels (disque sature,
-    // SMART, batterie). Les ecrans ages sont un signal de RENOUVELLEMENT, pas une
-    // panne : deja exclus du score (computeScore), on les exclut aussi du badge.
-    // Ils restent visibles via l'overview, le KPI Usure et le filtre 'oldMonitor'
-    // (base sur oldMonitorAlert, independant de ce compteur).
     var cntMaterial  = p.diskAlertCount + (p.diskSmartAlert ? p.diskSmartAlerts.length : 0) + (p.batteryAlert ? 1 : 0);
     var cntSecurity  = (p.edrAlert ? 1 : 0);
     var cntOverview  = overview.length;
@@ -6780,7 +6916,6 @@ function renderDetailRow(p, idx, colspan) {
         if (count > 0) {
             badge = '<span class="tab-badge">' + count + '</span>';
         } else if (count === 0) {
-            // badge neutre "0" seulement pour onglets standards (pas vue d'ensemble)
             if (key !== 'overview') badge = '<span class="tab-badge quiet">0</span>';
         }
         return '<button class="detail-tab' + active + '" data-tab="' + key + '" onclick="selectDetailTab(' + idx + ', \'' + key + '\')">' +
@@ -6796,68 +6931,17 @@ function renderDetailRow(p, idx, colspan) {
 
     function panel(key, inner, active) {
         var cls = active ? 'detail-tab-panel active' : 'detail-tab-panel';
-        return '<div class="' + cls + '" data-panel="' + key + '">' + inner + '</div>';
+        return '<div class="' + cls + '" data-panel="' + key + '"><div class="dd-list">' + inner + '</div></div>';
     }
-
-    var panelOverview = '<div class="detail-box">' +
-        '<div class="detail-section" style="flex:1 1 100%;border-left:none;padding-left:0">' +
-        overviewHTML + '</div></div>';
-
-    // v1.6 : section Signaux croises (correlations temporelles 10 min)
-    var correlations = detectCorrelations(p);
-    var correlationsHTML = '';
-    if (correlations.length > 0) {
-        correlationsHTML = '<div class="correlations-block">' +
-                             '<h5>&#128269; Signaux crois&eacute;s</h5>';
-        correlations.forEach(function(f) {
-            correlationsHTML += '<div class="correlation-item ' + f.severity + '">' +
-                                  '<span class="c-icon">' + f.icon + '</span>' +
-                                  '<div>' +
-                                    '<span class="c-severity">' + f.title + '</span>' +
-                                    '<div class="c-detail">' + f.detail + '</div>' +
-                                  '</div>' +
-                                '</div>';
-        });
-        correlationsHTML += '</div>';
-    }
-
-    var panelStability = '<div class="detail-box">' +
-        (correlationsHTML ? '<div style="flex:1 1 100%">' + correlationsHTML + '</div>' : '') +
-        '<div class="detail-section sec-crash"><h4>Crash / Freeze</h4>' + crashHTML + '</div>' +
-        '<div class="detail-section sec-hw"><h4>Hardware</h4>' + hwHTML + '</div>' +
-        '<div class="detail-section sec-crasher"><h4>Top Crashers</h4>' + crasherHTML + '</div>' +
-        '<div class="detail-section sec-perf"><h4>Performance</h4>' + perfHTML + '</div>' +
-        '</div>';
-
-    var panelBoot = '<div class="detail-box">' +
-        '<div class="detail-section sec-boot"><h4>D&eacute;marrages r&eacute;cents</h4>' + bootLongHTML + '</div>' +
-        '<div class="detail-section sec-bootperf"><h4>Boot Performance</h4>' + bootPerfHTML + '</div>' +
-        '</div>';
-
-    var panelMaterial = '<div class="detail-box">' +
-        '<div class="detail-section sec-cpu"><h4>CPU</h4>' + cpuHTML + '</div>' +
-        '<div class="detail-section sec-os"><h4>OS</h4>' + osHTML + '</div>' +
-        '<div class="detail-section sec-ram"><h4>M&eacute;moire RAM</h4>' + ramHTML + '</div>' +
-        '<div class="detail-section sec-gpu"><h4>GPU &amp; Drivers</h4>' + gpuHTML + '</div>' +
-        '<div class="detail-section sec-throttle"><h4>CPU Throttling</h4>' + throttleHTML + '</div>' +
-        '<div class="detail-section sec-disk"><h4>Disque (remplissage)</h4>' + diskHTML + '</div>' +
-        '<div class="detail-section sec-smart"><h4>SMART</h4>' + smartHTML + '</div>' +
-        '<div class="detail-section sec-battery"><h4>Batterie</h4>' + batteryHTML + '</div>' +
-        '<div class="detail-section sec-monitors"><h4>&Eacute;crans secondaires branch&eacute;s</h4>' + monitorsHTML + '</div>' +
-        '</div>';
-
-    var panelSecurity = '<div class="detail-box">' +
-        '<div class="detail-section sec-edr" style="flex:1 1 100%;max-width:720px"><h4>Services surveill&eacute;s</h4>' + edrHTML + '</div>' +
-        '</div>';
 
     return '<tr class="row-detail" id="detail-' + idx + '">' +
         '<td colspan="' + colspan + '" style="padding:0">' +
         '<div class="detail-tabs">' + tabsHTML + '</div>' +
-        panel('overview',  panelOverview,  true) +
-        panel('stability', panelStability, false) +
-        panel('boot',      panelBoot,      false) +
-        panel('material',  panelMaterial,  false) +
-        panel('security',  panelSecurity,  false) +
+        panel('overview',  ovContent,   true) +
+        panel('stability', stabContent, false) +
+        panel('boot',      bootContent, false) +
+        panel('material',  matContent,  false) +
+        panel('security',  secContent,  false) +
         '</td></tr>';
 }
 
@@ -6876,9 +6960,11 @@ function exportCSV() {
     var allEnriched = pcData.map(function(pc) { return enrichPC(pc, cutoff); });
     var visible = allEnriched.filter(function(p) {
         if (state.siteFilter && p.pc.Site !== state.siteFilter) return false;
-        if (state.cpuFilter  && p.pc.CPUAgeCategory !== state.cpuFilter) return false;
+        if (state.cpuFilter && !cpuFilterMatch(p)) return false;
         if (state.osFilter   && p.pc.OSProduct !== state.osFilter) return false;
         if (state.modelFilter && (p.pc.Model || '') !== state.modelFilter) return false;
+        if (state.vpnFilter && (!p.vpn || p.vpn.Version !== state.vpnFilter)) return false;
+        if (state.chassisFilter && !chassisMatch(p.pc, state.chassisFilter)) return false;
         if (searchTerm) {
             if (p.pc.PC.toLowerCase().indexOf(searchTerm) === -1 &&
                 (p.pc.CurrentUser || '').toLowerCase().indexOf(searchTerm) === -1 &&
@@ -6887,6 +6973,8 @@ function exportCSV() {
                 (p.pc.Model || '').toLowerCase().indexOf(searchTerm) === -1 &&
                 (p.pc.Manufacturer || '').toLowerCase().indexOf(searchTerm) === -1) return false;
         }
+        // cockpit : filtre "Mon equipe" applique aussi a l'export CSV
+        if (state.techFilter && ckTechByPc[p.pc.PC] !== state.techFilter) return false;
         if (!matchKpiFilter(p, state.kpiFilter)) return false;
         if (state.maskHealthy && state.kpiFilter !== 'anomaly' && p.score === 0) return false;
         // v2.1.12 : filtre par appli (clic sur un crasher) - garde les PC qui l'ont en crash.
@@ -6896,7 +6984,7 @@ function exportCSV() {
     sortPCs(visible);
 
     var headers = ['PC', 'Site', 'IP', 'NumeroSerie', 'Fabricant', 'Modele', 'Utilisateur', 'CollectorRunAs', 'Statut', 'Connexion', 'CPU', 'CategorieCPU',
-                   'AnneeCPU', 'OS', 'OSBuild', 'OSVersion', 'OSEdition',
+                   'AnneeCPU', 'CandidatRenouvellement', 'OS', 'OSBuild', 'OSVersion', 'OSEdition',
                    'UptimeJours', 'DerniereActivite', 'Score',
                    'Crash', 'BSOD',
                    'WHEA_Fatal', 'WHEA_Corrected_Occurrences', 'WHEA_Corrected_Signatures',
@@ -6910,7 +6998,9 @@ function exportCSV() {
                    'BootTimeMs', 'PostBootMs', 'BootPerfAlerte',
                    'DiskWorstWearPct', 'DiskSmartAlerte', 'DiskSmartRaisons',
                    // v5.7
-                   'MonitorsCount', 'MonitorsOldCount', 'MonitorsList'];
+                   'MonitorsCount', 'MonitorsOldCount', 'MonitorsList',
+                   // v2.5.1 : client VPN (present + version)
+                   'VpnPresent', 'VpnProduct', 'VpnVersion'];
     var rows = [headers.join(';')];
 
     visible.forEach(function(p) {
@@ -6954,6 +7044,11 @@ function exportCSV() {
             }).join(' | ');
         }
 
+        // v2.5.1 : client VPN (present + version). '' si Collector < 2.5.1.
+        var vpnPresent = p.vpn ? (p.vpn.Present ? 'OUI' : 'NON') : '';
+        var vpnProduct = (p.vpn && p.vpn.Present) ? p.vpn.Product : '';
+        var vpnVersion = (p.vpn && p.vpn.Present) ? p.vpn.Version : '';
+
         var csvUser = (pc.CurrentUser && pc.CurrentUser !== '(aucune session)')
             ? pc.CurrentUser
             : (pc.LastLoggedUser ? pc.LastLoggedUser + ' (dernier)' : (pc.CurrentUser || ''));
@@ -6962,6 +7057,7 @@ function exportCSV() {
             pc.IsOffline ? 'OFFLINE' : 'OK',
             pc.ConnectionType || '',
             pc.CPUName || '', pc.CPUAgeCategory || '', pc.CPUYear || '',
+            (RENEWAL_MODE ? (isRenewalCandidate(pc) ? 'OUI' : 'NON') : ''),
             pc.OSProduct || '', (pc.OSBuild != null ? pc.OSBuild : ''), pc.OSDisplayVersion || '', pc.OSEdition || '',
             pc.UptimeDays != null ? pc.UptimeDays : '',
             pc.CollectedAt, p.score,
@@ -6977,7 +7073,9 @@ function exportCSV() {
             btMs, pbMs, bpAlert,
             worstWear, smartAlert, smartRaisons,
             // v5.7
-            monCount, monOldCount, monList
+            monCount, monOldCount, monList,
+            // v2.5.1
+            vpnPresent, vpnProduct, vpnVersion
         ];
         rows.push(row.map(function(v) {
             var s = String(v).replace(/"/g, '""');
@@ -7002,6 +7100,7 @@ function exportCSV() {
 initSiteDropdown();
 initOsDropdown();
 initModelDropdown();
+initVpnDropdown();
 var initBtn = document.querySelectorAll('.range-btn')[0];
 state.daysBtn = initBtn;
 initBtn.classList.add('active');
@@ -7057,7 +7156,14 @@ try {
         '<div style="color:var(--red);padding:24px;font-size:14px;background:var(--bg-danger);border-radius:10px">' +
         '<strong>Erreur JS :</strong> ' + e.message + '<br>' + e.stack + '</div>';
 }
+
+window.addEventListener('scroll', function() {
+    var b = document.getElementById('backToTop');
+    if (b) b.style.display = (window.scrollY > 400) ? 'flex' : 'none';
+});
 </script>
+
+<button id="backToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Remonter en haut" aria-label="Remonter en haut">&#8593;</button>
 
 </body>
 </html>

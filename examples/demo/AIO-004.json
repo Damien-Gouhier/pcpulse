@@ -12,6 +12,7 @@
     "UptimeDays": 2.0,
     "CurrentUser": "sophie.moreau",
     "LastLoggedUser": "sophie.moreau",
+    "CollectorRunAs": "NT AUTHORITY\\SYSTEM",
     "IP": "10.20.1.150",
     "CPUName": "Intel(R) Core(TM) i7-11700",
     "CPUVendor": "Intel",
@@ -20,6 +21,9 @@
     "CPUAge": 5,
     "CPUAgeCategory": "Vieillissant",
     "ConnectionType": "Ethernet",
+    "SerialNumber": "MJ0AB7QD",
+    "Manufacturer": "LENOVO",
+    "Model": "ThinkCentre M90a Gen 2",
     "ChassisInfo": {
       "ChassisType": 13,
       "ChassisLabel": "All-In-One",
@@ -29,6 +33,15 @@
     },
     "LastRealColdBoot": "2026-07-01 09:03:00",
     "FastStartupEnabled": true
+  },
+  "Meta": {
+    "TruncatedArrays": {
+      "TopCrashers": false,
+      "BSODs": false,
+      "BootDurations": false,
+      "Events": false,
+      "ResourceWarnings": false
+    }
   },
   "Events": [],
   "BootDurations": [
@@ -62,14 +75,18 @@
   "TopRAM": [
     {
       "Name": "OUTLOOK",
-      "WorkingSetMB": 520
+      "WorkingSetMB": 520,
+      "CPUSeconds": 1245.3
     }
   ],
   "DiskInfo": [
     {
       "Drive": "C:",
-      "FreeGB": 340,
+      "Label": "Windows",
       "TotalGB": 512,
+      "UsedGB": 172,
+      "FreeGB": 340,
+      "PctUsed": 34,
       "PctFree": 66,
       "IsAlert": false
     }
@@ -212,6 +229,8 @@
     "DiskAlerts": 0,
     "TopCrasherApp": "",
     "TopCrasherCount": 0,
+    "TopAppFailureApp": "",
+    "TopAppFailureCount": 0,
     "TotalWHEAFatal": 0,
     "TotalWHEACorrected": 0,
     "WHEACorrectedUnique": 0,

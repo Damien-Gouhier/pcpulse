@@ -41,6 +41,33 @@ Pour fermer ce scénario, le partage doit être configuré pour que :
 
 C'est exactement ce que fait `Setup-Server.ps1` v2.0.
 
+### Le second scénario : forge cross-machine (fermé en 2.4.9)
+
+Verrouiller `\release\` ferme la RCE, mais laissait un vecteur plus discret sur la
+**racine**. Tant que « Ordinateurs du domaine » y avait `Modify` **hérité aux
+fichiers**, un poste compromis (ou un compte machine volé) pouvait **écraser ou
+supprimer le `<PC>.json` d'un autre poste** :
+
+> **"Un attaquant compromet 1 PC → il réécrit le JSON de 50 autres postes avec des
+> données bidon, ou les vide → le dashboard ment sur l'état du parc, une machine
+> compromise se fait passer pour saine, ou disparaît."**
+
+Pas d'exécution de code cette fois, mais une **altération/falsification des
+données** de supervision — le genre de chose qui fait qu'on ne voit pas venir un
+incident.
+
+Depuis la **2.4.9**, la racine n'accorde plus aux postes que **`CreateFiles`**
+(créer un fichier neuf), **non hérité aux fichiers existants**, plus un ACE
+**`CREATOR OWNER = FullControl`** qui ne s'applique qu'aux fichiers créés par le
+compte lui-même. Un poste peut donc déposer son JSON et réécraser **le sien**,
+**jamais** celui d'un autre (ni écriture, ni suppression, ni rename par-dessus).
+
+La contrepartie — un poste **réimagé** porte un **nouveau SID AD** et n'est donc
+plus propriétaire de son ancien JSON — est absorbée par le **fallback `pending\`**
+du Collecteur (il dépose alors son rapport comme fichier neuf) et par la tâche
+serveur **`Reconcile-FleetJson.ps1`** (promotion du binôme « root périmé + pending
+frais », puis archivage à 30 j des postes réellement partis).
+
 ---
 
 ## 🔒 ACLs recommandées
@@ -49,12 +76,23 @@ C'est exactement ce que fait `Setup-Server.ps1` v2.0.
 
 | Dossier | SYSTEM | Admins du domaine | Domain Computers | gMSA (optionnel) | Rationale |
 |---|---|---|---|---|---|
-| `\` (racine) | FullControl | FullControl | **Modify** | Modify | Les PC déposent leurs JSON ici |
+| `\` (racine) ⭐ | FullControl | FullControl | **CreateFiles** † | CreateFiles † | Les PC **déposent** leur JSON ; chacun ne réécrase que **le sien** (CREATOR OWNER) |
 | `\release\` ⭐ | FullControl | FullControl | **ReadAndExecute** | ReadAndExecute | **Lecture seule pour les PC** (anti-RCE) |
+| `\pending\` | FullControl | FullControl | **CreateFiles** † | CreateFiles † | Dépôt d'un poste réimagé (nouveau SID) ; promu par la tâche serveur |
+| `\archive\` | FullControl | FullControl | **— (aucun)** | — | JSON de postes partis ; géré par `Reconcile-FleetJson` uniquement |
 | `\killed\` | FullControl | FullControl | Modify | Modify | Les PC déposent leur rapport de mort ici |
 | `\logs\` | FullControl | FullControl | Modify | Modify | Les PC peuvent écrire des logs |
 
-⭐ **Le dossier `\release\` est le plus critique.** Tout l'enjeu sécurité tient ici.
+⭐ **Les dossiers `\release\` et la racine `\` sont les plus critiques** : `\release\`
+ferme la RCE (exécution de code), la racine ferme la **forge de données**.
+
+† **`CreateFiles` seul, sans héritage vers les fichiers** (`InheritanceFlags = None`),
+combiné à un ACE **`CREATOR OWNER = FullControl`** propagé aux fichiers enfants.
+Traduction concrète : un poste peut **créer** un fichier à la racine et **réécraser
+celui dont il est propriétaire** (le sien, créé par son compte machine), mais l'ACE
+« Ordinateurs du domaine » **ne descend pas** sur les fichiers existants → il **ne
+peut ni modifier, ni supprimer, ni renommer par-dessus** le JSON d'un autre poste.
+C'est le durcissement introduit en **2.4.9** (voir *forge cross-machine* plus haut).
 
 ### Pourquoi `ReadAndExecute` et pas juste `Read` ?
 
@@ -194,6 +232,10 @@ depuis la 2.4.2 le **numéro de série** des machines. Sa confidentialité repos
 
 ### 🟢 Faible : déni de service
 Un PC compromis pourrait remplir le share en spam de fausses entrées. **Mitigation** :
+- Depuis la **2.4.9**, un poste ne peut créer que de **nouveaux** fichiers à la
+  racine (il ne peut plus **écraser** ceux des autres — cf. forge cross-machine) :
+  le spam de nouveaux fichiers reste possible, mais pas l'altération des données
+  existantes.
 - Quotas sur le share au niveau Windows
 - Voir la roadmap : **détection d'anomalies** (futur)
 
@@ -204,6 +246,7 @@ Un PC compromis pourrait remplir le share en spam de fausses entrées. **Mitigat
 ### ✅ Fait
 
 - **Setup serveur hardenisé** : `Setup-Server.ps1` (ACLs explicites, héritage cassé, owner groupe AD)
+- **Racine durcie contre la forge cross-machine (2.4.9)** : « Ordinateurs du domaine » en `CreateFiles` seul (non hérité aux fichiers) + `CREATOR OWNER` → un poste ne réécrase que **son** JSON, jamais celui d'un autre (ni suppression, ni rename). Résilience du réimage (nouveau SID) via fallback `pending\` (Collecteur) + réconciliation serveur (`Reconcile-FleetJson.ps1`, promotion + archivage 30 j)
 - **Killswitch configurable et opt-in** : fichier + phrase personnalisables via `config.psd1`, désactivé par défaut
 - **Documentation trust model** (ce document)
 - **Chaîne de mise à jour signée** : Collecteur et Updater signés Authenticode
@@ -257,6 +300,6 @@ Engagement :
 
 ---
 
-*Dernière mise à jour : 2026-07-16 — repo v2.3.0 (le durcisseur `Setup-Server.ps1` reste versionné à part, v2.0).* 
+*Dernière mise à jour : 2026-07-27 — repo v2.4.9 (durcissement de l'ACL racine + fallback `pending\` / `Reconcile-FleetJson`. Le durcisseur `Setup-Server.ps1` reste versionné à part).* 
 
 

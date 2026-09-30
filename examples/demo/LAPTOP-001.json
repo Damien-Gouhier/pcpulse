@@ -12,6 +12,7 @@
     "UptimeDays": 0.1,
     "CurrentUser": "martin.dupont",
     "LastLoggedUser": "martin.dupont",
+    "CollectorRunAs": "NT AUTHORITY\\SYSTEM",
     "IP": "10.10.0.42",
     "CPUName": "Intel(R) Core(TM) Ultra 7 155U",
     "CPUVendor": "Intel",
@@ -20,6 +21,9 @@
     "CPUAge": 2,
     "CPUAgeCategory": "Recent",
     "ConnectionType": "Ethernet",
+    "SerialNumber": "8FK2LM3",
+    "Manufacturer": "Dell Inc.",
+    "Model": "Latitude 5450",
     "ChassisInfo": {
       "ChassisType": 10,
       "ChassisLabel": "Laptop",
@@ -30,66 +34,85 @@
     "LastRealColdBoot": "2026-06-27 06:39:00",
     "FastStartupEnabled": true
   },
+  "Meta": {
+    "TruncatedArrays": {
+      "TopCrashers": false,
+      "BSODs": false,
+      "BootDurations": false,
+      "Events": false,
+      "ResourceWarnings": false
+    }
+  },
   "Events": [
     {
       "EventId": 6005,
       "Timestamp": "2026-06-28 06:40:00",
       "Type": "Boot",
-      "Detail": "L'Enregistreur d'événements a démarré"
+      "Detail": "L'Enregistreur d'événements a démarré",
+      "Message": "L'Enregistreur d'événements a démarré."
     },
     {
       "EventId": 6006,
       "Timestamp": "2026-06-28 06:25:00",
       "Type": "Shutdown propre",
-      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+      "Detail": "Le service Enregistreur d'événements s'est arrêté",
+      "Message": "Le service Enregistreur d'événements s'est arrêté."
     },
     {
       "EventId": 6005,
       "Timestamp": "2026-06-29 06:41:00",
       "Type": "Boot",
-      "Detail": "L'Enregistreur d'événements a démarré"
+      "Detail": "L'Enregistreur d'événements a démarré",
+      "Message": "L'Enregistreur d'événements a démarré."
     },
     {
       "EventId": 6006,
       "Timestamp": "2026-06-29 06:26:00",
       "Type": "Shutdown propre",
-      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+      "Detail": "Le service Enregistreur d'événements s'est arrêté",
+      "Message": "Le service Enregistreur d'événements s'est arrêté."
     },
     {
       "EventId": 6005,
       "Timestamp": "2026-06-30 06:42:00",
       "Type": "Boot",
-      "Detail": "L'Enregistreur d'événements a démarré"
+      "Detail": "L'Enregistreur d'événements a démarré",
+      "Message": "L'Enregistreur d'événements a démarré."
     },
     {
       "EventId": 6006,
       "Timestamp": "2026-06-30 06:27:00",
       "Type": "Shutdown propre",
-      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+      "Detail": "Le service Enregistreur d'événements s'est arrêté",
+      "Message": "Le service Enregistreur d'événements s'est arrêté."
     },
     {
       "EventId": 6005,
       "Timestamp": "2026-07-01 06:43:00",
       "Type": "Boot",
-      "Detail": "L'Enregistreur d'événements a démarré"
+      "Detail": "L'Enregistreur d'événements a démarré",
+      "Message": "L'Enregistreur d'événements a démarré."
     },
     {
       "EventId": 6006,
       "Timestamp": "2026-07-01 06:28:00",
       "Type": "Shutdown propre",
-      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+      "Detail": "Le service Enregistreur d'événements s'est arrêté",
+      "Message": "Le service Enregistreur d'événements s'est arrêté."
     },
     {
       "EventId": 6005,
       "Timestamp": "2026-07-03 06:20:42",
       "Type": "Boot",
-      "Detail": "L'Enregistreur d'événements a démarré"
+      "Detail": "L'Enregistreur d'événements a démarré",
+      "Message": "L'Enregistreur d'événements a démarré."
     },
     {
       "EventId": 6006,
       "Timestamp": "2026-07-03 06:05:42",
       "Type": "Shutdown propre",
-      "Detail": "Le service Enregistreur d'événements s'est arrêté"
+      "Detail": "Le service Enregistreur d'événements s'est arrêté",
+      "Message": "Le service Enregistreur d'événements s'est arrêté."
     }
   ],
   "BootDurations": [
@@ -299,22 +322,28 @@
   "TopRAM": [
     {
       "Name": "msedge",
-      "WorkingSetMB": 845
+      "WorkingSetMB": 845,
+      "CPUSeconds": 3140.2
     },
     {
       "Name": "Teams",
-      "WorkingSetMB": 620
+      "WorkingSetMB": 620,
+      "CPUSeconds": 1960.8
     },
     {
       "Name": "OUTLOOK",
-      "WorkingSetMB": 485
+      "WorkingSetMB": 485,
+      "CPUSeconds": 1245.3
     }
   ],
   "DiskInfo": [
     {
       "Drive": "C:",
-      "FreeGB": 420,
+      "Label": "Windows",
       "TotalGB": 512,
+      "UsedGB": 92,
+      "FreeGB": 420,
+      "PctUsed": 18,
       "PctFree": 82,
       "IsAlert": false
     }
@@ -509,6 +538,8 @@
     "DiskAlerts": 0,
     "TopCrasherApp": "",
     "TopCrasherCount": 0,
+    "TopAppFailureApp": "",
+    "TopAppFailureCount": 0,
     "TotalWHEAFatal": 0,
     "TotalWHEACorrected": 0,
     "WHEACorrectedUnique": 0,

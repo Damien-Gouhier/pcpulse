@@ -28,7 +28,9 @@
 
 .PARAMETER InitialVersion
     Version a ecrire dans version.txt si aucun n'est fourni dans SourceDir.
-    Par defaut : "2.3.0".
+    AUCUN defaut (v2.4) : sans version.txt et sans ce parametre, l'install
+    ECHOUE. Un defaut code en dur se perime en silence et ecrire une version
+    fausse sur un poste fausse le raisonnement de l'Updater.
 
 .PARAMETER gMSAName
     Nom du compte gMSA a utiliser pour la tache planifiee, au lieu de SYSTEM
@@ -57,16 +59,23 @@
     .\Install-Client.ps1 -ServerPath "\\SRV-PCPULSE\PCPulse$" -SourceDir "C:\Temp\pcpulse"
 
 .NOTES
-    Version  : 2.3 (auto-nettoyage + ACL runtime durcie, voir SECURITY.md)
+    Version  : 2.4 (echec propre si version.txt absent)
     Auteur   : Damien Gouhier
     Licence  : MIT
 
     Fichiers attendus dans SourceDir :
       - 01_Collector.ps1     (obligatoire)
       - PCPulse-Updater.ps1  (obligatoire)
-      - version.txt          (optionnel, "2.3.0" par defaut)
+      - version.txt          (obligatoire depuis v2.4, sauf -InitialVersion explicite)
 
     CHANGELOG :
+    v2.4 : [FIX] Suppression du defaut -InitialVersion '2.3.0', perime depuis cinq
+           releases et utilise en silence si version.txt manquait du SourceDir.
+           Ecrire une version FAUSSE sur un poste est pire qu'un refus d'installer :
+           l'Updater compare version locale et version de release\ pour decider s'il
+           se met a jour, donc un poste etiquete trop haut ne se mettrait JAMAIS a
+           jour -- et son silence ressemblerait a celui d'un poste sain. Desormais
+           echec propre (exit 1), + garde-fou de format sur le contenu lu.
     v2.3 : Durcissement ACL du dossier runtime C:\ProgramData\PCPulse (SYSTEM +
            Administrateurs uniquement, SID en dur) via Set-PCPulseAcl : un compte
            standard ne peut plus lire les scripts (chemin share, killswitch, layout).
@@ -94,7 +103,13 @@ param(
 
     [string]$SourceDir,
 
-    [string]$InitialVersion = '2.3.0',
+    # v2.4.8 : plus de defaut code en dur. Un defaut se perime en silence (il etait
+    # reste a '2.3.0' pendant cinq releases) et ecrire une version FAUSSE sur un
+    # poste est pire qu'un refus d'installer : l'Updater compare des versions pour
+    # decider s'il doit se mettre a jour, un numero fantaisiste le fait raisonner
+    # sur une realite qui n'existe pas. Sans version.txt dans SourceDir et sans
+    # -InitialVersion explicite, on echoue proprement (voir ETAPE 1).
+    [string]$InitialVersion = '',
 
     # v2.0 : support gMSA optionnel pour la tache planifiee
     # Si vide, on garde l'ancien comportement (SYSTEM via ServiceAccount)
@@ -210,8 +225,25 @@ $versionToWrite = $InitialVersion
 if (Test-Path $VersionSrc) {
     $versionToWrite = (Get-Content $VersionSrc -Raw).Trim()
     Write-OK "Version (depuis version.txt source) : $versionToWrite"
+} elseif ($versionToWrite) {
+    Write-Info "version.txt absent dans SourceDir, utilisation de -InitialVersion : $versionToWrite"
 } else {
-    Write-Info "version.txt absent dans SourceDir, utilisation de : $versionToWrite"
+    # v2.4.8 : ECHEC PROPRE au lieu d'un defaut perime. Ecrire un numero de version
+    # arbitraire sur un poste corrompt le raisonnement de l'Updater (il compare la
+    # version locale a celle de release\ pour decider s'il se met a jour) : un poste
+    # etiquete trop haut ne se mettrait JAMAIS a jour, et le silence de ce poste
+    # ressemblerait a un poste sain. Mieux vaut ne pas installer.
+    Write-Err "version.txt introuvable : $VersionSrc"
+    Write-Err "Placer version.txt dans le meme dossier que ce script (cas normal),"
+    Write-Err "ou forcer explicitement avec -InitialVersion '<x.y.z>' si tu sais ce que tu fais."
+    exit 1
+}
+# Garde-fou de format : un version.txt pollue (BOM, ligne parasite, texte) donnerait
+# une comparaison de versions absurde cote Updater. Meme logique que ci-dessus.
+if ($versionToWrite -notmatch '^\d+\.\d+(\.\d+){0,2}$') {
+    Write-Err "Version invalide : '$versionToWrite' (attendu : x.y / x.y.z)"
+    Write-Err "Source : $(if (Test-Path $VersionSrc) { $VersionSrc } else { 'parametre -InitialVersion' })"
+    exit 1
 }
 
 # ============================================================
