@@ -20,6 +20,10 @@ PCPulse-Dashboard-*.html
 log/
 logs/
 
+# --- Handoffs de dev internes (contiennent des noms de serveurs/chemins reels) ---
+# (notes de travail, pas de la doc utilisateur -> ne pas publier)
+PCPulse-*-Handoff-*.md
+
 # --- Cruft OS ---
 Thumbs.db
 .DS_Store
